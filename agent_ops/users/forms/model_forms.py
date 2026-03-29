@@ -3,7 +3,8 @@ from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 
 from core.form_widgets import apply_standard_widget_classes
-from users.models import Group, ObjectPermission, User
+from tenancy.models import Environment, Organization, Workspace
+from users.models import Group, Membership, ObjectPermission, User
 
 
 class BaseUserForm(forms.ModelForm):
@@ -153,6 +154,61 @@ class GroupForm(forms.ModelForm):
         self.fields["permissions"].queryset = Permission.objects.order_by(
             "content_type__app_label", "content_type__model", "codename"
         )
+        self.fields["object_permissions"].queryset = ObjectPermission.objects.order_by("name")
+        apply_standard_widget_classes(self)
+
+
+class MembershipForm(forms.ModelForm):
+    fieldsets = (
+        {
+            "title": "Membership",
+            "fields": ("user", "description", "is_active", "is_default"),
+        },
+        {
+            "title": "Scope",
+            "fields": ("organization", "workspace", "environment"),
+        },
+        {
+            "title": "Scoped access",
+            "fields": ("groups", "object_permissions"),
+        },
+    )
+    groups = forms.ModelMultipleChoiceField(
+        queryset=Group.objects.none(),
+        required=False,
+        widget=forms.SelectMultiple(attrs={"size": 8}),
+    )
+    object_permissions = forms.ModelMultipleChoiceField(
+        queryset=ObjectPermission.objects.none(),
+        required=False,
+        widget=forms.SelectMultiple(attrs={"size": 8}),
+    )
+
+    class Meta:
+        model = Membership
+        fields = (
+            "user",
+            "description",
+            "is_active",
+            "is_default",
+            "organization",
+            "workspace",
+            "environment",
+            "groups",
+            "object_permissions",
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["user"].queryset = User.objects.order_by("username")
+        self.fields["organization"].queryset = Organization.objects.order_by("name")
+        self.fields["workspace"].queryset = Workspace.objects.order_by(
+            "organization__name", "name"
+        )
+        self.fields["environment"].queryset = Environment.objects.order_by(
+            "organization__name", "workspace__name", "name"
+        )
+        self.fields["groups"].queryset = Group.objects.order_by("name")
         self.fields["object_permissions"].queryset = ObjectPermission.objects.order_by("name")
         apply_standard_widget_classes(self)
 

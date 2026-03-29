@@ -7,7 +7,8 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from core.navigation import build_navigation
-from users.models import Group, ObjectPermission, Token, User
+from tenancy.models import Organization
+from users.models import Group, Membership, ObjectPermission, Token, User
 
 
 class AuthViewTests(TestCase):
@@ -29,6 +30,12 @@ class AuthViewTests(TestCase):
             codename="change_user",
         )
         self.factory = RequestFactory()
+        self.organization = Organization.objects.create(name="Acme")
+        self.membership = Membership.objects.create(
+            user=self.user,
+            organization=self.organization,
+            is_default=True,
+        )
 
     def test_home_redirects_anonymous_user_to_login(self) -> None:
         response = self.client.get(reverse("home"))
@@ -171,6 +178,7 @@ class AuthViewTests(TestCase):
             [
                 ("Users", "mdi mdi-account-outline", reverse("user_add")),
                 ("Groups", "mdi mdi-account-group-outline", reverse("group_add")),
+                ("Memberships", "mdi mdi-account-key-outline", reverse("membership_add")),
                 ("Object Permissions", "mdi mdi-shield-key-outline", reverse("objectpermission_add")),
             ],
         )
@@ -253,6 +261,7 @@ class AuthViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Create API token")
+        self.assertContains(response, "Use active/default membership")
         self.assertNotContains(response, "Create &amp; Add Another", html=True)
 
     def test_token_list_page_renders(self) -> None:
@@ -304,6 +313,17 @@ class AuthViewTests(TestCase):
         match = re.search(r"agt_[A-Za-z0-9]{12}\.[A-Za-z0-9]{40}", response.content.decode())
         self.assertIsNotNone(match)
         self.assertTrue(token.validate(match.group(0)))
+
+    def test_profile_scope_update_sets_active_membership_in_session(self) -> None:
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("profile_scope"),
+            {"membership": self.membership.pk},
+        )
+
+        self.assertRedirects(response, reverse("profile"))
+        self.assertEqual(self.client.session["users.active_membership_id"], self.membership.pk)
 
     def test_token_delete_view_removes_token(self) -> None:
         self.client.force_login(self.user)

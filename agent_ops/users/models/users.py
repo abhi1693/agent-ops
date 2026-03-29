@@ -85,6 +85,17 @@ class User(AbstractBaseUser, PermissionsMixin):
         config, _created = UserConfig.objects.get_or_create(user=self)
         return config
 
+    def get_active_memberships(self):
+        return self.memberships.filter(is_active=True).select_related(
+            "organization",
+            "workspace",
+            "environment",
+        )
+
+    def get_default_membership(self):
+        memberships = self.get_active_memberships()
+        return memberships.filter(is_default=True).first() or memberships.first()
+
     def clean(self):
         super().clean()
         self.email = self.__class__.objects.normalize_email(self.email)

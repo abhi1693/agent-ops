@@ -5,7 +5,8 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 
-from users.models import Group, ObjectPermission, Token, User
+from tenancy.models import Organization
+from users.models import Group, Membership, ObjectPermission, Token, User
 
 
 class APITestCase(TestCase):
@@ -48,6 +49,12 @@ class APITestCase(TestCase):
         cls.user.groups.add(cls.group)
         cls.user.user_permissions.add(cls.permission)
         cls.user.object_permissions.add(cls.object_permission)
+        cls.organization = Organization.objects.create(name="Acme", description="Tenant")
+        cls.membership = Membership.objects.create(
+            user=cls.user,
+            organization=cls.organization,
+            is_default=True,
+        )
 
     def test_api_root_requires_authentication(self):
         response = self.client.get(reverse("api:api-root"))
@@ -100,6 +107,7 @@ class APITestCase(TestCase):
             {
                 "users": "http://testserver/api/users/users/",
                 "groups": "http://testserver/api/users/groups/",
+                "memberships": "http://testserver/api/users/memberships/",
                 "permissions": "http://testserver/api/users/permissions/",
                 "tokens": "http://testserver/api/users/tokens/",
                 "config": "http://testserver/api/users/config/",
@@ -240,6 +248,42 @@ class APITestCase(TestCase):
         self.assertEqual(response.status_code, 201)
         payload = response.json()
         self.assertEqual(payload["permissions"][0]["id"], self.permission.id)
+        self.assertEqual(payload["object_permissions"][0]["id"], self.object_permission.id)
+
+    def test_membership_list_endpoint_returns_memberships_for_staff(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("api:users-api:membership-list"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["results"][0]["user"]["id"], self.user.id)
+        self.assertEqual(payload["results"][0]["organization"]["id"], self.organization.id)
+        self.assertEqual(payload["results"][0]["scope_type"], "Organization")
+        self.assertEqual(payload["results"][0]["scope_label"], self.organization.name)
+
+    def test_membership_create_accepts_primary_keys_for_scope_and_access(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("api:users-api:membership-list"),
+            {
+                "user": self.other_user.id,
+                "description": "Scoped engineering access",
+                "organization": self.organization.id,
+                "groups": [self.group.id],
+                "object_permissions": [self.object_permission.id],
+                "is_active": True,
+                "is_default": True,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertEqual(payload["user"]["id"], self.other_user.id)
+        self.assertEqual(payload["groups"][0]["id"], self.group.id)
         self.assertEqual(payload["object_permissions"][0]["id"], self.object_permission.id)
 
     def test_group_list_supports_brief_mode(self):
@@ -384,7 +428,27 @@ class APITestCase(TestCase):
         self.assertTrue(payload["plaintext_token"].startswith("agt_"))
         self.assertEqual(payload["user"]["id"], self.user.id)
         self.assertEqual(payload["user"]["username"], self.user.username)
+        self.assertIsNone(payload["scope_membership"])
         self.assertEqual(Token.objects.filter(user=self.user).count(), 1)
+
+    def test_token_create_accepts_membership_scope(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("api:users-api:token-list"),
+            {
+                "description": "Scoped automation access",
+                "enabled": True,
+                "write_enabled": True,
+                "scope_membership": self.membership.id,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertEqual(payload["scope_membership"]["id"], self.membership.id)
+        self.assertEqual(payload["scope_membership"]["scope_label"], self.organization.name)
 
     def test_read_only_token_cannot_create_token(self):
         token = Token(user=self.user, description="Read only", write_enabled=False)

@@ -4,12 +4,13 @@ from core.generic_views import ObjectDeleteView, ObjectEditView, ObjectListView,
 from . import filtersets, tables
 from .forms import (
     GroupForm,
+    MembershipForm,
     ObjectPermissionForm,
     UserCreateForm,
     UserUpdateForm,
 )
 from .mixins import StaffRequiredMixin
-from .models import Group, ObjectPermission, User
+from .models import Group, Membership, ObjectPermission, User
 
 
 class UserListView(StaffRequiredMixin, ObjectListView):
@@ -24,8 +25,16 @@ class UserListView(StaffRequiredMixin, ObjectListView):
 
 class UserDetailView(StaffRequiredMixin, ObjectView):
     model = User
-    queryset = User.objects.prefetch_related("groups", "object_permissions", "user_permissions").annotate(
+    queryset = User.objects.prefetch_related(
+        "groups",
+        "object_permissions",
+        "user_permissions",
+        "memberships__organization",
+        "memberships__workspace",
+        "memberships__environment",
+    ).annotate(
         group_count=Count("groups", distinct=True),
+        membership_count=Count("memberships", distinct=True),
         object_permission_count=Count("object_permissions", distinct=True),
         user_permission_count=Count("user_permissions", distinct=True),
         token_count=Count("tokens", distinct=True),
@@ -136,3 +145,58 @@ class ObjectPermissionUpdateView(StaffRequiredMixin, ObjectEditView):
 class ObjectPermissionDeleteView(StaffRequiredMixin, ObjectDeleteView):
     model = ObjectPermission
     success_message = "Object permission deleted."
+
+
+class MembershipListView(StaffRequiredMixin, ObjectListView):
+    queryset = Membership.objects.all()
+    table = tables.MembershipTable
+    filterset = filtersets.MembershipFilterSet
+    template_name = "users/membership_list.html"
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("user", "organization", "workspace", "environment")
+            .annotate(
+                group_count=Count("groups", distinct=True),
+                object_permission_count=Count("object_permissions", distinct=True),
+            )
+            .order_by(
+                "user__username",
+                "organization__name",
+                "workspace__name",
+                "environment__name",
+            )
+        )
+
+
+class MembershipDetailView(StaffRequiredMixin, ObjectView):
+    model = Membership
+    queryset = Membership.objects.select_related(
+        "user",
+        "organization",
+        "workspace",
+        "environment",
+    ).prefetch_related("groups", "object_permissions").annotate(
+        group_count=Count("groups", distinct=True),
+        object_permission_count=Count("object_permissions", distinct=True),
+    )
+    template_name = "users/membership_detail.html"
+
+
+class MembershipCreateView(StaffRequiredMixin, ObjectEditView):
+    model = Membership
+    form_class = MembershipForm
+    success_message = "Membership created."
+
+
+class MembershipUpdateView(StaffRequiredMixin, ObjectEditView):
+    model = Membership
+    form_class = MembershipForm
+    success_message = "Membership updated."
+
+
+class MembershipDeleteView(StaffRequiredMixin, ObjectDeleteView):
+    model = Membership
+    success_message = "Membership deleted."

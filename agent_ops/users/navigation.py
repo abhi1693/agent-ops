@@ -28,6 +28,20 @@ ADMINISTRATION_MENU = Menu(
                     staff_only=True,
                 ),
                 MenuItem(
+                    link="membership_list",
+                    link_text="Memberships",
+                    icon_class="mdi mdi-account-key-outline",
+                    add_link="membership_add",
+                    add_button_label="Add membership",
+                    active_links=(
+                        "membership_list",
+                        "membership_add",
+                        "membership_detail",
+                        "membership_edit",
+                    ),
+                    staff_only=True,
+                ),
+                MenuItem(
                     link="objectpermission_list",
                     link_text="Object Permissions",
                     icon_class="mdi mdi-shield-key-outline",

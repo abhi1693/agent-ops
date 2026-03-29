@@ -1,5 +1,6 @@
 from .model_forms import (
     GroupForm,
+    MembershipForm,
     ObjectPermissionForm,
     UserCreateForm,
     UserUpdateForm,
@@ -7,6 +8,7 @@ from .model_forms import (
 
 __all__ = (
     "GroupForm",
+    "MembershipForm",
     "ObjectPermissionForm",
     "UserCreateForm",
     "UserUpdateForm",

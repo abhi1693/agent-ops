@@ -59,6 +59,29 @@
 
   <section class="card">
     <div class="card-header">
+      <h3 class="card-title">Tenant memberships</h3>
+      <div class="card-actions">
+        <span class="badge text-bg-secondary object-panel-count">{{ object.membership_count }}</span>
+      </div>
+    </div>
+    <div class="list-group list-group-flush object-panel-list">
+      {% for membership in object.memberships.all %}
+        <a class="list-group-item list-group-item-action" href="{% url 'membership_detail' membership.pk %}">
+          <div class="fw-medium">{{ membership.scope_label }}</div>
+          <div class="text-secondary small">
+            {{ membership.scope_type }}
+            {% if membership.is_default %} · Default{% endif %}
+            {% if not membership.is_active %} · Inactive{% endif %}
+          </div>
+        </a>
+      {% empty %}
+        <div class="list-group-item text-secondary">No tenant memberships assigned.</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
       <h3 class="card-title">Object permissions</h3>
       <div class="card-actions">
         <span class="badge text-bg-secondary object-panel-count">{{ object.object_permission_count }}</span>
@@ -127,6 +150,10 @@
             {% if object.is_active %}Yes{% else %}No{% endif %}
           </span>
         </td>
+      </tr>
+      <tr>
+        <th scope="row">Memberships</th>
+        <td>{{ object.membership_count }}</td>
       </tr>
       <tr>
         <th scope="row">Tokens</th>

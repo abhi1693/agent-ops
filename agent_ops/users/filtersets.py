@@ -3,7 +3,8 @@ from django.db.models import Q
 import django_filters
 
 from core.filtersets import SearchFilterSet
-from users.models import Group, ObjectPermission, Token, User
+from tenancy.models import Organization
+from users.models import Group, Membership, ObjectPermission, Token, User
 
 
 class UserFilterSet(SearchFilterSet):
@@ -61,6 +62,29 @@ class ObjectPermissionFilterSet(SearchFilterSet):
             ]
             return queryset.filter(pk__in=matching_ids)
         return queryset.filter(actions__contains=[value])
+
+
+class MembershipFilterSet(SearchFilterSet):
+    is_active = django_filters.BooleanFilter(label="Active")
+    is_default = django_filters.BooleanFilter(label="Default")
+    organization = django_filters.ModelChoiceFilter(
+        queryset=Organization.objects.order_by("name"),
+        label="Organization",
+    )
+
+    class Meta:
+        model = Membership
+        fields = ("q", "is_active", "is_default", "organization")
+
+    def search_queryset(self, queryset, value):
+        return queryset.filter(
+            Q(user__username__icontains=value)
+            | Q(user__email__icontains=value)
+            | Q(user__display_name__icontains=value)
+            | Q(organization__name__icontains=value)
+            | Q(workspace__name__icontains=value)
+            | Q(environment__name__icontains=value)
+        )
 
 
 class TokenFilterSet(SearchFilterSet):

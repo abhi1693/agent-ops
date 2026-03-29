@@ -26,6 +26,13 @@ class Token(PrimaryModel):
         on_delete=models.CASCADE,
         related_name="tokens",
     )
+    scope_membership = models.ForeignKey(
+        "users.Membership",
+        on_delete=models.PROTECT,
+        related_name="tokens",
+        blank=True,
+        null=True,
+    )
     created = models.DateTimeField(auto_now_add=True)
     expires = models.DateTimeField(blank=True, null=True)
     last_used = models.DateTimeField(blank=True, null=True)
@@ -71,6 +78,10 @@ class Token(PrimaryModel):
         super().clean()
         if self.pk is None and self.expires is not None and self.expires <= timezone.now():
             raise ValidationError({"expires": "Expiration time must be in the future."})
+        if self.scope_membership_id and self.user_id and self.scope_membership.user_id != self.user_id:
+            raise ValidationError(
+                {"scope_membership": "Selected membership must belong to the token owner."}
+            )
 
     def save(self, *args, **kwargs):
         if self._state.adding and self._token is None:

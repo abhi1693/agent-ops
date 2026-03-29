@@ -2,7 +2,7 @@ import django_tables2 as tables
 from django.utils.html import format_html
 
 from core.tables import AgentOpsTable, RowActionsColumn
-from users.models import Group, ObjectPermission, Token, User
+from users.models import Group, Membership, ObjectPermission, Token, User
 
 
 def _render_boolean_badge(value):
@@ -84,9 +84,50 @@ class ObjectPermissionTable(AgentOpsTable):
         return _render_boolean_badge(value)
 
 
+class MembershipTable(AgentOpsTable):
+    user = tables.Column(linkify=lambda record: record.user.get_absolute_url())
+    scope_label = tables.Column(verbose_name="Scope", linkify=True)
+    scope_type = tables.Column(verbose_name="Scope type")
+    is_default = tables.Column(verbose_name="Default")
+    is_active = tables.Column(verbose_name="Active")
+    group_count = tables.Column(verbose_name="Groups")
+    object_permission_count = tables.Column(verbose_name="Object permissions")
+    actions = RowActionsColumn(actions=("edit", "delete"))
+
+    class Meta(AgentOpsTable.Meta):
+        model = Membership
+        fields = (
+            "user",
+            "scope_label",
+            "scope_type",
+            "is_default",
+            "is_active",
+            "group_count",
+            "object_permission_count",
+            "actions",
+        )
+        default_columns = (
+            "user",
+            "scope_label",
+            "scope_type",
+            "is_default",
+            "is_active",
+            "group_count",
+            "object_permission_count",
+            "actions",
+        )
+
+    def render_is_default(self, value):
+        return _render_boolean_badge(value)
+
+    def render_is_active(self, value):
+        return _render_boolean_badge(value)
+
+
 class TokenTable(AgentOpsTable):
     masked_key = tables.Column(verbose_name="Identifier")
     description = tables.Column()
+    scope_membership = tables.Column(verbose_name="Scope")
     is_active = tables.Column(verbose_name="Status")
     created = tables.DateTimeColumn()
     expires = tables.DateTimeColumn()
@@ -98,6 +139,7 @@ class TokenTable(AgentOpsTable):
         fields = (
             "masked_key",
             "description",
+            "scope_membership",
             "is_active",
             "created",
             "expires",
@@ -107,6 +149,7 @@ class TokenTable(AgentOpsTable):
         default_columns = (
             "masked_key",
             "description",
+            "scope_membership",
             "is_active",
             "created",
             "expires",
@@ -116,6 +159,9 @@ class TokenTable(AgentOpsTable):
 
     def render_description(self, value):
         return value or "-"
+
+    def render_scope_membership(self, value):
+        return value.scope_label if value else "Default scope"
 
     def render_is_active(self, value):
         badge_class = "text-bg-success" if value else "text-bg-secondary"

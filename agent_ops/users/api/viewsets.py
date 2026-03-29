@@ -11,10 +11,16 @@ from rest_framework.views import APIView
 from agent_ops.api.permissions import IsStaffUser, TokenPermissions
 from agent_ops.api.viewsets import ModelViewSet
 from users import filtersets
-from users.models import Group, ObjectPermission, Token, User
+from users.models import Group, Membership, ObjectPermission, Token, User
 from users.preferences import DEFAULT_USER_PREFERENCES
 
-from .serializers import GroupSerializer, ObjectPermissionSerializer, TokenSerializer, UserSerializer
+from .serializers import (
+    GroupSerializer,
+    MembershipSerializer,
+    ObjectPermissionSerializer,
+    TokenSerializer,
+    UserSerializer,
+)
 
 
 def _deep_merge(base, overlay):
@@ -41,6 +47,7 @@ class UsersRootView(APIRootView):
             {
                 "users": reverse("api:users-api:user-list", request=request),
                 "groups": reverse("api:users-api:group-list", request=request),
+                "memberships": reverse("api:users-api:membership-list", request=request),
                 "permissions": reverse("api:users-api:objectpermission-list", request=request),
                 "tokens": reverse("api:users-api:token-list", request=request),
                 "config": reverse("api:users-api:config", request=request),
@@ -51,6 +58,9 @@ class UsersRootView(APIRootView):
 class UserViewSet(ModelViewSet):
     queryset = User.objects.prefetch_related(
         "groups",
+        "memberships__organization",
+        "memberships__workspace",
+        "memberships__environment",
         "object_permissions",
         "user_permissions__content_type",
     ).order_by("username")
@@ -71,10 +81,32 @@ class GroupViewSet(ModelViewSet):
     permission_classes = [TokenPermissions, IsStaffUser]
 
 
+class MembershipViewSet(ModelViewSet):
+    queryset = Membership.objects.select_related(
+        "user",
+        "organization",
+        "workspace",
+        "environment",
+    ).prefetch_related(
+        "groups",
+        "object_permissions",
+    ).order_by(
+        "user__username",
+        "organization__name",
+        "workspace__name",
+        "environment__name",
+    )
+    serializer_class = MembershipSerializer
+    filterset_class = filtersets.MembershipFilterSet
+    ordering_fields = ("user__username", "organization__name", "workspace__name", "environment__name")
+    permission_classes = [TokenPermissions, IsStaffUser]
+
+
 class ObjectPermissionViewSet(ModelViewSet):
     queryset = ObjectPermission.objects.prefetch_related(
         "content_types",
         "groups",
+        "memberships",
         "users",
     ).order_by("name")
     serializer_class = ObjectPermissionSerializer
@@ -90,7 +122,12 @@ class TokenViewSet(ModelViewSet):
     permission_classes = [TokenPermissions]
 
     def get_queryset(self):
-        return self.request.user.tokens.select_related("user").order_by("-created")
+        return self.request.user.tokens.select_related(
+            "user",
+            "scope_membership__organization",
+            "scope_membership__workspace",
+            "scope_membership__environment",
+        ).order_by("-created")
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)

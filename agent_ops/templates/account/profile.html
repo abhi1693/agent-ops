@@ -51,15 +51,56 @@
           {% endif %}
         </div>
       </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h3 class="card-title">Tenant memberships</h3>
+        </div>
+        <div class="card-body">
+          <p class="text-secondary">Active tenant scopes available to this account.</p>
+          {% if tenant_memberships %}
+            <ul class="object-list mt-3">
+              {% for membership in tenant_memberships %}
+                <li>
+                  {{ membership.scope_label }}
+                  {% if membership.is_default %}<span class="badge text-bg-success ms-1">Default</span>{% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="mb-0 text-secondary">No tenant memberships are assigned.</p>
+          {% endif %}
+        </div>
+      </section>
     </div>
 
     <aside class="col-lg-4 stack-sm">
       <section class="card">
         <div class="card-header">
-          <h3 class="card-title">Memberships</h3>
+          <h3 class="card-title">Active tenant scope</h3>
         </div>
         <div class="card-body">
-          <p class="text-secondary">Group-based access inherited by this account.</p>
+          <p class="text-secondary">Requests resolve tenant scope from this selection unless a scoped token or request override is provided.</p>
+          {% if active_scope and active_scope.membership %}
+            <p class="fw-medium mt-3 mb-2">{{ active_scope.membership.scope_label }}</p>
+            <p class="text-secondary small">{{ active_scope.membership.scope_type }}</p>
+          {% else %}
+            <p class="mb-0 text-secondary">No active tenant scope.</p>
+          {% endif %}
+          <form class="mt-3" method="post" action="{% url 'profile_scope' %}">
+            {% csrf_token %}
+            {% include "inc/form_field.html" with field=active_membership_form.membership %}
+            <button type="submit" class="btn btn-outline-secondary">Update active scope</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h3 class="card-title">Effective groups</h3>
+        </div>
+        <div class="card-body">
+          <p class="text-secondary">Global groups plus groups granted by the active membership.</p>
           {% if group_memberships %}
             <div class="badge-row mt-3">
               {% for group in group_memberships %}
@@ -67,17 +108,17 @@
               {% endfor %}
             </div>
           {% else %}
-            <p class="mb-0 text-secondary">No group memberships.</p>
+            <p class="mb-0 text-secondary">No effective groups.</p>
           {% endif %}
         </div>
       </section>
 
       <section class="card">
         <div class="card-header">
-          <h3 class="card-title">Direct object permissions</h3>
+          <h3 class="card-title">Effective object permissions</h3>
         </div>
         <div class="card-body">
-          <p class="text-secondary">Explicit grants applied directly to your account.</p>
+          <p class="text-secondary">Direct grants plus permissions inherited from the active membership.</p>
           {% if managed_permissions %}
             <ul class="object-list mt-3">
               {% for permission in managed_permissions %}
@@ -85,11 +126,10 @@
               {% endfor %}
             </ul>
           {% else %}
-            <p class="mb-0 text-secondary">No direct object permissions.</p>
+            <p class="mb-0 text-secondary">No effective object permissions.</p>
           {% endif %}
         </div>
       </section>
     </aside>
   </div>
 {% endblock %}
-

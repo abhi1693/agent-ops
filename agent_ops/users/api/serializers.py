@@ -5,7 +5,8 @@ from rest_framework import serializers
 
 from agent_ops.api.fields import SerializedPKRelatedField
 from agent_ops.api.serializers import BaseModelSerializer, ValidatedModelSerializer
-from users.models import Group, ObjectPermission, Token, User
+from tenancy.models import Environment, Organization, Workspace
+from users.models import Group, Membership, ObjectPermission, Token, User
 
 
 class NestedContentTypeSerializer(serializers.ModelSerializer):
@@ -40,6 +41,49 @@ class NestedUserSerializer(serializers.ModelSerializer):
         fields = ("id", "username", "display_name", "first_name", "last_name", "email")
 
 
+class MembershipOrganizationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Organization
+        fields = ("id", "name", "description")
+
+
+class MembershipWorkspaceSerializer(serializers.ModelSerializer):
+    organization = MembershipOrganizationSerializer(read_only=True)
+
+    class Meta:
+        model = Workspace
+        fields = ("id", "name", "description", "organization")
+
+
+class MembershipEnvironmentSerializer(serializers.ModelSerializer):
+    workspace = MembershipWorkspaceSerializer(read_only=True)
+
+    class Meta:
+        model = Environment
+        fields = ("id", "name", "description", "workspace")
+
+
+class NestedMembershipSerializer(serializers.ModelSerializer):
+    organization = MembershipOrganizationSerializer(read_only=True)
+    workspace = MembershipWorkspaceSerializer(read_only=True)
+    environment = MembershipEnvironmentSerializer(read_only=True)
+    scope_type = serializers.CharField(read_only=True)
+    scope_label = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Membership
+        fields = (
+            "id",
+            "scope_type",
+            "scope_label",
+            "is_default",
+            "is_active",
+            "organization",
+            "workspace",
+            "environment",
+        )
+
+
 class UserSerializer(ValidatedModelSerializer):
     url = serializers.HyperlinkedIdentityField(view_name="api:users-api:user-detail")
     groups = SerializedPKRelatedField(
@@ -60,6 +104,7 @@ class UserSerializer(ValidatedModelSerializer):
         queryset=Permission.objects.all(),
         required=False,
     )
+    memberships = NestedMembershipSerializer(many=True, read_only=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=False)
 
     class Meta:
@@ -78,6 +123,7 @@ class UserSerializer(ValidatedModelSerializer):
             "date_joined",
             "last_login",
             "groups",
+            "memberships",
             "object_permissions",
             "user_permissions",
             "password",
@@ -143,6 +189,7 @@ class ObjectPermissionSerializer(ValidatedModelSerializer):
         queryset=ContentType.objects.all(),
     )
     groups = NestedGroupSerializer(many=True, read_only=True)
+    memberships = NestedMembershipSerializer(many=True, read_only=True)
     users = NestedUserSerializer(many=True, read_only=True)
     actions = serializers.ListField(
         child=serializers.ChoiceField(choices=ObjectPermission.ActionChoices.choices),
@@ -162,6 +209,7 @@ class ObjectPermissionSerializer(ValidatedModelSerializer):
             "constraints",
             "content_types",
             "groups",
+            "memberships",
             "users",
         )
         brief_fields = ("id", "url", "name", "description", "enabled", "actions")
@@ -177,6 +225,12 @@ class TokenSerializer(BaseModelSerializer):
     identifier = serializers.CharField(source="masked_key", read_only=True)
     plaintext_token = serializers.CharField(read_only=True)
     user = NestedUserSerializer(read_only=True)
+    scope_membership = SerializedPKRelatedField(
+        serializer=NestedMembershipSerializer,
+        queryset=Membership.objects.none(),
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = Token
@@ -186,6 +240,7 @@ class TokenSerializer(BaseModelSerializer):
             "identifier",
             "user",
             "description",
+            "scope_membership",
             "created",
             "expires",
             "last_used",
@@ -199,12 +254,103 @@ class TokenSerializer(BaseModelSerializer):
             "identifier",
             "user",
             "plaintext_token",
+            "scope_membership",
             "created",
             "last_used",
         )
-        brief_fields = ("id", "url", "identifier", "description", "enabled", "write_enabled")
+        brief_fields = (
+            "id",
+            "url",
+            "identifier",
+            "description",
+            "scope_membership",
+            "enabled",
+            "write_enabled",
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        queryset = Membership.objects.none()
+        if request and request.user.is_authenticated:
+            queryset = request.user.get_active_memberships()
+        self.fields["scope_membership"].queryset = queryset
 
     def validate_expires(self, value):
         if value is not None and value <= timezone.now():
             raise serializers.ValidationError("Expiration time must be in the future.")
         return value
+
+    def validate_scope_membership(self, value):
+        request = self.context.get("request")
+        if value is not None and request and value.user_id != request.user.id:
+            raise serializers.ValidationError("Selected membership must belong to the current user.")
+        return value
+
+
+class MembershipSerializer(ValidatedModelSerializer):
+    url = serializers.HyperlinkedIdentityField(view_name="api:users-api:membership-detail")
+    user = SerializedPKRelatedField(
+        serializer=NestedUserSerializer,
+        queryset=User.objects.order_by("username"),
+    )
+    organization = SerializedPKRelatedField(
+        serializer=MembershipOrganizationSerializer,
+        queryset=Organization.objects.order_by("name"),
+    )
+    workspace = SerializedPKRelatedField(
+        serializer=MembershipWorkspaceSerializer,
+        queryset=Workspace.objects.select_related("organization").order_by("organization__name", "name"),
+        required=False,
+        allow_null=True,
+    )
+    environment = SerializedPKRelatedField(
+        serializer=MembershipEnvironmentSerializer,
+        queryset=Environment.objects.select_related("organization", "workspace").order_by(
+            "organization__name", "workspace__name", "name"
+        ),
+        required=False,
+        allow_null=True,
+    )
+    groups = SerializedPKRelatedField(
+        serializer=NestedGroupSerializer,
+        many=True,
+        queryset=Group.objects.order_by("name"),
+        required=False,
+    )
+    object_permissions = SerializedPKRelatedField(
+        serializer=NestedObjectPermissionSerializer,
+        many=True,
+        queryset=ObjectPermission.objects.order_by("name"),
+        required=False,
+    )
+    scope_type = serializers.CharField(read_only=True)
+    scope_label = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Membership
+        fields = (
+            "id",
+            "url",
+            "user",
+            "description",
+            "is_active",
+            "is_default",
+            "organization",
+            "workspace",
+            "environment",
+            "scope_type",
+            "scope_label",
+            "groups",
+            "object_permissions",
+        )
+        read_only_fields = ("id", "url", "scope_type", "scope_label")
+        brief_fields = (
+            "id",
+            "url",
+            "user",
+            "is_active",
+            "is_default",
+            "scope_type",
+            "scope_label",
+        )

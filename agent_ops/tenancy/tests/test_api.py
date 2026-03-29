@@ -1,8 +1,9 @@
 from django.test import TestCase
 from django.urls import reverse
+from rest_framework.test import APIClient
 
 from tenancy.models import Organization, Workspace
-from users.models import User
+from users.models import Membership, Token, User
 
 
 class TenancyAPITests(TestCase):
@@ -24,13 +25,25 @@ class TenancyAPITests(TestCase):
             name="Operations",
             description="Operational workspace",
         )
+        self.other_organization = Organization.objects.create(name="Beta", description="Secondary tenant")
+        self.other_workspace = Workspace.objects.create(
+            organization=self.other_organization,
+            name="Security",
+            description="Security workspace",
+        )
+        self.membership = Membership.objects.create(
+            user=self.standard_user,
+            organization=self.organization,
+            workspace=self.workspace,
+            is_default=True,
+        )
 
-    def test_tenancy_api_root_requires_staff(self):
+    def test_tenancy_api_root_is_available_for_scoped_members(self):
         self.client.force_login(self.standard_user)
 
         response = self.client.get(reverse("api:tenancy-api:api-root"))
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
 
     def test_tenancy_api_root_lists_endpoints_for_staff(self):
         self.client.force_login(self.staff_user)
@@ -65,3 +78,30 @@ class TenancyAPITests(TestCase):
         self.assertEqual(payload["workspace"]["id"], self.workspace.pk)
         self.assertEqual(payload["organization"]["id"], self.organization.pk)
         self.assertEqual(payload["organization"]["name"], self.organization.name)
+
+    def test_scoped_member_only_lists_objects_inside_active_scope(self):
+        self.client.force_login(self.standard_user)
+
+        response = self.client.get(reverse("api:tenancy-api:workspace-list"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["results"][0]["id"], self.workspace.id)
+
+    def test_scoped_token_filters_tenancy_results(self):
+        token = Token(
+            user=self.standard_user,
+            description="Scoped tenant token",
+            scope_membership=self.membership,
+        )
+        token.save()
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Token {token.plaintext_token}")
+
+        response = client.get(reverse("api:tenancy-api:organization-list"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["results"][0]["id"], self.organization.id)

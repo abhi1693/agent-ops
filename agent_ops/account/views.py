@@ -3,13 +3,26 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
+from django.views import View
 from django.views.generic import TemplateView
 
 from core.generic_views import ObjectDeleteView, ObjectEditView, ObjectListView
 from users import filtersets, tables
 from users.models import Token, User
+from users.scopes import (
+    get_effective_groups,
+    get_effective_object_permissions,
+    get_request_actor_scope,
+    set_active_membership,
+)
 
-from .forms import LoginForm, ProfileForm, TokenCreateForm, UserPreferenceForm
+from .forms import (
+    ActiveMembershipForm,
+    LoginForm,
+    ProfileForm,
+    TokenCreateForm,
+    UserPreferenceForm,
+)
 
 
 class AgentOpsLoginView(LoginView):
@@ -29,8 +42,18 @@ class ProfileView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         user = self.request.user
         config = user.get_config()
-        context["managed_permissions"] = user.object_permissions.order_by("name")
-        context["group_memberships"] = user.groups.order_by("name")
+        actor_scope = get_request_actor_scope(self.request)
+        membership = actor_scope.membership if actor_scope is not None else None
+
+        context["active_scope"] = actor_scope
+        context["active_membership"] = membership
+        context["active_membership_form"] = ActiveMembershipForm(
+            user=user,
+            initial={"membership": membership.pk if membership is not None else None},
+        )
+        context["tenant_memberships"] = user.get_active_memberships()
+        context["managed_permissions"] = get_effective_object_permissions(user, membership)
+        context["group_memberships"] = get_effective_groups(user, membership)
         context["preferences"] = config.all()
         return context
 
@@ -90,10 +113,19 @@ class TokenCreateView(LoginRequiredMixin, ObjectEditView):
     submit_label = "Create token"
     show_add_another = False
 
+    def get_form(self, data=None, files=None):
+        return self.get_form_class()(
+            data=data,
+            files=files,
+            instance=self.object,
+            user=self.request.user,
+        )
+
     def form_save(self, form):
         token = form.save(commit=False)
         token.user = self.request.user
         token.save()
+        form.save_m2m()
         return token
 
     def get_success_message(self, obj, created):
@@ -101,6 +133,18 @@ class TokenCreateView(LoginRequiredMixin, ObjectEditView):
 
     def get_return_url(self, request, obj=None):
         return reverse("token_list")
+
+
+class ProfileScopeUpdateView(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        form = ActiveMembershipForm(request.POST, user=request.user)
+        if form.is_valid():
+            membership = form.cleaned_data["membership"]
+            set_active_membership(request, membership)
+            messages.success(request, "Active tenant scope updated.")
+        else:
+            messages.error(request, "Unable to update active tenant scope.")
+        return HttpResponseRedirect(reverse("profile"))
 
 
 class TokenDeleteView(LoginRequiredMixin, ObjectDeleteView):

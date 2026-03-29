@@ -48,7 +48,12 @@ class TokenAuthentication(BaseAuthentication):
             ) from exc
 
         try:
-            token = Token.objects.select_related("user").get(key=key)
+            token = Token.objects.select_related(
+                "user",
+                "scope_membership__organization",
+                "scope_membership__workspace",
+                "scope_membership__environment",
+            ).get(key=key)
         except Token.DoesNotExist as exc:
             raise exceptions.AuthenticationFailed("Invalid token.") from exc
 

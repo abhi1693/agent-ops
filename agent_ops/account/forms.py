@@ -2,7 +2,7 @@ from django import forms
 from django.contrib.auth.forms import AuthenticationForm
 
 from core.form_widgets import apply_standard_widget_classes
-from users.models import Token, User
+from users.models import Membership, Token, User
 from users.preferences import THEME_CHOICES
 
 
@@ -54,17 +54,47 @@ class TokenCreateForm(forms.ModelForm):
     fieldsets = (
         {
             "title": "Token",
-            "fields": ("description", "expires", "enabled", "write_enabled"),
+            "fields": ("description", "scope_membership", "expires", "enabled", "write_enabled"),
         },
+    )
+    scope_membership = forms.ModelChoiceField(
+        queryset=Membership.objects.none(),
+        required=False,
+        empty_label="Use active/default membership",
     )
 
     class Meta:
         model = Token
-        fields = ("description", "expires", "enabled", "write_enabled")
+        fields = ("description", "scope_membership", "expires", "enabled", "write_enabled")
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.user = user
+        queryset = Membership.objects.none()
+        if user is not None:
+            queryset = user.get_active_memberships()
+        self.fields["scope_membership"].queryset = queryset
         apply_standard_widget_classes(self)
+
+
+class ActiveMembershipForm(forms.Form):
+    membership = forms.ModelChoiceField(
+        queryset=Membership.objects.none(),
+        required=False,
+        empty_label="Default membership",
+    )
+
+    def __init__(self, *args, user, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        self.fields["membership"].queryset = user.get_active_memberships()
+        apply_standard_widget_classes(self)
+
+    def clean_membership(self):
+        membership = self.cleaned_data["membership"]
+        if membership is not None and membership.user_id != self.user.id:
+            raise forms.ValidationError("Selected membership must belong to your account.")
+        return membership
 
 
 class UserPreferenceForm(forms.Form):

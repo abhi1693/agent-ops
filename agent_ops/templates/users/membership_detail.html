@@ -1,0 +1,126 @@
+{% extends "generic/object.html" %}
+
+{% block title %}{{ object.user.username }} · {{ object.scope_label }}{% endblock %}
+
+{% block controls %}
+  <div class="btn-list object-page-actions">
+    <a class="btn btn-warning" href="{% url 'membership_edit' object.pk %}">
+      <i class="mdi mdi-pencil" aria-hidden="true"></i>
+      <span>Edit</span>
+    </a>
+  </div>
+{% endblock %}
+
+{% block main %}
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Membership</h3>
+    </div>
+    <table class="table table-hover attr-table mb-0">
+      <tr>
+        <th scope="row">User</th>
+        <td><a href="{% url 'user_detail' object.user.pk %}">{{ object.user.username }}</a></td>
+      </tr>
+      <tr>
+        <th scope="row">Scope type</th>
+        <td>{{ object.scope_type }}</td>
+      </tr>
+      <tr>
+        <th scope="row">Organization</th>
+        <td><a href="{% url 'organization_detail' object.organization.pk %}">{{ object.organization.name }}</a></td>
+      </tr>
+      <tr>
+        <th scope="row">Workspace</th>
+        <td>
+          {% if object.workspace %}
+            <a href="{% url 'workspace_detail' object.workspace.pk %}">{{ object.workspace.name }}</a>
+          {% else %}
+            <span class="text-secondary">Inherited from organization</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <th scope="row">Environment</th>
+        <td>
+          {% if object.environment %}
+            <a href="{% url 'environment_detail' object.environment.pk %}">{{ object.environment.name }}</a>
+          {% else %}
+            <span class="text-secondary">Inherited from higher scope</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <th scope="row">Description</th>
+        <td>{{ object.description|default:"Not set" }}</td>
+      </tr>
+    </table>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Scoped groups</h3>
+      <div class="card-actions">
+        <span class="badge text-bg-secondary object-panel-count">{{ object.group_count }}</span>
+      </div>
+    </div>
+    <div class="list-group list-group-flush object-panel-list">
+      {% for group in object.groups.all %}
+        <a class="list-group-item list-group-item-action" href="{% url 'group_detail' group.pk %}">
+          <div class="fw-medium">{{ group.name }}</div>
+          {% if group.description %}
+            <div class="text-secondary small">{{ group.description }}</div>
+          {% endif %}
+        </a>
+      {% empty %}
+        <div class="list-group-item text-secondary">No scoped groups assigned.</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Scoped object permissions</h3>
+      <div class="card-actions">
+        <span class="badge text-bg-secondary object-panel-count">{{ object.object_permission_count }}</span>
+      </div>
+    </div>
+    <div class="list-group list-group-flush object-panel-list">
+      {% for permission in object.object_permissions.all %}
+        <a class="list-group-item list-group-item-action" href="{% url 'objectpermission_detail' permission.pk %}">
+          <div class="fw-medium">{{ permission.name }}</div>
+          {% if permission.description %}
+            <div class="text-secondary small">{{ permission.description }}</div>
+          {% endif %}
+        </a>
+      {% empty %}
+        <div class="list-group-item text-secondary">No scoped object permissions assigned.</div>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}
+
+{% block side %}
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Status</h3>
+    </div>
+    <table class="table table-hover attr-table mb-0">
+      <tr>
+        <th scope="row">Default</th>
+        <td>
+          <span class="badge {% if object.is_default %}text-bg-success{% else %}text-bg-secondary{% endif %}">
+            {% if object.is_default %}Yes{% else %}No{% endif %}
+          </span>
+        </td>
+      </tr>
+      <tr>
+        <th scope="row">Active</th>
+        <td>
+          <span class="badge {% if object.is_active %}text-bg-success{% else %}text-bg-secondary{% endif %}">
+            {% if object.is_active %}Yes{% else %}No{% endif %}
+          </span>
+        </td>
+      </tr>
+    </table>
+  </section>
+{% endblock %}
