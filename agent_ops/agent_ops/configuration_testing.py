@@ -10,5 +10,6 @@ DATABASES = {
 SECRET_KEY = "testing-secret-key-that-is-long-enough-for-agent-ops-auth-tests-12345"
 
 DEBUG = True
+HOSTNAME = "testserver"
 LOGIN_REDIRECT_URL = "home"
 TIME_ZONE = "UTC"

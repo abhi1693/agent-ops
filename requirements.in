@@ -4,6 +4,8 @@
 # This file should contain only direct runtime dependencies.
 
 Django<6.0
+drf-spectacular<1.0
+djangorestframework<4.0
 django-filter<26
 django-tables2<3
 psycopg<4

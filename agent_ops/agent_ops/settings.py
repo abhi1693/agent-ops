@@ -36,6 +36,7 @@ if not hasattr(configuration, "DATABASES"):
 ALLOWED_HOSTS = getattr(configuration, "ALLOWED_HOSTS")
 DATABASES = getattr(configuration, "DATABASES")
 DEBUG = getattr(configuration, "DEBUG", False)
+HOSTNAME = getattr(configuration, "HOSTNAME", platform.node())
 LANGUAGE_CODE = getattr(configuration, "LANGUAGE_CODE", "en-us")
 LOGIN_REDIRECT_URL = getattr(configuration, "LOGIN_REDIRECT_URL", "home")
 SECRET_KEY = getattr(configuration, "SECRET_KEY")
@@ -58,8 +59,10 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "drf_spectacular",
     "django_filters",
     "django_tables2",
+    "rest_framework",
     "core.apps.CoreConfig",
     "account.apps.AccountConfig",
     "users.apps.UsersConfig",
@@ -112,3 +115,35 @@ AUTHENTICATION_BACKENDS = getattr(
     ["users.auth_backends.UsernameOrEmailBackend"],
 )
 LOGIN_URL = "login"
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework.authentication.SessionAuthentication",
+        "agent_ops.api.authentication.TokenAuthentication",
+    ),
+    "DEFAULT_FILTER_BACKENDS": (
+        "django_filters.rest_framework.DjangoFilterBackend",
+        "rest_framework.filters.OrderingFilter",
+    ),
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
+    "DEFAULT_PARSER_CLASSES": (
+        "rest_framework.parsers.JSONParser",
+        "rest_framework.parsers.MultiPartParser",
+    ),
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAuthenticated",
+    ),
+    "DEFAULT_RENDERER_CLASSES": (
+        "rest_framework.renderers.JSONRenderer",
+        "rest_framework.renderers.BrowsableAPIRenderer",
+    ),
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "PAGE_SIZE": getattr(configuration, "API_DEFAULT_PAGE_SIZE", 50),
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Agent Ops API",
+    "DESCRIPTION": "REST API for Agent Ops.",
+    "VERSION": "1.0",
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAuthenticated"],
+}
