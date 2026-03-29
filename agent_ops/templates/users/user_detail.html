@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}{{ object.username }} | Agent Ops{% endblock %}
+
+{% block content %}
+  <div class="actions">
+    <div>
+      <h1>{{ object.username }}</h1>
+      <p class="muted">Platform user details.</p>
+    </div>
+    <a class="button-link" href="{% url 'user_edit' object.pk %}">Edit user</a>
+  </div>
+
+  <section class="card">
+    <div class="card-body stack">
+      <div class="detail-grid">
+        <article class="detail-block">
+          <h3>Identity</h3>
+          <p><strong>Email:</strong> {{ object.email }}</p>
+          <p><strong>Name:</strong> {{ object.get_full_name|default:"Not set" }}</p>
+          <p><strong>Display name:</strong> {{ object.display_name|default:"Not set" }}</p>
+          <p><strong>Joined:</strong> {{ object.date_joined }}</p>
+        </article>
+        <article class="detail-block">
+          <h3>Access</h3>
+          <p><strong>Staff:</strong> {% if object.is_staff %}Yes{% else %}No{% endif %}</p>
+          <p><strong>Superuser:</strong> {% if object.is_superuser %}Yes{% else %}No{% endif %}</p>
+          <p><strong>Active:</strong> {% if object.is_active %}Yes{% else %}No{% endif %}</p>
+          <p><strong>Tokens:</strong> {{ object.tokens.count }}</p>
+        </article>
+      </div>
+
+      <div class="detail-block">
+        <h3>Groups</h3>
+        {% if object.groups.all %}
+          <div class="pill-list">
+            {% for group in object.groups.all %}
+              <a class="pill" href="{% url 'group_detail' group.pk %}">{{ group.name }}</a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">No groups assigned.</p>
+        {% endif %}
+      </div>
+
+      <div class="detail-block">
+        <h3>Object Permissions</h3>
+        {% if object.object_permissions.all %}
+          <ul class="detail-list">
+            {% for permission in object.object_permissions.all %}
+              <li><a href="{% url 'objectpermission_detail' permission.pk %}">{{ permission.name }}</a></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="muted">No direct object permissions.</p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+{% endblock %}

@@ -7,17 +7,17 @@
     <div class="card-body stack">
       <div>
         <h1>Sign in</h1>
-        <p class="muted">Use your platform account to access Agent Ops.</p>
+        <p class="muted">Authenticate with your first-party platform account.</p>
       </div>
       <form method="post" class="stack">
         {% csrf_token %}
         {{ form.non_field_errors }}
-        <div class="stack" style="gap: 0.5rem;">
-          <label for="{{ form.username.id_for_label }}">Username</label>
+        <div class="field">
+          <label for="{{ form.username.id_for_label }}">Username or email</label>
           {{ form.username }}
           {{ form.username.errors }}
         </div>
-        <div class="stack" style="gap: 0.5rem;">
+        <div class="field">
           <label for="{{ form.password.id_for_label }}">Password</label>
           {{ form.password }}
           {{ form.password.errors }}

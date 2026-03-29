@@ -58,7 +58,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "users",
+    "users.apps.UsersConfig",
 ]
 
 MIDDLEWARE = [
@@ -100,4 +100,9 @@ STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "users.User"
+AUTHENTICATION_BACKENDS = getattr(
+    configuration,
+    "AUTHENTICATION_BACKENDS",
+    ["users.auth_backends.UsernameOrEmailBackend"],
+)
 LOGIN_URL = "login"

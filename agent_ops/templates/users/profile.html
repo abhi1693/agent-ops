@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Profile | Agent Ops{% endblock %}
+
+{% block content %}
+  <div class="actions">
+    <div>
+      <h1>Profile</h1>
+      <p class="muted">Your account, memberships, and stored preferences.</p>
+    </div>
+    <div class="actions" style="margin-bottom: 0;">
+      <a class="button-link" href="{% url 'profile_edit' %}">Edit profile</a>
+      <a class="button-link" href="{% url 'preferences' %}">Edit preferences</a>
+      <a class="button-link" href="{% url 'token_list' %}">Manage tokens</a>
+    </div>
+  </div>
+
+  <section class="card">
+    <div class="card-body stack">
+      <div class="detail-grid">
+        <article class="detail-block">
+          <h3>Identity</h3>
+          <p><strong>Username:</strong> {{ request.user.username }}</p>
+          <p><strong>Email:</strong> {{ request.user.email }}</p>
+          <p><strong>Name:</strong> {{ request.user.get_full_name|default:"Not set" }}</p>
+          <p><strong>Display name:</strong> {{ request.user.display_name|default:"Not set" }}</p>
+        </article>
+        <article class="detail-block">
+          <h3>Memberships</h3>
+          {% if group_memberships %}
+            <div class="pill-list">
+              {% for group in group_memberships %}
+                <span class="pill">{{ group.name }}</span>
+              {% endfor %}
+            </div>
+          {% else %}
+            <p class="muted">No group memberships.</p>
+          {% endif %}
+        </article>
+        <article class="detail-block">
+          <h3>Direct Object Permissions</h3>
+          {% if managed_permissions %}
+            <ul class="detail-list">
+              {% for permission in managed_permissions %}
+                <li>{{ permission.name }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="muted">No direct object permissions.</p>
+          {% endif %}
+        </article>
+      </div>
+
+      <div class="detail-block">
+        <h3>Stored Preferences</h3>
+        {% if preferences %}
+          <ul class="detail-list">
+            {% for key, value in preferences.items %}
+              <li><strong>{{ key }}</strong>: {{ value }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="muted">Only default preferences are active.</p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+{% endblock %}

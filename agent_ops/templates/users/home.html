@@ -5,13 +5,9 @@
 {% block content %}
   <div class="actions">
     <div>
-      <h1>Agent Ops</h1>
-      <p class="muted">Protected home view for authenticated users.</p>
+      <h1>Users Module</h1>
+      <p class="muted">First-party identity, profile, token, group, and permission management.</p>
     </div>
-    <form method="post" action="{% url 'logout' %}">
-      {% csrf_token %}
-      <button type="submit">Log out</button>
-    </form>
   </div>
 
   <section class="card">
@@ -19,6 +15,34 @@
       <div>
         <h2>Welcome, {{ request.user.display_name|default:request.user.username }}</h2>
         <p class="muted">You are signed in as {{ request.user.email }}.</p>
+      </div>
+      <div class="metrics">
+        <article class="metric">
+          <span class="muted">Your groups</span>
+          <strong>{{ group_count }}</strong>
+        </article>
+        <article class="metric">
+          <span class="muted">Your API tokens</span>
+          <strong>{{ token_count }}</strong>
+        </article>
+        <article class="metric">
+          <span class="muted">Stored preferences</span>
+          <strong>{{ preference_count }}</strong>
+        </article>
+        {% if request.user.is_staff or request.user.is_superuser %}
+          <article class="metric">
+            <span class="muted">Managed users</span>
+            <strong>{{ user_count }}</strong>
+          </article>
+          <article class="metric">
+            <span class="muted">Managed groups</span>
+            <strong>{{ managed_group_count }}</strong>
+          </article>
+          <article class="metric">
+            <span class="muted">Object permissions</span>
+            <strong>{{ object_permission_count }}</strong>
+          </article>
+        {% endif %}
       </div>
     </div>
   </section>

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Users | Agent Ops{% endblock %}
+
+{% block content %}
+  <div class="actions">
+    <div>
+      <h1>Users</h1>
+      <p class="muted">First-party platform users.</p>
+    </div>
+    <a class="button-link" href="{% url 'user_add' %}">Create user</a>
+  </div>
+
+  <section class="card">
+    <div class="card-body table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Email</th>
+            <th>Display name</th>
+            <th>Staff</th>
+            <th>Active</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for user in users %}
+            <tr>
+              <td><a href="{% url 'user_detail' user.pk %}">{{ user.username }}</a></td>
+              <td>{{ user.email }}</td>
+              <td>{{ user.display_name|default:"-" }}</td>
+              <td>{% if user.is_staff %}Yes{% else %}No{% endif %}</td>
+              <td>{% if user.is_active %}Yes{% else %}No{% endif %}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="5" class="muted">No users found.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

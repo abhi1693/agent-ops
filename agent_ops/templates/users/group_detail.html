@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}{{ object.name }} | Agent Ops{% endblock %}
+
+{% block content %}
+  <div class="actions">
+    <div>
+      <h1>{{ object.name }}</h1>
+      <p class="muted">{{ object.description|default:"Managed platform group." }}</p>
+    </div>
+    <a class="button-link" href="{% url 'group_edit' object.pk %}">Edit group</a>
+  </div>
+
+  <section class="card">
+    <div class="card-body stack">
+      <div class="detail-grid">
+        <article class="detail-block">
+          <h3>Members</h3>
+          {% if object.users.all %}
+            <ul class="detail-list">
+              {% for user in object.users.all %}
+                <li><a href="{% url 'user_detail' user.pk %}">{{ user.username }}</a></li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="muted">No users assigned.</p>
+          {% endif %}
+        </article>
+        <article class="detail-block">
+          <h3>Auth Permissions</h3>
+          {% if object.permissions.all %}
+            <ul class="detail-list">
+              {% for permission in object.permissions.all %}
+                <li>{{ permission.content_type.app_label }}.{{ permission.codename }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="muted">No auth permissions assigned.</p>
+          {% endif %}
+        </article>
+        <article class="detail-block">
+          <h3>Object Permissions</h3>
+          {% if object.object_permissions.all %}
+            <ul class="detail-list">
+              {% for permission in object.object_permissions.all %}
+                <li><a href="{% url 'objectpermission_detail' permission.pk %}">{{ permission.name }}</a></li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="muted">No object permissions assigned.</p>
+          {% endif %}
+        </article>
+      </div>
+    </div>
+  </section>
+{% endblock %}

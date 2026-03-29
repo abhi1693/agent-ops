@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}{{ object.name }} | Agent Ops{% endblock %}
+
+{% block content %}
+  <div class="actions">
+    <div>
+      <h1>{{ object.name }}</h1>
+      <p class="muted">{{ object.description|default:"Managed object permission." }}</p>
+    </div>
+    <a class="button-link" href="{% url 'objectpermission_edit' object.pk %}">Edit permission</a>
+  </div>
+
+  <section class="card">
+    <div class="card-body stack">
+      <div class="detail-grid">
+        <article class="detail-block">
+          <h3>Scope</h3>
+          <p><strong>Enabled:</strong> {% if object.enabled %}Yes{% else %}No{% endif %}</p>
+          <p><strong>Actions:</strong> {{ object.actions|join:", " }}</p>
+        </article>
+        <article class="detail-block">
+          <h3>Content Types</h3>
+          <ul class="detail-list">
+            {% for content_type in object.content_types.all %}
+              <li>{{ content_type.app_label }}.{{ content_type.model }}</li>
+            {% endfor %}
+          </ul>
+        </article>
+      </div>
+
+      <div class="detail-block">
+        <h3>Constraints</h3>
+        {% if object.constraints %}
+          <pre>{{ object.constraints }}</pre>
+        {% else %}
+          <p class="muted">No additional constraints.</p>
+        {% endif %}
+      </div>
+
+      <div class="detail-grid">
+        <article class="detail-block">
+          <h3>Assigned Users</h3>
+          {% if object.users.all %}
+            <ul class="detail-list">
+              {% for user in object.users.all %}
+                <li><a href="{% url 'user_detail' user.pk %}">{{ user.username }}</a></li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="muted">No direct user assignments.</p>
+          {% endif %}
+        </article>
+        <article class="detail-block">
+          <h3>Assigned Groups</h3>
+          {% if object.groups.all %}
+            <ul class="detail-list">
+              {% for group in object.groups.all %}
+                <li><a href="{% url 'group_detail' group.pk %}">{{ group.name }}</a></li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="muted">No group assignments.</p>
+          {% endif %}
+        </article>
+      </div>
+    </div>
+  </section>
+{% endblock %}

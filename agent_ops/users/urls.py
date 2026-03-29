@@ -1,10 +1,49 @@
-from django.contrib.auth.views import LogoutView
-from django.urls import path, reverse_lazy
+from django.urls import path
 
-from .views import AgentOpsLoginView, HomeView
+from .views import (
+    AgentOpsLoginView,
+    AgentOpsLogoutView,
+    GroupCreateView,
+    GroupDetailView,
+    GroupListView,
+    GroupUpdateView,
+    HomeView,
+    ObjectPermissionCreateView,
+    ObjectPermissionDetailView,
+    ObjectPermissionListView,
+    ObjectPermissionUpdateView,
+    PreferenceUpdateView,
+    ProfileUpdateView,
+    ProfileView,
+    TokenCreateView,
+    TokenDeleteView,
+    TokenListView,
+    UserCreateView,
+    UserDetailView,
+    UserListView,
+    UserUpdateView,
+)
 
 urlpatterns = [
     path("", HomeView.as_view(), name="home"),
     path("login/", AgentOpsLoginView.as_view(), name="login"),
-    path("logout/", LogoutView.as_view(next_page=reverse_lazy("login")), name="logout"),
+    path("logout/", AgentOpsLogoutView.as_view(), name="logout"),
+    path("profile/", ProfileView.as_view(), name="profile"),
+    path("profile/edit/", ProfileUpdateView.as_view(), name="profile_edit"),
+    path("preferences/", PreferenceUpdateView.as_view(), name="preferences"),
+    path("tokens/", TokenListView.as_view(), name="token_list"),
+    path("tokens/add/", TokenCreateView.as_view(), name="token_add"),
+    path("tokens/<int:pk>/delete/", TokenDeleteView.as_view(), name="token_delete"),
+    path("users/", UserListView.as_view(), name="user_list"),
+    path("users/add/", UserCreateView.as_view(), name="user_add"),
+    path("users/<int:pk>/", UserDetailView.as_view(), name="user_detail"),
+    path("users/<int:pk>/edit/", UserUpdateView.as_view(), name="user_edit"),
+    path("groups/", GroupListView.as_view(), name="group_list"),
+    path("groups/add/", GroupCreateView.as_view(), name="group_add"),
+    path("groups/<int:pk>/", GroupDetailView.as_view(), name="group_detail"),
+    path("groups/<int:pk>/edit/", GroupUpdateView.as_view(), name="group_edit"),
+    path("permissions/", ObjectPermissionListView.as_view(), name="objectpermission_list"),
+    path("permissions/add/", ObjectPermissionCreateView.as_view(), name="objectpermission_add"),
+    path("permissions/<int:pk>/", ObjectPermissionDetailView.as_view(), name="objectpermission_detail"),
+    path("permissions/<int:pk>/edit/", ObjectPermissionUpdateView.as_view(), name="objectpermission_edit"),
 ]

@@ -12,13 +12,53 @@
     }
     body {
       margin: 0;
-      background: #f4f7fb;
+      background: linear-gradient(180deg, #f7fafc 0%, #eef3f9 100%);
       color: #132238;
     }
+    a {
+      color: #0b63ce;
+    }
     .shell {
-      max-width: 960px;
+      max-width: 1120px;
       margin: 0 auto;
       padding: 2rem 1.25rem 4rem;
+    }
+    .topbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      padding: 1rem 1.25rem;
+      background: rgba(255, 255, 255, 0.85);
+      border: 1px solid #d8e2ef;
+      border-radius: 16px;
+      backdrop-filter: blur(12px);
+    }
+    .brand {
+      display: grid;
+      gap: 0.15rem;
+    }
+    .brand strong {
+      font-size: 1.05rem;
+      letter-spacing: 0.02em;
+    }
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .nav a,
+    .nav button {
+      border: 1px solid #bfd0e2;
+      border-radius: 999px;
+      background: #fff;
+      color: #21364f;
+      padding: 0.55rem 0.9rem;
+      text-decoration: none;
+      font-weight: 600;
+      cursor: pointer;
     }
     .card {
       background: #fff;
@@ -35,12 +75,15 @@
     }
     .actions {
       display: flex;
+      flex-wrap: wrap;
       gap: 0.75rem;
       align-items: center;
       justify-content: space-between;
       margin-bottom: 1.5rem;
     }
-    input {
+    input,
+    select,
+    textarea {
       width: 100%;
       box-sizing: border-box;
       border: 1px solid #bfd0e2;
@@ -63,6 +106,42 @@
       cursor: pointer;
       text-decoration: none;
     }
+    .button-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #bfd0e2;
+      border-radius: 10px;
+      background: #fff;
+      color: #21364f;
+      font: inherit;
+      font-weight: 600;
+      padding: 0.8rem 1.1rem;
+      text-decoration: none;
+    }
+    .field {
+      display: grid;
+      gap: 0.45rem;
+    }
+    .field label {
+      font-weight: 600;
+    }
+    .checkbox-grid ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 0.35rem;
+    }
+    .checkbox-grid li {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+    }
+    .checkbox-grid input {
+      width: auto;
+      margin: 0;
+    }
     .muted {
       color: #5f738c;
     }
@@ -71,10 +150,121 @@
       padding-left: 1.25rem;
       color: #b42318;
     }
+    .message-list {
+      display: grid;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .message {
+      padding: 0.85rem 1rem;
+      border-radius: 12px;
+      border: 1px solid #cfe0f5;
+      background: #eef6ff;
+      overflow-wrap: anywhere;
+    }
+    .metrics {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+    .metric {
+      padding: 1rem;
+      border-radius: 14px;
+      border: 1px solid #d8e2ef;
+      background: #f8fbff;
+    }
+    .metric strong {
+      display: block;
+      font-size: 1.65rem;
+      line-height: 1.1;
+    }
+    .table-wrap {
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th,
+    td {
+      padding: 0.85rem 0.75rem;
+      border-bottom: 1px solid #e3ebf4;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: #5f738c;
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+    .detail-grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+    .detail-block {
+      padding: 1rem;
+      border-radius: 14px;
+      border: 1px solid #d8e2ef;
+      background: #f8fbff;
+    }
+    .detail-block h3 {
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+    }
+    .detail-list {
+      margin: 0;
+      padding-left: 1.1rem;
+    }
+    .pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .pill {
+      display: inline-flex;
+      border-radius: 999px;
+      background: #edf3fb;
+      color: #31455f;
+      padding: 0.35rem 0.65rem;
+      font-size: 0.92rem;
+      font-weight: 600;
+      text-decoration: none;
+    }
   </style>
 </head>
 <body>
   <main class="shell">
+    {% if request.user.is_authenticated %}
+      <header class="topbar">
+        <div class="brand">
+          <strong>Agent Ops</strong>
+          <span class="muted">Users module</span>
+        </div>
+        <nav class="nav">
+          <a href="{% url 'home' %}">Home</a>
+          <a href="{% url 'profile' %}">Profile</a>
+          <a href="{% url 'preferences' %}">Preferences</a>
+          <a href="{% url 'token_list' %}">API tokens</a>
+          {% if request.user.is_staff or request.user.is_superuser %}
+            <a href="{% url 'user_list' %}">Users</a>
+            <a href="{% url 'group_list' %}">Groups</a>
+            <a href="{% url 'objectpermission_list' %}">Permissions</a>
+          {% endif %}
+          <form method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button type="submit">Log out</button>
+          </form>
+        </nav>
+      </header>
+    {% endif %}
+    {% if messages %}
+      <section class="message-list">
+        {% for message in messages %}
+          <div class="message">{{ message }}</div>
+        {% endfor %}
+      </section>
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
 </body>
