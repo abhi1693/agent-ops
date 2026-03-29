@@ -197,14 +197,15 @@ class ObjectEditView(QuerysetBackedObjectView):
     def post(self, request, *args, **kwargs):
         form = self.get_form(data=request.POST, files=request.FILES)
         if form.is_valid():
+            addanother_url = self.get_addanother_url() if self.get_show_add_another() else None
             created = self.object.pk is None
             self.object = self.form_save(form)
             success_message = self.get_success_message(self.object, created)
             if success_message:
                 messages.success(request, success_message)
 
-            if "_addanother" in request.POST and self.get_show_add_another():
-                return redirect(self.get_addanother_url())
+            if "_addanother" in request.POST and addanother_url:
+                return redirect(addanother_url)
 
             return redirect(self.get_return_url(request, self.object))
 

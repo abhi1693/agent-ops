@@ -351,6 +351,21 @@ class AuthViewTests(TestCase):
         self.assertEqual(group.permissions.get(), self.change_user_permission)
         self.assertEqual(group.object_permissions.get(), object_permission)
 
+    def test_staff_user_can_create_group_and_add_another(self) -> None:
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("group_add"),
+            {
+                "name": "Operators",
+                "description": "Operational staff",
+                "_addanother": "1",
+            },
+        )
+
+        self.assertRedirects(response, reverse("group_add"))
+        self.assertTrue(Group.objects.filter(name="Operators").exists())
+
     def test_staff_user_can_create_platform_user(self) -> None:
         group = Group.objects.create(name="Operators")
         object_permission = ObjectPermission.objects.create(
