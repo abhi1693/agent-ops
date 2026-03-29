@@ -28,14 +28,6 @@ class BaseViewSet(GenericViewSet):
         return None
 
 
-class ReadOnlyModelViewSet(
-    mixins.RetrieveModelMixin,
-    mixins.ListModelMixin,
-    BaseViewSet,
-):
-    pass
-
-
 class ModelViewSet(
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,

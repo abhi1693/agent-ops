@@ -1,4 +1,3 @@
-from rest_framework import exceptions
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from users.models import Token
@@ -26,17 +25,6 @@ class TokenPermissions(BasePermission):
         if isinstance(request.auth, Token) and not self._verify_write_permission(request):
             return False
         return bool(request.user and request.user.is_authenticated)
-
-
-class TokenWritePermission(BasePermission):
-    """
-    Require token authentication with write access for unsafe requests.
-    """
-
-    def has_permission(self, request, view):
-        if not isinstance(request.auth, Token):
-            raise exceptions.PermissionDenied("TokenWritePermission requires token authentication.")
-        return bool(request.method in SAFE_METHODS or request.auth.write_enabled)
 
 
 class IsStaffUser(BasePermission):

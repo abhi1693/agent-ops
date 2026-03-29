@@ -6,19 +6,15 @@ class SerializedPKRelatedField(PrimaryKeyRelatedField):
     Read a related field as a nested object while still accepting primary keys on write.
     """
 
-    def __init__(self, serializer, nested=False, **kwargs):
+    def __init__(self, serializer, **kwargs):
         self.serializer = serializer
-        self.nested = nested
         super().__init__(**kwargs)
 
     def use_pk_only_optimization(self):
         return False
 
     def to_representation(self, value):
-        kwargs = {"context": self.context}
-        if self.nested:
-            kwargs["nested"] = True
-        return self.serializer(value, **kwargs).data
+        return self.serializer(value, context=self.context).data
 
     def get_choices(self, cutoff=None):
         queryset = self.get_queryset()
