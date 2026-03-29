@@ -84,7 +84,7 @@ class RowActionsColumn(tables.Column):
         if not actions:
             return ""
 
-        html = ['<span class="btn-group" role="group" aria-label="Row actions">']
+        html = ['<span class="d-inline-flex align-items-center gap-1" role="group" aria-label="Row actions">']
         for action in actions:
             html.append(
                 (
