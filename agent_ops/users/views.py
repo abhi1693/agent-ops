@@ -1,6 +1,6 @@
 from django.db.models import Count
 
-from core.generic_views import ObjectEditView, ObjectListView, ObjectView
+from core.generic_views import ObjectDeleteView, ObjectEditView, ObjectListView, ObjectView
 from . import filtersets, tables
 from .forms import (
     GroupForm,
@@ -45,6 +45,11 @@ class UserUpdateView(StaffRequiredMixin, ObjectEditView):
     success_message = "User updated."
 
 
+class UserDeleteView(StaffRequiredMixin, ObjectDeleteView):
+    model = User
+    success_message = "User deleted."
+
+
 class GroupListView(StaffRequiredMixin, ObjectListView):
     queryset = Group.objects.all()
     table = tables.GroupTable
@@ -86,6 +91,11 @@ class GroupUpdateView(StaffRequiredMixin, ObjectEditView):
     success_message = "Group updated."
 
 
+class GroupDeleteView(StaffRequiredMixin, ObjectDeleteView):
+    model = Group
+    success_message = "Group deleted."
+
+
 class ObjectPermissionListView(StaffRequiredMixin, ObjectListView):
     queryset = ObjectPermission.objects.all()
     table = tables.ObjectPermissionTable
@@ -121,3 +131,8 @@ class ObjectPermissionUpdateView(StaffRequiredMixin, ObjectEditView):
     model = ObjectPermission
     form_class = ObjectPermissionForm
     success_message = "Object permission updated."
+
+
+class ObjectPermissionDeleteView(StaffRequiredMixin, ObjectDeleteView):
+    model = ObjectPermission
+    success_message = "Object permission deleted."

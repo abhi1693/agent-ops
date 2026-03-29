@@ -61,6 +61,8 @@ class ListViewTests(TestCase):
         self.assertNotContains(response, "Filters")
         self.assertContains(response, "Alpha User")
         self.assertContains(response, "Beta User")
+        self.assertContains(response, reverse("user_edit", args=[self.user_alpha.pk]))
+        self.assertContains(response, reverse("user_delete", args=[self.user_alpha.pk]))
         self.assertEqual(response.context["table"].paginator.count, 3)
 
     def test_user_list_supports_query_param_filtering(self) -> None:
@@ -75,6 +77,8 @@ class ListViewTests(TestCase):
         response = self.client.get(reverse("group_list"))
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("group_edit", args=[self.group.pk]))
+        self.assertContains(response, reverse("group_delete", args=[self.group.pk]))
         group = next(
             group
             for group in response.context["table"].data.data
@@ -93,4 +97,6 @@ class ListViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "View users")
         self.assertNotContains(response, "Delete users")
+        self.assertContains(response, reverse("objectpermission_edit", args=[self.permission_view.pk]))
+        self.assertContains(response, reverse("objectpermission_delete", args=[self.permission_view.pk]))
         self.assertEqual(response.context["table"].paginator.count, 1)

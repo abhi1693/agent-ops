@@ -1,7 +1,11 @@
+from urllib.parse import quote
+
 import django_tables2 as tables
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models.fields.related import RelatedField
 from django.db.models.fields.reverse_related import ManyToOneRel
+from django.urls import NoReverseMatch, reverse
+from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 from django_tables2.data import TableQuerysetData
 
@@ -11,7 +15,129 @@ from core.paginator import EnhancedPaginator, get_paginate_count
 __all__ = (
     "AgentOpsTable",
     "BaseTable",
+    "RowActionsColumn",
 )
+
+
+class RowActionsColumn(tables.Column):
+    attrs = {
+        "td": {
+            "class": "text-end text-nowrap noprint p-1",
+        }
+    }
+    empty_values = ()
+    action_map = {
+        "edit": {
+            "label": "Edit",
+            "icon": "pencil",
+            "btn_class": "warning",
+        },
+        "delete": {
+            "label": "Delete",
+            "icon": "trash-can-outline",
+            "btn_class": "danger",
+        },
+    }
+
+    def __init__(self, *args, actions=("edit", "delete"), split_actions=True, **kwargs):
+        kwargs.setdefault("verbose_name", "")
+        kwargs.setdefault("orderable", False)
+        super().__init__(*args, **kwargs)
+        self.actions = actions
+        self.split_actions = split_actions
+
+    def header(self):
+        return ""
+
+    def _get_action_url(self, record, action, request):
+        try:
+            url = reverse(f"{record._meta.model_name}_{action}", args=[record.pk])
+        except NoReverseMatch:
+            return None
+
+        if request is not None:
+            return_url = quote(request.get_full_path())
+            return f"{url}?return_url={return_url}"
+
+        return url
+
+    def render(self, record, table, **kwargs):
+        request = getattr(table, "request", None)
+        actions = []
+
+        for action_name in self.actions:
+            action = self.action_map.get(action_name)
+            if action is None:
+                continue
+
+            url = self._get_action_url(record, action_name, request)
+            if url is None:
+                continue
+
+            actions.append(
+                {
+                    "label": action["label"],
+                    "icon": action["icon"],
+                    "btn_class": action["btn_class"],
+                    "url": url,
+                }
+            )
+
+        if not actions:
+            return ""
+
+        direct_action = actions[0] if len(actions) == 1 or self.split_actions else None
+        dropdown_actions = actions[1:] if direct_action else actions
+        html = []
+
+        if direct_action and dropdown_actions:
+            html.append('<span class="btn-group dropdown">')
+        elif dropdown_actions:
+            html.append('<span class="btn-group dropdown">')
+
+        if direct_action:
+            html.append(
+                (
+                    f'<a class="btn btn-sm btn-{direct_action["btn_class"]}" '
+                    f'href="{direct_action["url"]}" aria-label="{direct_action["label"]}">'
+                    f'<i class="mdi mdi-{direct_action["icon"]}" aria-hidden="true"></i>'
+                    '</a>'
+                )
+            )
+
+        if dropdown_actions:
+            toggle_class = direct_action["btn_class"] if direct_action else "secondary"
+            toggle_style = ' style="padding-left: 2px"' if direct_action else ""
+            html.append(
+                (
+                    f'<a class="btn btn-sm btn-{toggle_class} dropdown-toggle" '
+                    f'type="button" data-bs-toggle="dropdown"{toggle_style}>'
+                    f'<span class="visually-hidden">{_("Toggle Dropdown")}</span>'
+                    '</a>'
+                    '<ul class="dropdown-menu">'
+                )
+            )
+
+            for action in dropdown_actions:
+                html.append(
+                    (
+                        "<li>"
+                        f'<a class="dropdown-item" href="{action["url"]}">'
+                        f'<i class="mdi mdi-{action["icon"]}" aria-hidden="true"></i> {action["label"]}'
+                        "</a>"
+                        "</li>"
+                    )
+                )
+
+            html.append("</ul>")
+
+        if direct_action or dropdown_actions:
+            if direct_action and dropdown_actions:
+                html.append("</span>")
+            elif dropdown_actions:
+                html.append("</span>")
+
+        return mark_safe("".join(html))
 
 
 class BaseTable(tables.Table):

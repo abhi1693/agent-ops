@@ -1,7 +1,7 @@
 import django_tables2 as tables
 from django.utils.html import format_html
 
-from core.tables import AgentOpsTable
+from core.tables import AgentOpsTable, RowActionsColumn
 from users.models import Group, ObjectPermission, Token, User
 
 
@@ -17,11 +17,12 @@ class UserTable(AgentOpsTable):
     display_name = tables.Column(verbose_name="Display name")
     is_staff = tables.Column(verbose_name="Staff")
     is_active = tables.Column(verbose_name="Active")
+    actions = RowActionsColumn(actions=("edit", "delete"))
 
     class Meta(AgentOpsTable.Meta):
         model = User
-        fields = ("username", "email", "display_name", "is_staff", "is_active")
-        default_columns = ("username", "email", "display_name", "is_staff", "is_active")
+        fields = ("username", "email", "display_name", "is_staff", "is_active", "actions")
+        default_columns = ("username", "email", "display_name", "is_staff", "is_active", "actions")
 
     def render_display_name(self, value):
         return value or "-"
@@ -39,6 +40,7 @@ class GroupTable(AgentOpsTable):
     user_count = tables.Column(verbose_name="Members")
     permission_count = tables.Column(verbose_name="Auth permissions")
     object_permission_count = tables.Column(verbose_name="Object permissions")
+    actions = RowActionsColumn(actions=("edit", "delete"))
 
     class Meta(AgentOpsTable.Meta):
         model = Group
@@ -48,6 +50,7 @@ class GroupTable(AgentOpsTable):
             "user_count",
             "permission_count",
             "object_permission_count",
+            "actions",
         )
         default_columns = (
             "name",
@@ -55,6 +58,7 @@ class GroupTable(AgentOpsTable):
             "user_count",
             "permission_count",
             "object_permission_count",
+            "actions",
         )
 
     def render_description(self, value):
@@ -63,16 +67,17 @@ class GroupTable(AgentOpsTable):
 
 class ObjectPermissionTable(AgentOpsTable):
     name = tables.Column(linkify=True)
-    actions = tables.Column()
+    action_list = tables.Column(accessor="actions", verbose_name="Actions")
     content_type_count = tables.Column(verbose_name="Content types")
     enabled = tables.Column()
+    actions = RowActionsColumn(actions=("edit", "delete"))
 
     class Meta(AgentOpsTable.Meta):
         model = ObjectPermission
-        fields = ("name", "actions", "content_type_count", "enabled")
-        default_columns = ("name", "actions", "content_type_count", "enabled")
+        fields = ("name", "action_list", "content_type_count", "enabled", "actions")
+        default_columns = ("name", "action_list", "content_type_count", "enabled", "actions")
 
-    def render_actions(self, value):
+    def render_action_list(self, value):
         return ", ".join(value) if value else "-"
 
     def render_enabled(self, value):
@@ -86,12 +91,7 @@ class TokenTable(AgentOpsTable):
     created = tables.DateTimeColumn()
     expires = tables.DateTimeColumn()
     write_enabled = tables.Column(verbose_name="Write")
-    actions = tables.TemplateColumn(
-        template_code='<a class="btn btn-danger btn-sm" href="{% url \'token_delete\' record.pk %}">Delete</a>',
-        verbose_name="",
-        orderable=False,
-        attrs={"td": {"class": "text-end"}},
-    )
+    actions = RowActionsColumn(actions=("delete",))
 
     class Meta(AgentOpsTable.Meta):
         model = Token

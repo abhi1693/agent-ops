@@ -366,6 +366,15 @@ class AuthViewTests(TestCase):
         self.assertRedirects(response, reverse("group_add"))
         self.assertTrue(Group.objects.filter(name="Operators").exists())
 
+    def test_staff_user_can_delete_group(self) -> None:
+        group = Group.objects.create(name="Contractors", description="Temporary access")
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(reverse("group_delete", args=[group.pk]))
+
+        self.assertRedirects(response, reverse("group_list"))
+        self.assertFalse(Group.objects.filter(pk=group.pk).exists())
+
     def test_staff_user_can_create_platform_user(self) -> None:
         group = Group.objects.create(name="Operators")
         object_permission = ObjectPermission.objects.create(
