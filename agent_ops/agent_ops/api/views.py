@@ -23,6 +23,7 @@ class APIRootView(APIView):
     def get(self, request, format=None):
         return Response(
             {
+                "tenancy": reverse("api:tenancy-api:api-root", request=request, format=format),
                 "users": reverse("api:users-api:api-root", request=request, format=format),
                 "status": reverse("api:status", request=request, format=format),
             }

@@ -146,8 +146,9 @@ class AuthViewTests(TestCase):
         self.assertNotContains(response, "Access Catalog")
         self.assertContains(response, "Users")
         self.assertContains(response, "Authentication")
+        self.assertContains(response, "Tenancy")
+        self.assertContains(response, "Organizations")
         self.assertContains(response, "Object Permissions")
-        self.assertNotContains(response, "Workspace")
 
     def test_navigation_registry_excludes_account_links_from_sidebar(self) -> None:
         request = self.factory.get(reverse("home"))
@@ -156,25 +157,39 @@ class AuthViewTests(TestCase):
 
         nav_items = build_navigation(request)
 
-        self.assertEqual(len(nav_items), 1)
-        self.assertEqual(nav_items[0]["label"], "Administration")
-        self.assertEqual([group["label"] for group in nav_items[0]["groups"]], ["Authentication"])
-        self.assertEqual(nav_items[0]["icon_class"], "mdi mdi-account-multiple")
+        self.assertEqual(len(nav_items), 2)
+        nav_by_label = {item["label"]: item for item in nav_items}
+        self.assertEqual(set(nav_by_label), {"Administration", "Tenancy"})
 
-        menu_entries = [
+        administration_entries = [
             (item["label"], item["icon_class"], item["add_url"])
-            for group in nav_items[0]["groups"]
+            for group in nav_by_label["Administration"]["groups"]
             for item in group["items"]
         ]
         self.assertEqual(
-            menu_entries,
+            administration_entries,
             [
                 ("Users", "mdi mdi-account-outline", reverse("user_add")),
                 ("Groups", "mdi mdi-account-group-outline", reverse("group_add")),
                 ("Object Permissions", "mdi mdi-shield-key-outline", reverse("objectpermission_add")),
             ],
         )
-        menu_labels = [label for label, _icon, _add_url in menu_entries]
+        tenancy_entries = [
+            (item["label"], item["icon_class"], item["add_url"])
+            for group in nav_by_label["Tenancy"]["groups"]
+            for item in group["items"]
+        ]
+        self.assertEqual(
+            tenancy_entries,
+            [
+                ("Organizations", "mdi mdi-office-building-outline", reverse("organization_add")),
+                ("Workspaces", "mdi mdi-briefcase-outline", reverse("workspace_add")),
+                ("Environments", "mdi mdi-cloud-outline", reverse("environment_add")),
+            ],
+        )
+        menu_labels = [
+            label for label, _icon, _add_url in [*administration_entries, *tenancy_entries]
+        ]
         self.assertNotIn("Profile", menu_labels)
         self.assertNotIn("Preferences", menu_labels)
         self.assertNotIn("API Tokens", menu_labels)

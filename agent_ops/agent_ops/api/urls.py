@@ -8,6 +8,7 @@ app_name = "api"
 
 urlpatterns = [
     path("", APIRootView.as_view(), name="api-root"),
+    path("tenancy/", include(("tenancy.api.urls", "tenancy-api"), namespace="tenancy-api")),
     path("users/", include(("users.api.urls", "users-api"), namespace="users-api")),
     path("status/", StatusView.as_view(), name="status"),
     path("schema/", SpectacularAPIView.as_view(), name="schema"),

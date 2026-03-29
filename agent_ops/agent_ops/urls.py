@@ -8,6 +8,7 @@ urlpatterns = [
     path("login/", AgentOpsLoginView.as_view(), name="login"),
     path("logout/", AgentOpsLogoutView.as_view(), name="logout"),
     path("api/", include(("agent_ops.api.urls", "api"), namespace="api")),
+    path("tenancy/", include("tenancy.urls")),
     path("user/", include("account.urls")),
     path("users/", include("users.urls")),
 ]

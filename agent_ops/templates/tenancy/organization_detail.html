@@ -1,0 +1,84 @@
+{% extends "generic/object.html" %}
+
+{% block title %}{{ object.name }}{% endblock %}
+
+{% block controls %}
+  <div class="btn-list object-page-actions">
+    <a class="btn btn-warning" href="{% url 'organization_edit' object.pk %}">
+      <i class="mdi mdi-pencil" aria-hidden="true"></i>
+      <span>Edit</span>
+    </a>
+  </div>
+{% endblock %}
+
+{% block main %}
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Details</h3>
+    </div>
+    <table class="table table-hover attr-table mb-0">
+      <tr>
+        <th scope="row">Description</th>
+        <td>{{ object.description|default:"Not set" }}</td>
+      </tr>
+    </table>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Workspaces</h3>
+      <div class="card-actions">
+        <span class="badge text-bg-secondary object-panel-count">{{ object.workspace_count }}</span>
+      </div>
+    </div>
+    <div class="list-group list-group-flush object-panel-list">
+      {% for workspace in object.workspaces.all %}
+        <a class="list-group-item list-group-item-action" href="{% url 'workspace_detail' workspace.pk %}">
+          <div class="fw-medium">{{ workspace.name }}</div>
+          {% if workspace.description %}
+            <div class="text-secondary small">{{ workspace.description }}</div>
+          {% endif %}
+        </a>
+      {% empty %}
+        <div class="list-group-item text-secondary">No workspaces defined.</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Environments</h3>
+      <div class="card-actions">
+        <span class="badge text-bg-secondary object-panel-count">{{ object.environment_count }}</span>
+      </div>
+    </div>
+    <div class="list-group list-group-flush object-panel-list">
+      {% for environment in object.environments.all %}
+        <a class="list-group-item list-group-item-action" href="{% url 'environment_detail' environment.pk %}">
+          <div class="fw-medium">{{ environment.name }}</div>
+          <div class="text-secondary small">{{ environment.workspace.name }}</div>
+        </a>
+      {% empty %}
+        <div class="list-group-item text-secondary">No environments defined.</div>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}
+
+{% block side %}
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Summary</h3>
+    </div>
+    <table class="table table-hover attr-table mb-0">
+      <tr>
+        <th scope="row">Workspaces</th>
+        <td>{{ object.workspace_count }}</td>
+      </tr>
+      <tr>
+        <th scope="row">Environments</th>
+        <td>{{ object.environment_count }}</td>
+      </tr>
+    </table>
+  </section>
+{% endblock %}

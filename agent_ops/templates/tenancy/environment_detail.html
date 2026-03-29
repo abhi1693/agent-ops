@@ -1,0 +1,56 @@
+{% extends "generic/object.html" %}
+
+{% block title %}{{ object.name }}{% endblock %}
+
+{% block controls %}
+  <div class="btn-list object-page-actions">
+    <a class="btn btn-warning" href="{% url 'environment_edit' object.pk %}">
+      <i class="mdi mdi-pencil" aria-hidden="true"></i>
+      <span>Edit</span>
+    </a>
+  </div>
+{% endblock %}
+
+{% block main %}
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Details</h3>
+    </div>
+    <table class="table table-hover attr-table mb-0">
+      <tr>
+        <th scope="row">Organization</th>
+        <td>
+          <a href="{% url 'organization_detail' object.organization.pk %}">{{ object.organization.name }}</a>
+        </td>
+      </tr>
+      <tr>
+        <th scope="row">Workspace</th>
+        <td>
+          <a href="{% url 'workspace_detail' object.workspace.pk %}">{{ object.workspace.name }}</a>
+        </td>
+      </tr>
+      <tr>
+        <th scope="row">Description</th>
+        <td>{{ object.description|default:"Not set" }}</td>
+      </tr>
+    </table>
+  </section>
+{% endblock %}
+
+{% block side %}
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Summary</h3>
+    </div>
+    <table class="table table-hover attr-table mb-0">
+      <tr>
+        <th scope="row">Organization</th>
+        <td>{{ object.organization.name }}</td>
+      </tr>
+      <tr>
+        <th scope="row">Workspace</th>
+        <td>{{ object.workspace.name }}</td>
+      </tr>
+    </table>
+  </section>
+{% endblock %}

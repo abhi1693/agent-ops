@@ -1,3 +1,4 @@
+from django.db import connections
 from django.db.models import Q
 import django_filters
 
@@ -54,6 +55,11 @@ class ObjectPermissionFilterSet(SearchFilterSet):
     def filter_action(self, queryset, _name, value):
         if not value:
             return queryset
+        if connections[queryset.db].vendor == "sqlite":
+            matching_ids = [
+                permission.pk for permission in queryset if value in permission.actions
+            ]
+            return queryset.filter(pk__in=matching_ids)
         return queryset.filter(actions__contains=[value])
 
 
