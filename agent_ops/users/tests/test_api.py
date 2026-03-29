@@ -18,7 +18,6 @@ class APITestCase(TestCase):
             password="testpass123",
             first_name="API",
             last_name="User",
-            display_name="API User",
         )
         cls.staff_user = User.objects.create_user(
             username="staff-user",
@@ -326,7 +325,6 @@ class APITestCase(TestCase):
                 {
                     "id": self.user.id,
                     "username": self.user.username,
-                    "display_name": self.user.display_name,
                     "first_name": self.user.first_name,
                     "last_name": self.user.last_name,
                     "email": self.user.email,

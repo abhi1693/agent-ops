@@ -40,7 +40,6 @@ class User(ChangeLoggedModel, AbstractBaseUser, PermissionsMixin):
     first_name = models.CharField(max_length=150, blank=True)
     last_name = models.CharField(max_length=150, blank=True)
     email = models.EmailField(unique=True)
-    display_name = models.CharField(max_length=150, blank=True)
     is_staff = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     date_joined = models.DateTimeField(default=timezone.now)
@@ -72,7 +71,7 @@ class User(ChangeLoggedModel, AbstractBaseUser, PermissionsMixin):
         ordering = ("username",)
 
     def __str__(self) -> str:
-        return self.display_name or self.get_full_name() or self.username
+        return self.get_full_name() or self.username
 
     def get_absolute_url(self):
         return reverse("user_detail", args=[self.pk])

@@ -238,7 +238,6 @@ class AuthViewTests(TestCase):
                 "email": "alice+updated@example.com",
                 "first_name": "Alice",
                 "last_name": "Admin",
-                "display_name": "Alice A.",
             },
         )
 
@@ -246,7 +245,7 @@ class AuthViewTests(TestCase):
         self.user.refresh_from_db()
         self.assertEqual(self.user.email, "alice+updated@example.com")
         self.assertEqual(self.user.first_name, "Alice")
-        self.assertEqual(self.user.display_name, "Alice A.")
+        self.assertEqual(self.user.last_name, "Admin")
 
     def test_profile_edit_page_renders(self) -> None:
         self.client.force_login(self.user)
@@ -438,7 +437,6 @@ class AuthViewTests(TestCase):
                 "email": "bob@example.com",
                 "first_name": "Bob",
                 "last_name": "Builder",
-                "display_name": "Builder Bob",
                 "is_active": "on",
                 "is_staff": "on",
                 "groups": [group.pk],

@@ -37,13 +37,13 @@ class ProfileForm(forms.ModelForm):
     fieldsets = (
         {
             "title": "Profile",
-            "fields": ("email", "first_name", "last_name", "display_name"),
+            "fields": ("email", "first_name", "last_name"),
         },
     )
 
     class Meta:
         model = User
-        fields = ("email", "first_name", "last_name", "display_name")
+        fields = ("email", "first_name", "last_name")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -38,7 +38,7 @@ class NestedGroupSerializer(serializers.ModelSerializer):
 class NestedUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ("id", "username", "display_name", "first_name", "last_name", "email")
+        fields = ("id", "username", "first_name", "last_name", "email")
 
 
 class MembershipOrganizationSerializer(serializers.ModelSerializer):
@@ -116,7 +116,6 @@ class UserSerializer(ValidatedModelSerializer):
             "email",
             "first_name",
             "last_name",
-            "display_name",
             "is_staff",
             "is_superuser",
             "is_active",
@@ -129,7 +128,7 @@ class UserSerializer(ValidatedModelSerializer):
             "password",
         )
         read_only_fields = ("id", "url", "date_joined", "last_login")
-        brief_fields = ("id", "url", "username", "display_name", "first_name", "last_name", "email")
+        brief_fields = ("id", "url", "username", "first_name", "last_name", "email")
 
     def validate(self, attrs):
         if self.instance is None and not attrs.get("password"):

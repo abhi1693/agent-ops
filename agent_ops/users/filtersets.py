@@ -19,7 +19,6 @@ class UserFilterSet(SearchFilterSet):
         return queryset.filter(
             Q(username__icontains=value)
             | Q(email__icontains=value)
-            | Q(display_name__icontains=value)
             | Q(first_name__icontains=value)
             | Q(last_name__icontains=value)
         )
@@ -80,7 +79,6 @@ class MembershipFilterSet(SearchFilterSet):
         return queryset.filter(
             Q(user__username__icontains=value)
             | Q(user__email__icontains=value)
-            | Q(user__display_name__icontains=value)
             | Q(organization__name__icontains=value)
             | Q(workspace__name__icontains=value)
             | Q(environment__name__icontains=value)

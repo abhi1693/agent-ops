@@ -18,14 +18,16 @@ class ListViewTests(TestCase):
             username="alpha",
             email="alpha@example.com",
             password="correct-horse-battery-staple",
-            display_name="Alpha User",
+            first_name="Alpha",
+            last_name="User",
             is_active=True,
         )
         self.user_beta = User.objects.create_user(
             username="beta",
             email="beta@example.com",
             password="correct-horse-battery-staple",
-            display_name="Beta User",
+            first_name="Beta",
+            last_name="User",
             is_active=False,
         )
 
@@ -59,8 +61,8 @@ class ListViewTests(TestCase):
         self.assertNotContains(response, "Quick search")
         self.assertNotContains(response, "Per page")
         self.assertNotContains(response, "Filters")
-        self.assertContains(response, "Alpha User")
-        self.assertContains(response, "Beta User")
+        self.assertContains(response, "alpha@example.com")
+        self.assertContains(response, "beta@example.com")
         self.assertContains(response, reverse("user_edit", args=[self.user_alpha.pk]))
         self.assertContains(response, reverse("user_delete", args=[self.user_alpha.pk]))
         self.assertNotContains(response, "dropdown-toggle")

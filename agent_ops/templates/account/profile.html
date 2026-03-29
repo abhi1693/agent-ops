@@ -29,7 +29,6 @@
             <div class="object-data-list"><div><dt>Username</dt><dd>{{ request.user.username }}</dd></div></div>
             <div class="object-data-list"><div><dt>Email</dt><dd>{{ request.user.email }}</dd></div></div>
             <div class="object-data-list"><div><dt>Full name</dt><dd>{{ request.user.get_full_name|default:"Not set" }}</dd></div></div>
-            <div class="object-data-list"><div><dt>Display name</dt><dd>{{ request.user.display_name|default:"Not set" }}</dd></div></div>
           </dl>
         </div>
       </section>

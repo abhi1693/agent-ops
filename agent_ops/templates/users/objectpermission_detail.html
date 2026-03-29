@@ -88,9 +88,7 @@
       {% for user in object.users.all %}
         <a class="list-group-item list-group-item-action" href="{% url 'user_detail' user.pk %}">
           <div class="fw-medium">{{ user.username }}</div>
-          {% if user.display_name %}
-            <div class="text-secondary small">{{ user.display_name }}</div>
-          {% elif user.email %}
+          {% if user.email %}
             <div class="text-secondary small">{{ user.email }}</div>
           {% endif %}
         </a>

@@ -11,7 +11,7 @@ class BaseUserForm(forms.ModelForm):
     base_fieldsets = (
         {
             "title": "User",
-            "fields": ("username", "email", "first_name", "last_name", "display_name"),
+            "fields": ("username", "email", "first_name", "last_name"),
         },
         {
             "title": "Status",
@@ -40,7 +40,6 @@ class BaseUserForm(forms.ModelForm):
             "email",
             "first_name",
             "last_name",
-            "display_name",
             "is_active",
             "is_staff",
             "is_superuser",

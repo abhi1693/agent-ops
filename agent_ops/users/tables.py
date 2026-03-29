@@ -14,18 +14,14 @@ def _render_boolean_badge(value):
 class UserTable(AgentOpsTable):
     username = tables.Column(linkify=True)
     email = tables.Column()
-    display_name = tables.Column(verbose_name="Display name")
     is_staff = tables.Column(verbose_name="Staff")
     is_active = tables.Column(verbose_name="Active")
     actions = RowActionsColumn(actions=("edit", "delete"))
 
     class Meta(AgentOpsTable.Meta):
         model = User
-        fields = ("username", "email", "display_name", "is_staff", "is_active", "actions")
-        default_columns = ("username", "email", "display_name", "is_staff", "is_active", "actions")
-
-    def render_display_name(self, value):
-        return value or "-"
+        fields = ("username", "email", "is_staff", "is_active", "actions")
+        default_columns = ("username", "email", "is_staff", "is_active", "actions")
 
     def render_is_staff(self, value):
         return _render_boolean_badge(value)
