@@ -1,0 +1,7 @@
+# Compile with:
+#   .venv/bin/python -m piptools compile --no-strip-extras requirements.in --output-file requirements.txt
+#
+# This file should contain only direct runtime dependencies.
+
+Django==5.2.12
+psycopg==3.3.3

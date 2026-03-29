@@ -370,3 +370,4 @@ cython_debug/
 #.idea/
 
 docs/
+agent_ops/agent_ops/configuration.py

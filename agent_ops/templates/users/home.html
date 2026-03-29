@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Home | Agent Ops{% endblock %}
+
+{% block content %}
+  <div class="actions">
+    <div>
+      <h1>Agent Ops</h1>
+      <p class="muted">Protected home view for authenticated users.</p>
+    </div>
+    <form method="post" action="{% url 'logout' %}">
+      {% csrf_token %}
+      <button type="submit">Log out</button>
+    </form>
+  </div>
+
+  <section class="card">
+    <div class="card-body stack">
+      <div>
+        <h2>Welcome, {{ request.user.display_name|default:request.user.username }}</h2>
+        <p class="muted">You are signed in as {{ request.user.email }}.</p>
+      </div>
+    </div>
+  </section>
+{% endblock %}

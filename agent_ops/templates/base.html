@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Agent Ops{% endblock %}</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+    body {
+      margin: 0;
+      background: #f4f7fb;
+      color: #132238;
+    }
+    .shell {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem 1.25rem 4rem;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #d8e2ef;
+      border-radius: 16px;
+      box-shadow: 0 16px 48px rgba(17, 40, 72, 0.08);
+    }
+    .card-body {
+      padding: 2rem;
+    }
+    .stack {
+      display: grid;
+      gap: 1rem;
+    }
+    .actions {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+    }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #bfd0e2;
+      border-radius: 10px;
+      padding: 0.85rem 1rem;
+      font: inherit;
+      background: #fff;
+    }
+    button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 10px;
+      background: #0b63ce;
+      color: #fff;
+      font: inherit;
+      font-weight: 600;
+      padding: 0.8rem 1.1rem;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .muted {
+      color: #5f738c;
+    }
+    .errorlist {
+      margin: 0;
+      padding-left: 1.25rem;
+      color: #b42318;
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

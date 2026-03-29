@@ -1,0 +1,103 @@
+import importlib
+import os
+import platform
+import sys
+from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+if sys.version_info < (3, 12):  # noqa: UP036
+    raise RuntimeError(
+        f"Agent Ops requires Python 3.12 or later. (Currently installed: Python {platform.python_version()})"
+    )
+
+
+config_path = os.getenv("AGENT_OPS_CONFIGURATION", "agent_ops.configuration")
+try:
+    configuration = importlib.import_module(config_path)
+except ModuleNotFoundError as exc:
+    if getattr(exc, "name") == config_path:
+        raise ImproperlyConfigured(
+            f"Specified configuration module ({config_path}) not found. "
+            "Define agent_ops/configuration.py or set AGENT_OPS_CONFIGURATION to an importable module."
+        ) from exc
+    raise
+
+for parameter in ("ALLOWED_HOSTS", "SECRET_KEY"):
+    if not hasattr(configuration, parameter):
+        raise ImproperlyConfigured(f"Required parameter {parameter} is missing from configuration.")
+
+if not hasattr(configuration, "DATABASES"):
+    raise ImproperlyConfigured("The database configuration must be defined using DATABASES.")
+
+
+ALLOWED_HOSTS = getattr(configuration, "ALLOWED_HOSTS")
+DATABASES = getattr(configuration, "DATABASES")
+DEBUG = getattr(configuration, "DEBUG", False)
+LANGUAGE_CODE = getattr(configuration, "LANGUAGE_CODE", "en-us")
+LOGIN_REDIRECT_URL = getattr(configuration, "LOGIN_REDIRECT_URL", "home")
+SECRET_KEY = getattr(configuration, "SECRET_KEY")
+TIME_ZONE = getattr(configuration, "TIME_ZONE", "UTC")
+
+if not isinstance(SECRET_KEY, str):
+    raise ImproperlyConfigured(f"SECRET_KEY must be a string (found {type(SECRET_KEY).__name__})")
+if len(SECRET_KEY) < 50:
+    raise ImproperlyConfigured("SECRET_KEY must be at least 50 characters in length.")
+
+if "default" not in DATABASES:
+    raise ImproperlyConfigured("No default database has been configured.")
+
+if "ENGINE" not in DATABASES["default"]:
+    DATABASES["default"]["ENGINE"] = "django.db.backends.postgresql"
+
+INSTALLED_APPS = [
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "users",
+]
+
+MIDDLEWARE = [
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.locale.LocaleMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "django.middleware.security.SecurityMiddleware",
+]
+
+ROOT_URLCONF = "agent_ops.urls"
+
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+            ],
+        },
+    }
+]
+
+WSGI_APPLICATION = "agent_ops.wsgi.application"
+ASGI_APPLICATION = "agent_ops.asgi.application"
+
+USE_I18N = True
+USE_TZ = True
+
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+AUTH_USER_MODEL = "users.User"
+LOGIN_URL = "login"
