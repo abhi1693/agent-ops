@@ -3,10 +3,10 @@ from django.contrib.auth.models import Permission
 from django.db import models
 from django.urls import reverse
 
+from core.models import OrganizationalModel
 
-class Group(models.Model):
-    name = models.CharField(max_length=150, unique=True)
-    description = models.CharField(max_length=200, blank=True)
+
+class Group(OrganizationalModel):
     permissions = models.ManyToManyField(
         Permission,
         blank=True,
@@ -23,9 +23,6 @@ class Group(models.Model):
 
     class Meta:
         ordering = ("name",)
-
-    def __str__(self) -> str:
-        return self.name
 
     def get_absolute_url(self):
         return reverse("group_detail", args=[self.pk])

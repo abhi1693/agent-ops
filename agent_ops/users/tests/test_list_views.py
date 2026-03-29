@@ -63,6 +63,7 @@ class ListViewTests(TestCase):
         self.assertContains(response, "Beta User")
         self.assertContains(response, reverse("user_edit", args=[self.user_alpha.pk]))
         self.assertContains(response, reverse("user_delete", args=[self.user_alpha.pk]))
+        self.assertNotContains(response, "dropdown-toggle")
         self.assertEqual(response.context["table"].paginator.count, 3)
 
     def test_user_list_supports_query_param_filtering(self) -> None:

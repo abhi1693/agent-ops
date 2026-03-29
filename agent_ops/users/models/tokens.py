@@ -9,6 +9,8 @@ from django.db import models
 from django.urls import reverse
 from django.utils import timezone
 
+from core.models import PrimaryModel
+
 
 TOKEN_CHARSET = string.ascii_letters + string.digits
 TOKEN_DEFAULT_LENGTH = 40
@@ -16,7 +18,7 @@ TOKEN_KEY_LENGTH = 12
 TOKEN_PREFIX = "agt_"
 
 
-class Token(models.Model):
+class Token(PrimaryModel):
     _token = None
 
     user = models.ForeignKey(
@@ -24,7 +26,6 @@ class Token(models.Model):
         on_delete=models.CASCADE,
         related_name="tokens",
     )
-    description = models.CharField(max_length=200, blank=True)
     created = models.DateTimeField(auto_now_add=True)
     expires = models.DateTimeField(blank=True, null=True)
     last_used = models.DateTimeField(blank=True, null=True)

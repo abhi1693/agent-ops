@@ -1,5 +1,6 @@
 from django.db import models
 
+from core.models import ChangeLoggedModel
 from users.preferences import DEFAULT_USER_PREFERENCES
 
 
@@ -21,7 +22,7 @@ def _resolve_path(data, keys):
     return current
 
 
-class UserConfig(models.Model):
+class UserConfig(ChangeLoggedModel):
     user = models.OneToOneField(
         "users.User",
         on_delete=models.CASCADE,

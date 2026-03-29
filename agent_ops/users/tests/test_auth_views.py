@@ -110,7 +110,7 @@ class AuthViewTests(TestCase):
         self.assertContains(response, "Please enter a correct username and password.")
         self.assertNotIn("_auth_user_id", self.client.session)
 
-    def test_home_renders_netbox_style_sections_for_authenticated_user(self) -> None:
+    def test_home_renders_compact_account_sections_for_authenticated_user(self) -> None:
         group = Group.objects.create(name="Operators", description="Operational staff")
         object_permission = ObjectPermission.objects.create(
             name="View active users",

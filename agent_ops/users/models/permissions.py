@@ -2,8 +2,10 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.urls import reverse
 
+from core.models import OrganizationalModel
 
-class ObjectPermission(models.Model):
+
+class ObjectPermission(OrganizationalModel):
     class ActionChoices(models.TextChoices):
         VIEW = "view", "View"
         ADD = "add", "Add"
@@ -11,7 +13,6 @@ class ObjectPermission(models.Model):
         DELETE = "delete", "Delete"
 
     name = models.CharField(max_length=100, unique=True)
-    description = models.CharField(max_length=200, blank=True)
     enabled = models.BooleanField(default=True)
     content_types = models.ManyToManyField("contenttypes.ContentType", related_name="object_permissions")
     actions = models.JSONField(default=list)
@@ -19,9 +20,6 @@ class ObjectPermission(models.Model):
 
     class Meta:
         ordering = ("name",)
-
-    def __str__(self) -> str:
-        return self.name
 
     def get_absolute_url(self):
         return reverse("objectpermission_detail", args=[self.pk])

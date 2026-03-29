@@ -6,7 +6,6 @@ from django.db.models.fields.related import RelatedField
 from django.db.models.fields.reverse_related import ManyToOneRel
 from django.urls import NoReverseMatch, reverse
 from django.utils.safestring import mark_safe
-from django.utils.translation import gettext_lazy as _
 from django_tables2.data import TableQuerysetData
 
 from core.paginator import EnhancedPaginator, get_paginate_count
@@ -39,12 +38,11 @@ class RowActionsColumn(tables.Column):
         },
     }
 
-    def __init__(self, *args, actions=("edit", "delete"), split_actions=True, **kwargs):
+    def __init__(self, *args, actions=("edit", "delete"), **kwargs):
         kwargs.setdefault("verbose_name", "")
         kwargs.setdefault("orderable", False)
         super().__init__(*args, **kwargs)
         self.actions = actions
-        self.split_actions = split_actions
 
     def header(self):
         return ""
@@ -86,56 +84,17 @@ class RowActionsColumn(tables.Column):
         if not actions:
             return ""
 
-        direct_action = actions[0] if len(actions) == 1 or self.split_actions else None
-        dropdown_actions = actions[1:] if direct_action else actions
-        html = []
-
-        if direct_action and dropdown_actions:
-            html.append('<span class="btn-group dropdown">')
-        elif dropdown_actions:
-            html.append('<span class="btn-group dropdown">')
-
-        if direct_action:
+        html = ['<span class="btn-group" role="group" aria-label="Row actions">']
+        for action in actions:
             html.append(
                 (
-                    f'<a class="btn btn-sm btn-{direct_action["btn_class"]}" '
-                    f'href="{direct_action["url"]}" aria-label="{direct_action["label"]}">'
-                    f'<i class="mdi mdi-{direct_action["icon"]}" aria-hidden="true"></i>'
-                    '</a>'
+                    f'<a class="btn btn-sm btn-{action["btn_class"]}" '
+                    f'href="{action["url"]}" aria-label="{action["label"]}" title="{action["label"]}">'
+                    f'<i class="mdi mdi-{action["icon"]}" aria-hidden="true"></i>'
+                    "</a>"
                 )
             )
-
-        if dropdown_actions:
-            toggle_class = direct_action["btn_class"] if direct_action else "secondary"
-            toggle_style = ' style="padding-left: 2px"' if direct_action else ""
-            html.append(
-                (
-                    f'<a class="btn btn-sm btn-{toggle_class} dropdown-toggle" '
-                    f'type="button" data-bs-toggle="dropdown"{toggle_style}>'
-                    f'<span class="visually-hidden">{_("Toggle Dropdown")}</span>'
-                    '</a>'
-                    '<ul class="dropdown-menu">'
-                )
-            )
-
-            for action in dropdown_actions:
-                html.append(
-                    (
-                        "<li>"
-                        f'<a class="dropdown-item" href="{action["url"]}">'
-                        f'<i class="mdi mdi-{action["icon"]}" aria-hidden="true"></i> {action["label"]}'
-                        "</a>"
-                        "</li>"
-                    )
-                )
-
-            html.append("</ul>")
-
-        if direct_action or dropdown_actions:
-            if direct_action and dropdown_actions:
-                html.append("</span>")
-            elif dropdown_actions:
-                html.append("</span>")
+        html.append("</span>")
 
         return mark_safe("".join(html))
 
@@ -155,7 +114,7 @@ class BaseTable(tables.Table):
 
         if self.empty_text is None and getattr(self._meta, "model", None) is not None:
             model = self._meta.model._meta.verbose_name_plural
-            self.empty_text = _("No %(model_name)s found") % {"model_name": model}
+            self.empty_text = f"No {model} found"
 
     @property
     def name(self):
