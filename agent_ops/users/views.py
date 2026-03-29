@@ -3,7 +3,6 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.http import HttpResponseRedirect
-from django.shortcuts import get_object_or_404
 from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
@@ -148,6 +147,11 @@ class TokenDeleteView(LoginRequiredMixin, DeleteView):
 
     def get_queryset(self):
         return self.request.user.tokens.all()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["cancel_url"] = reverse("token_list")
+        return context
 
     def get_success_url(self):
         messages.success(self.request, "API token deleted.")

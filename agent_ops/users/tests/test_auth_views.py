@@ -134,6 +134,14 @@ class AuthViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Edit profile")
 
+    def test_token_list_page_renders(self) -> None:
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("token_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "API Tokens")
+
     def test_preferences_update_persists_json_configuration(self) -> None:
         self.client.force_login(self.user)
 
@@ -278,6 +286,30 @@ class AuthViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Create user")
+
+    def test_staff_user_can_render_user_directory(self) -> None:
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("user_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Users")
+
+    def test_staff_user_can_render_group_directory(self) -> None:
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("group_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Groups")
+
+    def test_staff_user_can_render_object_permission_directory(self) -> None:
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("objectpermission_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Object Permissions")
 
     def test_logout_clears_session(self) -> None:
         self.client.force_login(self.user)

@@ -1,49 +1,111 @@
-{% extends "base.html" %}
+{% extends "generic/_base.html" %}
 
-{% block title %}Home | Agent Ops{% endblock %}
+{% block title %}Home{% endblock %}
+
+{% block pretitle %}<div class="page-pretitle">Users module</div>{% endblock %}
+
+{% block subtitle %}
+  <p class="page-subtitle">First-party identity, profile, token, group, and permission management through the shared platform UI.</p>
+{% endblock %}
+
+{% block controls %}
+  <div class="btn-list">
+    <a class="btn btn-outline-secondary" href="{% url 'profile' %}">Open profile</a>
+    <a class="btn btn-outline-secondary" href="{% url 'token_list' %}">View tokens</a>
+    {% if request.user.is_staff or request.user.is_superuser %}
+      <a class="btn btn-primary" href="{% url 'user_list' %}">Open directory</a>
+    {% endif %}
+  </div>
+{% endblock %}
 
 {% block content %}
-  <div class="actions">
-    <div>
-      <h1>Users Module</h1>
-      <p class="muted">First-party identity, profile, token, group, and permission management.</p>
+  <div class="row row-cards">
+    <div class="col-lg-8 stack-sm">
+      <section class="card">
+        <div class="card-header">
+          <h3 class="card-title">Authenticated session</h3>
+        </div>
+        <div class="card-body">
+          <h2 class="mb-2">Welcome, {{ request.user.display_name|default:request.user.username }}</h2>
+          <p class="text-secondary mb-0">You are signed in as <strong>{{ request.user.email }}</strong>. This module owns the user model, personal configuration, token issuance, and access relationships.</p>
+          <div class="badge-row mt-3">
+            <span class="badge {% if request.user.is_staff or request.user.is_superuser %}text-bg-primary{% else %}text-bg-secondary{% endif %}">{% if request.user.is_staff or request.user.is_superuser %}Staff operator{% else %}Standard account{% endif %}</span>
+            <span class="badge text-bg-secondary">First-party users module</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h3 class="card-title">Current workspace</h3>
+        </div>
+        <div class="list-group list-group-flush">
+          <a class="list-group-item list-group-item-action" href="{% url 'profile' %}">
+            <strong>Profile</strong>
+            <div class="text-secondary">Review identity details, memberships, and direct object permissions.</div>
+          </a>
+          <a class="list-group-item list-group-item-action" href="{% url 'preferences' %}">
+            <strong>Preferences</strong>
+            <div class="text-secondary">Set theme, page size, and default landing page preferences.</div>
+          </a>
+          <a class="list-group-item list-group-item-action" href="{% url 'token_list' %}">
+            <strong>API Tokens</strong>
+            <div class="text-secondary">Create or revoke user-scoped tokens for automation and CLI access.</div>
+          </a>
+          {% if request.user.is_staff or request.user.is_superuser %}
+            <a class="list-group-item list-group-item-action" href="{% url 'user_list' %}">
+              <strong>Users</strong>
+              <div class="text-secondary">Administer platform accounts through the shared users workspace.</div>
+            </a>
+            <a class="list-group-item list-group-item-action" href="{% url 'group_list' %}">
+              <strong>Groups</strong>
+              <div class="text-secondary">Maintain reusable access bundles for operators and service accounts.</div>
+            </a>
+            <a class="list-group-item list-group-item-action" href="{% url 'objectpermission_list' %}">
+              <strong>Object Permissions</strong>
+              <div class="text-secondary">Inspect constrained action grants across selected content types.</div>
+            </a>
+          {% endif %}
+        </div>
+      </section>
+    </div>
+
+    <div class="col-lg-4 stack-sm">
+      <section class="card">
+        <div class="card-header">
+          <h3 class="card-title">Workspace totals</h3>
+        </div>
+        <div class="card-body">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <span class="stat-label">Your groups</span>
+              <span class="stat-value">{{ group_count }}</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Your tokens</span>
+              <span class="stat-value">{{ token_count }}</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Preferences</span>
+              <span class="stat-value">{{ preference_count }}</span>
+            </div>
+            {% if request.user.is_staff or request.user.is_superuser %}
+              <div class="stat-card">
+                <span class="stat-label">Users</span>
+                <span class="stat-value">{{ user_count }}</span>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Groups</span>
+                <span class="stat-value">{{ managed_group_count }}</span>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Object permissions</span>
+                <span class="stat-value">{{ object_permission_count }}</span>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </section>
     </div>
   </div>
-
-  <section class="card">
-    <div class="card-body stack">
-      <div>
-        <h2>Welcome, {{ request.user.display_name|default:request.user.username }}</h2>
-        <p class="muted">You are signed in as {{ request.user.email }}.</p>
-      </div>
-      <div class="metrics">
-        <article class="metric">
-          <span class="muted">Your groups</span>
-          <strong>{{ group_count }}</strong>
-        </article>
-        <article class="metric">
-          <span class="muted">Your API tokens</span>
-          <strong>{{ token_count }}</strong>
-        </article>
-        <article class="metric">
-          <span class="muted">Stored preferences</span>
-          <strong>{{ preference_count }}</strong>
-        </article>
-        {% if request.user.is_staff or request.user.is_superuser %}
-          <article class="metric">
-            <span class="muted">Managed users</span>
-            <strong>{{ user_count }}</strong>
-          </article>
-          <article class="metric">
-            <span class="muted">Managed groups</span>
-            <strong>{{ managed_group_count }}</strong>
-          </article>
-          <article class="metric">
-            <span class="muted">Object permissions</span>
-            <strong>{{ object_permission_count }}</strong>
-          </article>
-        {% endif %}
-      </div>
-    </div>
-  </section>
 {% endblock %}

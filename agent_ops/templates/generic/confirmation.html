@@ -1,0 +1,30 @@
+{% extends "generic/_base.html" %}
+
+{% block tabs %}
+  <ul class="nav nav-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <a class="nav-link active" href="#confirm-form" role="tab" aria-selected="true">Confirm</a>
+    </li>
+  </ul>
+{% endblock %}
+
+{% block controls %}
+  <div class="btn-list">
+    <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancel</a>
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div class="tab-pane show active" id="confirm-form" role="tabpanel">
+    <section class="card">
+      <div class="card-body stack-sm">
+        {% block confirmation_text %}{% endblock %}
+        <form method="post" class="btn-list justify-content-end">
+          {% csrf_token %}
+          <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancel</a>
+          {% block confirm_button %}{% endblock %}
+        </form>
+      </div>
+    </section>
+  </div>
+{% endblock %}

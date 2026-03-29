@@ -1,0 +1,33 @@
+{% extends "base/layout.html" %}
+
+{% block header %}
+  <div class="page-header m-0">
+    {{ block.super }}
+
+    {% block page-header %}
+      <div class="container-fluid mt-2 d-print-none">
+        <div class="d-flex justify-content-between align-items-start gap-3">
+          <div>
+            {% block pretitle %}{% endblock %}
+            <h1 class="page-title">{% block title %}{% endblock title %}</h1>
+            {% block subtitle %}{% endblock %}
+          </div>
+
+          <div class="d-print-none">
+            {% block controls %}
+              <div class="btn-list">
+                {% block control-buttons %}{% endblock %}
+              </div>
+            {% endblock controls %}
+          </div>
+        </div>
+      </div>
+    {% endblock %}
+
+    <div class="page-tabs mt-3">
+      <div class="container-fluid">
+        {% block tabs %}{% endblock %}
+      </div>
+    </div>
+  </div>
+{% endblock header %}

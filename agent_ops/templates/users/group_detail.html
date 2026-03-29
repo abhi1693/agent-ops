@@ -1,56 +1,87 @@
-{% extends "base.html" %}
+{% extends "generic/object.html" %}
 
-{% block title %}{{ object.name }} | Agent Ops{% endblock %}
+{% block title %}{{ object.name }}{% endblock %}
 
-{% block content %}
-  <div class="actions">
-    <div>
-      <h1>{{ object.name }}</h1>
-      <p class="muted">{{ object.description|default:"Managed platform group." }}</p>
-    </div>
-    <a class="button-link" href="{% url 'group_edit' object.pk %}">Edit group</a>
+{% block pretitle %}<div class="page-pretitle">Group</div>{% endblock %}
+
+{% block subtitle %}
+  <p class="page-subtitle">{{ object.description|default:"Managed platform group." }}</p>
+{% endblock %}
+
+{% block controls %}
+  <div class="btn-list">
+    <a class="btn btn-primary" href="{% url 'group_edit' object.pk %}">Edit group</a>
   </div>
+{% endblock %}
+
+{% block main %}
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Members</h3>
+    </div>
+    <div class="card-body">
+      <p class="text-secondary">Users currently inheriting this group’s access bundle.</p>
+      {% if object.users.all %}
+        <ul class="object-list mt-3">
+          {% for user in object.users.all %}
+            <li><a href="{% url 'user_detail' user.pk %}">{{ user.username }}</a></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="mb-0 text-secondary">No users assigned.</p>
+      {% endif %}
+    </div>
+  </section>
 
   <section class="card">
-    <div class="card-body stack">
-      <div class="detail-grid">
-        <article class="detail-block">
-          <h3>Members</h3>
-          {% if object.users.all %}
-            <ul class="detail-list">
-              {% for user in object.users.all %}
-                <li><a href="{% url 'user_detail' user.pk %}">{{ user.username }}</a></li>
-              {% endfor %}
-            </ul>
-          {% else %}
-            <p class="muted">No users assigned.</p>
-          {% endif %}
-        </article>
-        <article class="detail-block">
-          <h3>Auth Permissions</h3>
-          {% if object.permissions.all %}
-            <ul class="detail-list">
-              {% for permission in object.permissions.all %}
-                <li>{{ permission.content_type.app_label }}.{{ permission.codename }}</li>
-              {% endfor %}
-            </ul>
-          {% else %}
-            <p class="muted">No auth permissions assigned.</p>
-          {% endif %}
-        </article>
-        <article class="detail-block">
-          <h3>Object Permissions</h3>
-          {% if object.object_permissions.all %}
-            <ul class="detail-list">
-              {% for permission in object.object_permissions.all %}
-                <li><a href="{% url 'objectpermission_detail' permission.pk %}">{{ permission.name }}</a></li>
-              {% endfor %}
-            </ul>
-          {% else %}
-            <p class="muted">No object permissions assigned.</p>
-          {% endif %}
-        </article>
-      </div>
+    <div class="card-header">
+      <h3 class="card-title">Auth permissions</h3>
+    </div>
+    <div class="card-body">
+      <p class="text-secondary">Django permissions collected into this reusable group.</p>
+      {% if object.permissions.all %}
+        <ul class="object-list mt-3">
+          {% for permission in object.permissions.all %}
+            <li>{{ permission.content_type.app_label }}.{{ permission.codename }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="mb-0 text-secondary">No auth permissions assigned.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Object permissions</h3>
+    </div>
+    <div class="card-body">
+      <p class="text-secondary">Scoped object-level grants bundled with the group.</p>
+      {% if object.object_permissions.all %}
+        <ul class="object-list mt-3">
+          {% for permission in object.object_permissions.all %}
+            <li><a href="{% url 'objectpermission_detail' permission.pk %}">{{ permission.name }}</a></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="mb-0 text-secondary">No object permissions assigned.</p>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}
+
+{% block side %}
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Summary</h3>
+    </div>
+    <div class="card-body">
+      <p class="text-secondary">Group footprint across the users module.</p>
+      <dl class="object-data-list mt-3">
+        <div><dt>Members</dt><dd>{{ object.users.count }}</dd></div>
+        <div><dt>Auth permissions</dt><dd>{{ object.permissions.count }}</dd></div>
+        <div><dt>Object permissions</dt><dd>{{ object.object_permissions.count }}</dd></div>
+      </dl>
     </div>
   </section>
 {% endblock %}

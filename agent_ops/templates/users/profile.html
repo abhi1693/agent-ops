@@ -1,68 +1,94 @@
-{% extends "base.html" %}
+{% extends "generic/_base.html" %}
 
-{% block title %}Profile | Agent Ops{% endblock %}
+{% block title %}Profile{% endblock %}
+
+{% block pretitle %}<div class="page-pretitle">Account</div>{% endblock %}
+
+{% block subtitle %}
+  <p class="page-subtitle">Your account, memberships, and stored preferences.</p>
+{% endblock %}
+
+{% block controls %}
+  <div class="btn-list">
+    <a class="btn btn-outline-secondary" href="{% url 'profile_edit' %}">Edit profile</a>
+    <a class="btn btn-outline-secondary" href="{% url 'preferences' %}">Edit preferences</a>
+    <a class="btn btn-primary" href="{% url 'token_list' %}">Manage tokens</a>
+  </div>
+{% endblock %}
 
 {% block content %}
-  <div class="actions">
-    <div>
-      <h1>Profile</h1>
-      <p class="muted">Your account, memberships, and stored preferences.</p>
-    </div>
-    <div class="actions" style="margin-bottom: 0;">
-      <a class="button-link" href="{% url 'profile_edit' %}">Edit profile</a>
-      <a class="button-link" href="{% url 'preferences' %}">Edit preferences</a>
-      <a class="button-link" href="{% url 'token_list' %}">Manage tokens</a>
-    </div>
-  </div>
+  <div class="row row-cards">
+    <div class="col-lg-8 stack-sm">
+      <section class="card">
+        <div class="card-header">
+          <h3 class="card-title">Identity</h3>
+        </div>
+        <div class="card-body">
+          <p class="text-secondary">Primary account attributes stored on the first-party user model.</p>
+          <dl class="object-data-grid mt-3">
+            <div class="object-data-list"><div><dt>Username</dt><dd>{{ request.user.username }}</dd></div></div>
+            <div class="object-data-list"><div><dt>Email</dt><dd>{{ request.user.email }}</dd></div></div>
+            <div class="object-data-list"><div><dt>Full name</dt><dd>{{ request.user.get_full_name|default:"Not set" }}</dd></div></div>
+            <div class="object-data-list"><div><dt>Display name</dt><dd>{{ request.user.display_name|default:"Not set" }}</dd></div></div>
+          </dl>
+        </div>
+      </section>
 
-  <section class="card">
-    <div class="card-body stack">
-      <div class="detail-grid">
-        <article class="detail-block">
-          <h3>Identity</h3>
-          <p><strong>Username:</strong> {{ request.user.username }}</p>
-          <p><strong>Email:</strong> {{ request.user.email }}</p>
-          <p><strong>Name:</strong> {{ request.user.get_full_name|default:"Not set" }}</p>
-          <p><strong>Display name:</strong> {{ request.user.display_name|default:"Not set" }}</p>
-        </article>
-        <article class="detail-block">
-          <h3>Memberships</h3>
+      <section class="card">
+        <div class="card-header">
+          <h3 class="card-title">Stored preferences</h3>
+        </div>
+        <div class="card-body">
+          <p class="text-secondary">Explicit overrides persisted through the JSON-backed user configuration.</p>
+          {% if preferences %}
+            <dl class="object-data-grid mt-3">
+              {% for key, value in preferences.items %}
+                <div class="object-data-list"><div><dt>{{ key }}</dt><dd>{{ value }}</dd></div></div>
+              {% endfor %}
+            </dl>
+          {% else %}
+            <p class="mb-0 text-secondary">Only default preferences are active.</p>
+          {% endif %}
+        </div>
+      </section>
+    </div>
+
+    <aside class="col-lg-4 stack-sm">
+      <section class="card">
+        <div class="card-header">
+          <h3 class="card-title">Memberships</h3>
+        </div>
+        <div class="card-body">
+          <p class="text-secondary">Group-based access inherited by this account.</p>
           {% if group_memberships %}
-            <div class="pill-list">
+            <div class="badge-row mt-3">
               {% for group in group_memberships %}
-                <span class="pill">{{ group.name }}</span>
+                <span class="badge text-bg-primary">{{ group.name }}</span>
               {% endfor %}
             </div>
           {% else %}
-            <p class="muted">No group memberships.</p>
+            <p class="mb-0 text-secondary">No group memberships.</p>
           {% endif %}
-        </article>
-        <article class="detail-block">
-          <h3>Direct Object Permissions</h3>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h3 class="card-title">Direct object permissions</h3>
+        </div>
+        <div class="card-body">
+          <p class="text-secondary">Explicit grants applied directly to your account.</p>
           {% if managed_permissions %}
-            <ul class="detail-list">
+            <ul class="object-list mt-3">
               {% for permission in managed_permissions %}
                 <li>{{ permission.name }}</li>
               {% endfor %}
             </ul>
           {% else %}
-            <p class="muted">No direct object permissions.</p>
+            <p class="mb-0 text-secondary">No direct object permissions.</p>
           {% endif %}
-        </article>
-      </div>
-
-      <div class="detail-block">
-        <h3>Stored Preferences</h3>
-        {% if preferences %}
-          <ul class="detail-list">
-            {% for key, value in preferences.items %}
-              <li><strong>{{ key }}</strong>: {{ value }}</li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p class="muted">Only default preferences are active.</p>
-        {% endif %}
-      </div>
-    </div>
-  </section>
+        </div>
+      </section>
+    </aside>
+  </div>
 {% endblock %}

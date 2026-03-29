@@ -1,32 +1,50 @@
-{% extends "base.html" %}
+{% extends "base/base.html" %}
 
-{% block title %}Sign in | Agent Ops{% endblock %}
+{% block title %}Sign in{% endblock %}
 
-{% block content %}
-  <section class="card" style="max-width: 420px; margin: 4rem auto 0;">
-    <div class="card-body stack">
-      <div>
-        <h1>Sign in</h1>
-        <p class="muted">Authenticate with your first-party platform account.</p>
+{% block layout %}
+  <div class="page page-center">
+    <div class="container container-tight py-4">
+      <div class="text-center mb-4">
+        <div class="navbar-brand-image logo-mark--large">{% include "inc/brand_icon.html" %}</div>
+        <div class="brand-edition">Agent Ops</div>
       </div>
-      <form method="post" class="stack">
-        {% csrf_token %}
-        {{ form.non_field_errors }}
-        <div class="field">
-          <label for="{{ form.username.id_for_label }}">Username or email</label>
-          {{ form.username }}
-          {{ form.username.errors }}
+
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger mb-4" role="alert">
+          <h4 class="alert-heading">Errors</h4>
+          <p class="mb-0">{{ form.non_field_errors }}</p>
         </div>
-        <div class="field">
-          <label for="{{ form.password.id_for_label }}">Password</label>
-          {{ form.password }}
-          {{ form.password.errors }}
+      {% endif %}
+
+      <div class="card card-md">
+        <div class="card-body">
+          <h2 class="text-center mb-4">Sign in</h2>
+
+          <form method="post">
+            {% csrf_token %}
+            {% if next %}
+              <input type="hidden" name="next" value="{{ next }}">
+            {% endif %}
+
+            <div class="form-group mb-3">
+              <label class="form-label" for="{{ form.username.id_for_label }}">Username or email</label>
+              {{ form.username }}
+              {{ form.username.errors }}
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="{{ form.password.id_for_label }}">Password</label>
+              {{ form.password }}
+              {{ form.password.errors }}
+            </div>
+
+            <div class="form-footer">
+              <button type="submit" class="btn btn-primary w-100">Sign in</button>
+            </div>
+          </form>
         </div>
-        {% if next %}
-          <input type="hidden" name="next" value="{{ next }}">
-        {% endif %}
-        <button type="submit">Sign in</button>
-      </form>
+      </div>
     </div>
-  </section>
+  </div>
 {% endblock %}

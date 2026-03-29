@@ -1,23 +1,17 @@
-{% extends "base.html" %}
+{% extends "generic/confirmation.html" %}
 
-{% block title %}Delete Token | Agent Ops{% endblock %}
+{% block title %}Delete Token{% endblock %}
 
-{% block content %}
-  <div class="actions">
-    <div>
-      <h1>Delete API token</h1>
-      <p class="muted">This action cannot be undone.</p>
-    </div>
-    <a class="button-link" href="{% url 'token_list' %}">Cancel</a>
-  </div>
+{% block pretitle %}<div class="page-pretitle">Confirmation</div>{% endblock %}
 
-  <section class="card">
-    <div class="card-body stack">
-      <p>Delete <strong>{{ object.masked_key }}</strong>?</p>
-      <form method="post">
-        {% csrf_token %}
-        <button type="submit">Delete token</button>
-      </form>
-    </div>
-  </section>
+{% block subtitle %}
+  <p class="page-subtitle">This action cannot be undone.</p>
+{% endblock %}
+
+{% block confirmation_text %}
+  <p class="mb-0">Delete <strong>{{ object.masked_key }}</strong>?</p>
+{% endblock %}
+
+{% block confirm_button %}
+  <button type="submit" class="btn btn-danger">Delete token</button>
 {% endblock %}

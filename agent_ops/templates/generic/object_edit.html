@@ -1,0 +1,72 @@
+{% extends "generic/_base.html" %}
+
+{% block tabs %}
+  <ul class="nav nav-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <a class="nav-link active" href="#edit-form" role="tab" aria-selected="true">{% if object.pk %}Edit{% else %}Create{% endif %}</a>
+    </li>
+  </ul>
+{% endblock %}
+
+{% block controls %}
+  <div class="btn-list">
+    <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancel</a>
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div class="tab-pane show active" id="edit-form" role="tabpanel">
+    <form method="post" class="object-edit">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+
+      <section class="card">
+        <div class="card-body">
+          <div class="form-grid">
+            {% for field in form %}
+              {% if field.use_fieldset %}
+                <div class="field-wrapper field-wrapper--full">
+                  <fieldset>
+                    <legend class="form-label">{{ field.label }}</legend>
+                    <div class="checkbox-group">
+                      {{ field }}
+                    </div>
+                  </fieldset>
+                  {% if field.help_text %}
+                    <div class="form-text">{{ field.help_text }}</div>
+                  {% endif %}
+                  {{ field.errors }}
+                </div>
+              {% elif field.field.widget.input_type == "checkbox" %}
+                <div class="field-wrapper field-wrapper--full">
+                  <label class="inline-check" for="{{ field.id_for_label }}">
+                    {{ field }}
+                    <span>{{ field.label }}</span>
+                  </label>
+                  {% if field.help_text %}
+                    <div class="form-text">{{ field.help_text }}</div>
+                  {% endif %}
+                  {{ field.errors }}
+                </div>
+              {% else %}
+                <div class="field-wrapper">
+                  <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                  {{ field }}
+                  {% if field.help_text %}
+                    <div class="form-text">{{ field.help_text }}</div>
+                  {% endif %}
+                  {{ field.errors }}
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+
+          <div class="btn-list justify-content-end mt-4">
+            <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancel</a>
+            <button type="submit" class="btn btn-primary">{{ submit_label }}</button>
+          </div>
+        </div>
+      </section>
+    </form>
+  </div>
+{% endblock %}

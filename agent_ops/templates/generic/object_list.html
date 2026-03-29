@@ -1,0 +1,24 @@
+{% extends "generic/_base.html" %}
+
+{% block tabs %}
+  <ul class="nav nav-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <a class="nav-link active" href="#object-list" role="tab" aria-selected="true">
+        Results
+        {% block tab_badge %}{% endblock %}
+      </a>
+    </li>
+  </ul>
+{% endblock %}
+
+{% block content %}
+  <div class="tab-pane show active" id="object-list" role="tabpanel">
+    {% block summary %}{% endblock %}
+    <section class="card">
+      {% block table_intro %}{% endblock %}
+      <div class="table-responsive">
+        {% block table %}{% endblock %}
+      </div>
+    </section>
+  </div>
+{% endblock %}

@@ -1,44 +1,55 @@
-{% extends "base.html" %}
+{% extends "generic/object_list.html" %}
 
-{% block title %}Users | Agent Ops{% endblock %}
+{% block title %}Users{% endblock %}
 
-{% block content %}
-  <div class="actions">
-    <div>
-      <h1>Users</h1>
-      <p class="muted">First-party platform users.</p>
-    </div>
-    <a class="button-link" href="{% url 'user_add' %}">Create user</a>
+{% block pretitle %}<div class="page-pretitle">Administration</div>{% endblock %}
+
+{% block subtitle %}
+  <p class="page-subtitle">First-party platform users.</p>
+{% endblock %}
+
+{% block controls %}
+  <div class="btn-list">
+    <a class="btn btn-primary" href="{% url 'user_add' %}">Create user</a>
   </div>
+{% endblock %}
 
-  <section class="card">
-    <div class="card-body table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Username</th>
-            <th>Email</th>
-            <th>Display name</th>
-            <th>Staff</th>
-            <th>Active</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for user in users %}
-            <tr>
-              <td><a href="{% url 'user_detail' user.pk %}">{{ user.username }}</a></td>
-              <td>{{ user.email }}</td>
-              <td>{{ user.display_name|default:"-" }}</td>
-              <td>{% if user.is_staff %}Yes{% else %}No{% endif %}</td>
-              <td>{% if user.is_active %}Yes{% else %}No{% endif %}</td>
-            </tr>
-          {% empty %}
-            <tr>
-              <td colspan="5" class="muted">No users found.</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+{% block tab_badge %}<span class="badge text-bg-secondary">{{ users.count }}</span>{% endblock %}
+
+{% block summary %}
+  <div class="stats-grid mb-3">
+    <div class="stat-card">
+      <span class="stat-label">Users</span>
+      <span class="stat-value">{{ users.count }}</span>
     </div>
-  </section>
+  </div>
+{% endblock %}
+
+{% block table %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Email</th>
+        <th>Display name</th>
+        <th>Staff</th>
+        <th>Active</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in users %}
+        <tr>
+          <td><a href="{% url 'user_detail' user.pk %}">{{ user.username }}</a></td>
+          <td>{{ user.email }}</td>
+          <td>{{ user.display_name|default:"-" }}</td>
+          <td><span class="badge {% if user.is_staff %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if user.is_staff %}Yes{% else %}No{% endif %}</span></td>
+          <td><span class="badge {% if user.is_active %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if user.is_active %}Yes{% else %}No{% endif %}</span></td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="5" class="empty-state">No users found.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 {% endblock %}

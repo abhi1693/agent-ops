@@ -1,0 +1,22 @@
+{% extends "generic/_base.html" %}
+
+{% block tabs %}
+  <ul class="nav nav-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <a class="nav-link active" href="#object-view" role="tab" aria-selected="true">Details</a>
+    </li>
+  </ul>
+{% endblock %}
+
+{% block content %}
+  <div class="tab-pane show active" id="object-view" role="tabpanel">
+    <div class="row row-cards">
+      <div class="col-lg-8 stack-sm">
+        {% block main %}{% endblock %}
+      </div>
+      <aside class="col-lg-4 stack-sm">
+        {% block side %}{% endblock %}
+      </aside>
+    </div>
+  </div>
+{% endblock %}

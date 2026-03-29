@@ -1,0 +1,9 @@
+{% if messages %}
+  <div class="message-stack">
+    {% for message in messages %}
+      <div class="message {% if 'error' in message.tags %}message--error{% elif 'success' in message.tags %}message--success{% elif 'warning' in message.tags %}message--warning{% else %}message--info{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}

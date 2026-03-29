@@ -1,48 +1,59 @@
-{% extends "base.html" %}
+{% extends "generic/object_list.html" %}
 
-{% block title %}API Tokens | Agent Ops{% endblock %}
+{% block title %}API Tokens{% endblock %}
 
-{% block content %}
-  <div class="actions">
-    <div>
-      <h1>API Tokens</h1>
-      <p class="muted">User-scoped tokens owned by the platform.</p>
-    </div>
-    <a class="button-link" href="{% url 'token_add' %}">Create token</a>
+{% block pretitle %}<div class="page-pretitle">Automation</div>{% endblock %}
+
+{% block subtitle %}
+  <p class="page-subtitle">User-scoped tokens owned by the platform.</p>
+{% endblock %}
+
+{% block controls %}
+  <div class="btn-list">
+    <a class="btn btn-primary" href="{% url 'token_add' %}">Create token</a>
   </div>
+{% endblock %}
 
-  <section class="card">
-    <div class="card-body table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Identifier</th>
-            <th>Description</th>
-            <th>Status</th>
-            <th>Created</th>
-            <th>Expires</th>
-            <th>Write</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for token in tokens %}
-            <tr>
-              <td>{{ token.masked_key }}</td>
-              <td>{{ token.description|default:"-" }}</td>
-              <td>{% if token.is_active %}Active{% else %}Inactive{% endif %}</td>
-              <td>{{ token.created }}</td>
-              <td>{{ token.expires|default:"Never" }}</td>
-              <td>{% if token.write_enabled %}Enabled{% else %}Read only{% endif %}</td>
-              <td><a href="{% url 'token_delete' token.pk %}">Delete</a></td>
-            </tr>
-          {% empty %}
-            <tr>
-              <td colspan="7" class="muted">No tokens have been created.</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+{% block tab_badge %}<span class="badge text-bg-secondary">{{ tokens|length }}</span>{% endblock %}
+
+{% block summary %}
+  <div class="stats-grid mb-3">
+    <div class="stat-card">
+      <span class="stat-label">Tokens</span>
+      <span class="stat-value">{{ tokens|length }}</span>
     </div>
-  </section>
+  </div>
+{% endblock %}
+
+{% block table %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Identifier</th>
+        <th>Description</th>
+        <th>Status</th>
+        <th>Created</th>
+        <th>Expires</th>
+        <th>Write</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for token in tokens %}
+        <tr>
+          <td>{{ token.masked_key }}</td>
+          <td>{{ token.description|default:"-" }}</td>
+          <td><span class="badge {% if token.is_active %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if token.is_active %}Active{% else %}Inactive{% endif %}</span></td>
+          <td>{{ token.created }}</td>
+          <td>{{ token.expires|default:"Never" }}</td>
+          <td>{% if token.write_enabled %}Enabled{% else %}Read only{% endif %}</td>
+          <td class="text-end"><a class="btn btn-danger btn-sm" href="{% url 'token_delete' token.pk %}">Delete</a></td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="7" class="empty-state">No tokens have been created.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 {% endblock %}
