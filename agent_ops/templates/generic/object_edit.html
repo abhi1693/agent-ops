@@ -1,72 +1,95 @@
 {% extends "generic/_base.html" %}
+{% load forms %}
 
 {% block tabs %}
   <ul class="nav nav-tabs" role="tablist">
     <li class="nav-item" role="presentation">
-      <button class="nav-link active" id="edit-form-tab" data-bs-toggle="tab" data-bs-target="#edit-form" type="button" role="tab" aria-controls="edit-form" aria-selected="true">{% if object.pk %}Edit{% else %}Create{% endif %}</button>
+      <button
+        class="nav-link active"
+        id="edit-form-tab"
+        data-bs-toggle="tab"
+        data-bs-target="#edit-form"
+        type="button"
+        role="tab"
+        aria-controls="edit-form"
+        aria-selected="true"
+      >
+        {% if is_editing %}Edit{% else %}Create{% endif %}
+      </button>
     </li>
   </ul>
 {% endblock %}
 
 {% block controls %}
   <div class="btn-list">
-    <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancel</a>
+    {% block control-buttons %}{% endblock %}
   </div>
 {% endblock %}
 
 {% block content %}
   <div class="tab-pane show active" id="edit-form" role="tabpanel" aria-labelledby="edit-form-tab">
-    <form method="post" class="object-edit mt-5">
+    <form action="" method="post" enctype="multipart/form-data" class="object-edit mt-5">
       {% csrf_token %}
-      {{ form.non_field_errors }}
 
-      <section class="card">
-        <div class="card-body">
-          <div class="form-grid">
-            {% for field in form %}
-              {% if field.use_fieldset %}
-                <div class="field-wrapper field-wrapper--full">
-                  <fieldset>
-                    <legend class="form-label">{{ field.label }}</legend>
-                    <div class="checkbox-group">
-                      {{ field }}
-                    </div>
-                  </fieldset>
-                  {% if field.help_text %}
-                    <div class="form-text">{{ field.help_text }}</div>
-                  {% endif %}
-                  {{ field.errors }}
+      {% for field in form.hidden_fields %}
+        {{ field }}
+      {% endfor %}
+
+      {% if return_url %}
+        <input type="hidden" name="return_url" value="{{ return_url }}">
+      {% endif %}
+
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger" role="alert">
+          {{ form.non_field_errors }}
+        </div>
+      {% endif %}
+
+      {% if form.fieldsets %}
+        {% for fieldset in form.fieldsets %}
+          <div class="field-group mb-5">
+            {% if fieldset.title %}
+              <div class="row">
+                <h2 class="col-lg-9 offset-lg-3 h3 mb-2">{{ fieldset.title }}</h2>
+              </div>
+            {% endif %}
+            {% if fieldset.description %}
+              <div class="row">
+                <div class="col-lg-9 offset-lg-3 mb-3 text-secondary">
+                  {{ fieldset.description }}
                 </div>
-              {% elif field.field.widget.input_type == "checkbox" %}
-                <div class="field-wrapper field-wrapper--full">
-                  <label class="inline-check" for="{{ field.id_for_label }}">
-                    {{ field }}
-                    <span>{{ field.label }}</span>
-                  </label>
-                  {% if field.help_text %}
-                    <div class="form-text">{{ field.help_text }}</div>
-                  {% endif %}
-                  {{ field.errors }}
-                </div>
-              {% else %}
-                <div class="field-wrapper{% if field.field.widget.input_type == 'textarea' or field.field.widget.allow_multiple_selected %} field-wrapper--full{% endif %}">
-                  <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-                  {{ field }}
-                  {% if field.help_text %}
-                    <div class="form-text">{{ field.help_text }}</div>
-                  {% endif %}
-                  {{ field.errors }}
-                </div>
-              {% endif %}
+              </div>
+            {% endif %}
+            {% for field_name in fieldset.fields %}
+              {% with field=form|form_field:field_name %}
+                {% include "inc/form_field.html" %}
+              {% endwith %}
             {% endfor %}
           </div>
-
-          <div class="btn-float-group-right mt-4">
-            <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancel</a>
-            <button type="submit" class="btn btn-primary">{{ submit_label }}</button>
-          </div>
+        {% endfor %}
+      {% else %}
+        <div class="field-group mb-5">
+          {% for field in form.visible_fields %}
+            {% include "inc/form_field.html" %}
+          {% endfor %}
         </div>
-      </section>
+      {% endif %}
+
+      <div class="object-edit-actions">
+        <a href="{{ return_url }}" class="btn btn-outline-secondary">Cancel</a>
+        {% if is_editing %}
+          <button type="submit" name="_update" class="btn btn-primary">{{ submit_label }}</button>
+        {% elif show_add_another %}
+          <div class="btn-group" role="group" aria-label="Actions">
+            <button type="submit" name="_create" class="btn btn-primary">{{ submit_label }}</button>
+            <button type="submit" name="_addanother" class="btn btn-outline-primary">
+              Create &amp; Add Another
+            </button>
+          </div>
+        {% else %}
+          <button type="submit" name="_create" class="btn btn-primary">{{ submit_label }}</button>
+        {% endif %}
+      </div>
     </form>
   </div>
 {% endblock %}

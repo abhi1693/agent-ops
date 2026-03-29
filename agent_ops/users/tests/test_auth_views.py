@@ -220,6 +220,25 @@ class AuthViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Edit profile")
+        self.assertContains(response, "Profile")
+
+    def test_preferences_page_renders(self) -> None:
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("preferences"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Preferences")
+        self.assertContains(response, "Save preferences")
+
+    def test_token_create_page_renders(self) -> None:
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("token_add"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Create API token")
+        self.assertNotContains(response, "Create &amp; Add Another", html=True)
 
     def test_token_list_page_renders(self) -> None:
         self.client.force_login(self.user)
@@ -372,7 +391,31 @@ class AuthViewTests(TestCase):
         response = self.client.get(reverse("user_add"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Create user")
+        self.assertContains(response, "Add user")
+        self.assertContains(response, "Create &amp; Add Another", html=True)
+        self.assertContains(response, "User")
+
+    def test_staff_user_can_render_group_add_form(self) -> None:
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("group_add"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Add group")
+        self.assertContains(response, "Create &amp; Add Another", html=True)
+        self.assertContains(response, "Permissions")
+
+    def test_staff_user_can_render_object_permission_add_form(self) -> None:
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("objectpermission_add"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Add object permission")
+        self.assertContains(response, "Create &amp; Add Another", html=True)
+        self.assertContains(response, "Scope")
+        self.assertContains(response, "Actions")
+        self.assertNotContains(response, ">null</textarea>", html=False)
 
     def test_staff_user_can_render_user_directory(self) -> None:
         self.client.force_login(self.staff_user)

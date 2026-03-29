@@ -19,7 +19,6 @@ def apply_standard_widget_classes(form):
             _merge_widget_class(widget, "form-check-input")
             continue
         if isinstance(widget, forms.CheckboxSelectMultiple):
-            _merge_widget_class(widget, "form-check-input")
             continue
         if isinstance(widget, (forms.Select, forms.SelectMultiple)):
             _merge_widget_class(widget, "form-select")
@@ -29,4 +28,3 @@ def apply_standard_widget_classes(form):
             continue
 
         _merge_widget_class(widget, "form-control")
-

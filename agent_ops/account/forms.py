@@ -34,6 +34,13 @@ class LoginForm(AuthenticationForm):
 
 
 class ProfileForm(forms.ModelForm):
+    fieldsets = (
+        {
+            "title": "Profile",
+            "fields": ("email", "first_name", "last_name", "display_name"),
+        },
+    )
+
     class Meta:
         model = User
         fields = ("email", "first_name", "last_name", "display_name")
@@ -44,6 +51,13 @@ class ProfileForm(forms.ModelForm):
 
 
 class TokenCreateForm(forms.ModelForm):
+    fieldsets = (
+        {
+            "title": "Token",
+            "fields": ("description", "expires", "enabled", "write_enabled"),
+        },
+    )
+
     class Meta:
         model = Token
         fields = ("description", "expires", "enabled", "write_enabled")
@@ -54,6 +68,13 @@ class TokenCreateForm(forms.ModelForm):
 
 
 class UserPreferenceForm(forms.Form):
+    fieldsets = (
+        {
+            "title": "Preferences",
+            "fields": ("theme", "page_size", "landing_page"),
+        },
+    )
+
     theme = forms.ChoiceField(choices=THEME_CHOICES)
     page_size = forms.IntegerField(min_value=10, max_value=250)
     landing_page = forms.CharField(max_length=200)
@@ -72,4 +93,3 @@ class UserPreferenceForm(forms.Form):
         self.config.set("ui.landing_page", self.cleaned_data["landing_page"])
         self.config.save()
         return self.config
-

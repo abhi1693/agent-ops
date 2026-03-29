@@ -7,6 +7,20 @@ from users.models import Group, ObjectPermission, User
 
 
 class BaseUserForm(forms.ModelForm):
+    base_fieldsets = (
+        {
+            "title": "User",
+            "fields": ("username", "email", "first_name", "last_name", "display_name"),
+        },
+        {
+            "title": "Status",
+            "fields": ("is_active", "is_staff", "is_superuser"),
+        },
+        {
+            "title": "Access",
+            "fields": ("groups", "object_permissions", "user_permissions"),
+        },
+    )
     groups = forms.ModelMultipleChoiceField(
         queryset=Group.objects.none(),
         required=False,
@@ -48,6 +62,12 @@ class BaseUserForm(forms.ModelForm):
 
 
 class UserCreateForm(BaseUserForm):
+    fieldsets = BaseUserForm.base_fieldsets + (
+        {
+            "title": "Password",
+            "fields": ("password1", "password2"),
+        },
+    )
     password1 = forms.CharField(widget=forms.PasswordInput, label="Password")
     password2 = forms.CharField(widget=forms.PasswordInput, label="Confirm password")
 
@@ -71,6 +91,12 @@ class UserCreateForm(BaseUserForm):
 
 
 class UserUpdateForm(BaseUserForm):
+    fieldsets = BaseUserForm.base_fieldsets + (
+        {
+            "title": "Password",
+            "fields": ("password1", "password2"),
+        },
+    )
     password1 = forms.CharField(widget=forms.PasswordInput, required=False, label="New password")
     password2 = forms.CharField(widget=forms.PasswordInput, required=False, label="Confirm new password")
 
@@ -97,6 +123,16 @@ class UserUpdateForm(BaseUserForm):
 
 
 class GroupForm(forms.ModelForm):
+    fieldsets = (
+        {
+            "title": "Group",
+            "fields": ("name", "description"),
+        },
+        {
+            "title": "Permissions",
+            "fields": ("permissions", "object_permissions"),
+        },
+    )
     permissions = forms.ModelMultipleChoiceField(
         queryset=Permission.objects.none(),
         required=False,
@@ -122,6 +158,16 @@ class GroupForm(forms.ModelForm):
 
 
 class ObjectPermissionForm(forms.ModelForm):
+    fieldsets = (
+        {
+            "title": "Permission",
+            "fields": ("name", "description", "enabled"),
+        },
+        {
+            "title": "Scope",
+            "fields": ("content_types", "actions", "constraints"),
+        },
+    )
     content_types = forms.ModelMultipleChoiceField(
         queryset=ContentType.objects.none(),
         widget=forms.SelectMultiple(attrs={"size": 8}),
@@ -140,6 +186,8 @@ class ObjectPermissionForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["content_types"].queryset = ContentType.objects.order_by("app_label", "model")
         self.initial.setdefault("actions", self.instance.actions if self.instance.pk else ["view"])
+        if self.initial.get("constraints") is None:
+            self.initial["constraints"] = ""
         apply_standard_widget_classes(self)
 
     def clean_constraints(self):

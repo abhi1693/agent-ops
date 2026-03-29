@@ -1,12 +1,6 @@
-{% extends "generic/confirmation.html" %}
+{% extends "generic/object_delete.html" %}
 
 {% block title %}Delete Token{% endblock %}
-
-{% block pretitle %}<div class="page-pretitle">Confirmation</div>{% endblock %}
-
-{% block subtitle %}
-  <p class="page-subtitle">This action cannot be undone.</p>
-{% endblock %}
 
 {% block confirmation_text %}
   <p class="mb-0">Delete <strong>{{ object.masked_key }}</strong>?</p>

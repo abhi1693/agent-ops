@@ -1,0 +1,49 @@
+{% extends "generic/_base.html" %}
+
+{% block tabs %}
+  <ul class="nav nav-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button
+        class="nav-link active"
+        id="confirm-form-tab"
+        data-bs-toggle="tab"
+        data-bs-target="#confirm-form"
+        type="button"
+        role="tab"
+        aria-controls="confirm-form"
+        aria-selected="true"
+      >
+        Confirm
+      </button>
+    </li>
+  </ul>
+{% endblock %}
+
+{% block controls %}
+  <div class="btn-list"></div>
+{% endblock %}
+
+{% block content %}
+  <div class="tab-pane show active" id="confirm-form" role="tabpanel" aria-labelledby="confirm-form-tab">
+    <form method="post" class="object-edit mt-5">
+      {% csrf_token %}
+
+      {% if return_url %}
+        <input type="hidden" name="return_url" value="{{ return_url }}">
+      {% endif %}
+
+      <div class="alert alert-danger" role="alert">
+        {% block confirmation_text %}
+          Delete <strong>{{ object }}</strong>?
+        {% endblock %}
+      </div>
+
+      <div class="object-edit-actions">
+        <a href="{{ cancel_url }}" class="btn btn-outline-secondary">Cancel</a>
+        {% block confirm_button %}
+          <button type="submit" class="btn btn-danger">Delete</button>
+        {% endblock %}
+      </div>
+    </form>
+  </div>
+{% endblock %}

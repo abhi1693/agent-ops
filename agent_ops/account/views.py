@@ -1,12 +1,11 @@
 from django.contrib import messages
 from django.contrib.auth.views import LoginView, LogoutView
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.contrib.messages.views import SuccessMessageMixin
 from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
-from django.views.generic import CreateView, DeleteView, TemplateView, UpdateView
+from django.views.generic import TemplateView
 
-from core.generic_views import ObjectListView
+from core.generic_views import ObjectDeleteView, ObjectEditView, ObjectListView
 from users import filtersets, tables
 from users.models import Token, User
 
@@ -36,24 +35,17 @@ class ProfileView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class ProfileUpdateView(LoginRequiredMixin, SuccessMessageMixin, UpdateView):
+class ProfileUpdateView(LoginRequiredMixin, ObjectEditView):
     form_class = ProfileForm
     model = User
-    template_name = "users/model_form.html"
     success_message = "Profile updated."
+    page_title = "Edit profile"
 
-    def get_object(self, queryset=None):
+    def get_object(self, **kwargs):
         return self.request.user
 
-    def get_success_url(self):
+    def get_return_url(self, request, obj=None):
         return reverse("profile")
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["page_title"] = "Edit profile"
-        context["submit_label"] = "Save profile"
-        context["cancel_url"] = reverse("profile")
-        return context
 
 
 class PreferenceUpdateView(LoginRequiredMixin, TemplateView):
@@ -75,7 +67,9 @@ class PreferenceUpdateView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         context["page_title"] = "Preferences"
         context["submit_label"] = "Save preferences"
-        context["cancel_url"] = reverse("profile")
+        context["return_url"] = reverse("profile")
+        context["is_editing"] = True
+        context["show_add_another"] = False
         return context
 
 
@@ -89,40 +83,33 @@ class TokenListView(LoginRequiredMixin, ObjectListView):
         return request.user.tokens.order_by("-created")
 
 
-class TokenCreateView(LoginRequiredMixin, CreateView):
+class TokenCreateView(LoginRequiredMixin, ObjectEditView):
     model = Token
     form_class = TokenCreateForm
-    template_name = "users/model_form.html"
+    page_title = "Create API token"
+    submit_label = "Create token"
+    show_add_another = False
 
-    def form_valid(self, form):
+    def form_save(self, form):
         token = form.save(commit=False)
         token.user = self.request.user
         token.save()
-        messages.success(
-            self.request,
-            f"API token created. Copy it now: {token.plaintext_token}",
-        )
-        return HttpResponseRedirect(reverse("token_list"))
+        return token
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["page_title"] = "Create API token"
-        context["submit_label"] = "Create token"
-        context["cancel_url"] = reverse("token_list")
-        return context
+    def get_success_message(self, obj, created):
+        return f"API token created. Copy it now: {obj.plaintext_token}"
+
+    def get_return_url(self, request, obj=None):
+        return reverse("token_list")
 
 
-class TokenDeleteView(LoginRequiredMixin, DeleteView):
+class TokenDeleteView(LoginRequiredMixin, ObjectDeleteView):
+    model = Token
     template_name = "users/token_confirm_delete.html"
+    success_message = "API token deleted."
 
     def get_queryset(self):
         return self.request.user.tokens.all()
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["cancel_url"] = reverse("token_list")
-        return context
-
-    def get_success_url(self):
-        messages.success(self.request, "API token deleted.")
+    def get_return_url(self, request, obj=None):
         return reverse("token_list")
