@@ -88,6 +88,17 @@ class QuerysetBackedObjectView(View):
         except NoReverseMatch:
             return None
 
+    def get_delete_url(self, obj=None):
+        model = obj or self.get_queryset().model
+        object_pk = getattr(obj, "pk", None)
+        if object_pk is None:
+            return None
+
+        try:
+            return reverse(f"{model._meta.model_name}_delete", args=[object_pk])
+        except NoReverseMatch:
+            return None
+
     def get_object_identifier(self, obj):
         return f"{obj._meta.app_label}.{obj._meta.model_name}:{obj.pk}"
 
@@ -98,6 +109,7 @@ class QuerysetBackedObjectView(View):
             "object_identifier": self.get_object_identifier(obj),
             "object_list_url": self.get_list_url(obj),
             "object_changelog_url": self.get_changelog_url(obj),
+            "object_delete_url": self.get_delete_url(obj),
             "object_verbose_name": str(meta.verbose_name).title(),
             "object_verbose_name_plural": str(meta.verbose_name_plural).title(),
         }
@@ -123,6 +135,12 @@ class ObjectView(DetailView):
         except NoReverseMatch:
             return None
 
+    def get_delete_url(self):
+        try:
+            return reverse(f"{self.object._meta.model_name}_delete", args=[self.object.pk])
+        except NoReverseMatch:
+            return None
+
     def get_object_identifier(self):
         return f"{self.object._meta.app_label}.{self.object._meta.model_name}:{self.object.pk}"
 
@@ -134,8 +152,10 @@ class ObjectView(DetailView):
                 "object_identifier": self.get_object_identifier(),
                 "object_list_url": self.get_list_url(),
                 "object_changelog_url": self.get_changelog_url(),
+                "object_delete_url": self.get_delete_url(),
                 "object_verbose_name": str(self.object._meta.verbose_name).title(),
                 "object_verbose_name_plural": str(self.object._meta.verbose_name_plural).title(),
+                "can_delete": self.get_delete_url() is not None,
             }
         )
         return context

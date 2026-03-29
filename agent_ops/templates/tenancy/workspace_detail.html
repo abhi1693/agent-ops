@@ -3,12 +3,20 @@
 {% block title %}{{ object.name }}{% endblock %}
 
 {% block controls %}
-  {% if can_edit %}
+  {% if can_edit or can_delete %}
     <div class="btn-list object-page-actions">
-      <a class="btn btn-warning" href="{% url 'workspace_edit' object.pk %}">
-        <i class="mdi mdi-pencil" aria-hidden="true"></i>
-        <span>Edit</span>
-      </a>
+      {% if can_edit %}
+        <a class="btn btn-warning" href="{% url 'workspace_edit' object.pk %}">
+          <i class="mdi mdi-pencil" aria-hidden="true"></i>
+          <span>Edit</span>
+        </a>
+      {% endif %}
+      {% if can_delete and object_delete_url %}
+        <a class="btn btn-danger" href="{{ object_delete_url }}">
+          <i class="mdi mdi-trash-can-outline" aria-hidden="true"></i>
+          <span>Delete</span>
+        </a>
+      {% endif %}
     </div>
   {% endif %}
 {% endblock %}
@@ -51,23 +59,5 @@
         <div class="list-group-item text-secondary">No environments defined.</div>
       {% endfor %}
     </div>
-  </section>
-{% endblock %}
-
-{% block side %}
-  <section class="card">
-    <div class="card-header">
-      <h3 class="card-title">Summary</h3>
-    </div>
-    <table class="table table-hover attr-table mb-0">
-      <tr>
-        <th scope="row">Organization</th>
-        <td>{{ object.organization.name }}</td>
-      </tr>
-      <tr>
-        <th scope="row">Environments</th>
-        <td>{{ object.environment_count }}</td>
-      </tr>
-    </table>
   </section>
 {% endblock %}

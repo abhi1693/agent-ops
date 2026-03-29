@@ -8,6 +8,12 @@
       <i class="mdi mdi-pencil" aria-hidden="true"></i>
       <span>Edit</span>
     </a>
+    {% if can_delete and object_delete_url %}
+      <a class="btn btn-danger" href="{{ object_delete_url }}">
+        <i class="mdi mdi-trash-can-outline" aria-hidden="true"></i>
+        <span>Delete</span>
+      </a>
+    {% endif %}
   </div>
 {% endblock %}
 
@@ -117,27 +123,5 @@
         <div class="list-group-item text-secondary">No group assignments.</div>
       {% endfor %}
     </div>
-  </section>
-{% endblock %}
-
-{% block side %}
-  <section class="card">
-    <div class="card-header">
-      <h3 class="card-title">Scope</h3>
-    </div>
-    <table class="table table-hover attr-table mb-0">
-      <tr>
-        <th scope="row">Content types</th>
-        <td>{{ object.content_type_count }}</td>
-      </tr>
-      <tr>
-        <th scope="row">Assigned users</th>
-        <td>{{ object.user_count }}</td>
-      </tr>
-      <tr>
-        <th scope="row">Assigned groups</th>
-        <td>{{ object.group_count }}</td>
-      </tr>
-    </table>
   </section>
 {% endblock %}

@@ -56,12 +56,14 @@
 {% block content %}
   <div class="tab-pane show active" id="object-view" role="tabpanel" aria-labelledby="object-view-tab">
     <div class="row row-cards">
-      <div class="col-lg-8 stack-sm">
+      <div class="{% if show_side_panel %}col-lg-8{% else %}col-12{% endif %} stack-sm">
         {% block main %}{% endblock %}
       </div>
-      <aside class="col-lg-4 stack-sm">
-        {% block side %}{% endblock %}
-      </aside>
+      {% if show_side_panel %}
+        <aside class="col-lg-4 stack-sm">
+          {% block side %}{% endblock %}
+        </aside>
+      {% endif %}
     </div>
   </div>
 {% endblock %}

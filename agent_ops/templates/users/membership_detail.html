@@ -8,6 +8,12 @@
       <i class="mdi mdi-pencil" aria-hidden="true"></i>
       <span>Edit</span>
     </a>
+    {% if can_delete and object_delete_url %}
+      <a class="btn btn-danger" href="{{ object_delete_url }}">
+        <i class="mdi mdi-trash-can-outline" aria-hidden="true"></i>
+        <span>Delete</span>
+      </a>
+    {% endif %}
   </div>
 {% endblock %}
 
@@ -96,31 +102,5 @@
         <div class="list-group-item text-secondary">No scoped object permissions assigned.</div>
       {% endfor %}
     </div>
-  </section>
-{% endblock %}
-
-{% block side %}
-  <section class="card">
-    <div class="card-header">
-      <h3 class="card-title">Status</h3>
-    </div>
-    <table class="table table-hover attr-table mb-0">
-      <tr>
-        <th scope="row">Default</th>
-        <td>
-          <span class="badge {% if object.is_default %}text-bg-success{% else %}text-bg-secondary{% endif %}">
-            {% if object.is_default %}Yes{% else %}No{% endif %}
-          </span>
-        </td>
-      </tr>
-      <tr>
-        <th scope="row">Active</th>
-        <td>
-          <span class="badge {% if object.is_active %}text-bg-success{% else %}text-bg-secondary{% endif %}">
-            {% if object.is_active %}Yes{% else %}No{% endif %}
-          </span>
-        </td>
-      </tr>
-    </table>
   </section>
 {% endblock %}

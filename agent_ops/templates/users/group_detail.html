@@ -8,6 +8,12 @@
       <i class="mdi mdi-pencil" aria-hidden="true"></i>
       <span>Edit</span>
     </a>
+    {% if can_delete and object_delete_url %}
+      <a class="btn btn-danger" href="{{ object_delete_url }}">
+        <i class="mdi mdi-trash-can-outline" aria-hidden="true"></i>
+        <span>Delete</span>
+      </a>
+    {% endif %}
   </div>
 {% endblock %}
 
@@ -83,27 +89,5 @@
         <div class="list-group-item text-secondary">No object permissions assigned.</div>
       {% endfor %}
     </div>
-  </section>
-{% endblock %}
-
-{% block side %}
-  <section class="card">
-    <div class="card-header">
-      <h3 class="card-title">Summary</h3>
-    </div>
-    <table class="table table-hover attr-table mb-0">
-      <tr>
-        <th scope="row">Members</th>
-        <td>{{ object.member_count }}</td>
-      </tr>
-      <tr>
-        <th scope="row">Auth permissions</th>
-        <td>{{ object.permission_count }}</td>
-      </tr>
-      <tr>
-        <th scope="row">Object permissions</th>
-        <td>{{ object.object_permission_count }}</td>
-      </tr>
-    </table>
   </section>
 {% endblock %}

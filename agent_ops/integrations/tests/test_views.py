@@ -84,7 +84,8 @@ class IntegrationsViewTests(TestCase):
         self.assertContains(response, self.secret.name)
         self.assertContains(response, "Environment Variable")
         self.assertContains(response, "ghs_example_secret_value")
-        self.assertContains(response, "production")
+        self.assertContains(response, reverse("secret_delete", args=[self.secret.pk]))
+        self.assertNotContains(response, "Summary")
         self.assertNotContains(response, "Group Assignments")
 
     def test_secret_detail_shows_value_resolution_error(self):

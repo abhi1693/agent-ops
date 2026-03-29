@@ -541,11 +541,12 @@ class AuthViewTests(TestCase):
         response = self.client.get(reverse("user_detail", args=[self.user.pk]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Access summary")
         self.assertContains(response, 'class="table table-hover attr-table mb-0"', html=False)
         self.assertContains(response, group.name)
         self.assertContains(response, object_permission.name)
         self.assertContains(response, self.change_user_permission.name)
+        self.assertContains(response, reverse("user_delete", args=[self.user.pk]))
+        self.assertNotContains(response, "Access summary")
 
     def test_staff_user_can_render_group_detail(self) -> None:
         group = Group.objects.create(name="Operators", description="Operational staff")
@@ -560,10 +561,11 @@ class AuthViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Details")
-        self.assertContains(response, "Summary")
         self.assertContains(response, group.description)
         self.assertContains(response, self.user.username)
         self.assertContains(response, object_permission.name)
+        self.assertContains(response, reverse("group_delete", args=[group.pk]))
+        self.assertNotContains(response, "Summary")
 
     def test_staff_user_can_render_object_permission_detail(self) -> None:
         object_permission = ObjectPermission.objects.create(

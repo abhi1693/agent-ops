@@ -69,6 +69,11 @@ class RestrictedObjectViewMixin(RestrictedModelPermissionMixin):
             request=self.request,
             action="change",
         )
+        context["can_delete"] = is_object_action_allowed(
+            self.object,
+            request=self.request,
+            action="delete",
+        ) and context.get("object_delete_url") is not None
         return context
 
 
