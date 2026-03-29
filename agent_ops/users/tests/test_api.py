@@ -241,6 +241,15 @@ class APITestCase(TestCase):
         self.assertEqual(payload["permissions"][0]["id"], self.permission.id)
         self.assertEqual(payload["object_permissions"][0]["id"], self.object_permission.id)
 
+    def test_group_list_supports_brief_mode(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("api:users-api:group-list"), {"brief": 1})
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()["results"][0]
+        self.assertEqual(set(result), {"id", "url", "name", "description"})
+
     def test_object_permission_list_endpoint_returns_permissions_for_staff(self):
         self.client.force_login(self.staff_user)
 

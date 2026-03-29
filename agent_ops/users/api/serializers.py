@@ -4,6 +4,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from agent_ops.api.fields import SerializedPKRelatedField
+from agent_ops.api.serializers import BaseModelSerializer, ValidatedModelSerializer
 from users.models import Group, ObjectPermission, Token, User
 
 
@@ -39,7 +40,7 @@ class NestedUserSerializer(serializers.ModelSerializer):
         fields = ("id", "username", "display_name", "first_name", "last_name", "email")
 
 
-class UserSerializer(serializers.HyperlinkedModelSerializer):
+class UserSerializer(ValidatedModelSerializer):
     url = serializers.HyperlinkedIdentityField(view_name="api:users-api:user-detail")
     groups = SerializedPKRelatedField(
         serializer=NestedGroupSerializer,
@@ -82,12 +83,12 @@ class UserSerializer(serializers.HyperlinkedModelSerializer):
             "password",
         )
         read_only_fields = ("id", "url", "date_joined", "last_login")
+        brief_fields = ("id", "url", "username", "display_name", "first_name", "last_name", "email")
 
     def validate(self, attrs):
-        attrs = super().validate(attrs)
         if self.instance is None and not attrs.get("password"):
             raise serializers.ValidationError({"password": "This field is required."})
-        return attrs
+        return super().validate(attrs)
 
     def create(self, validated_data):
         password = validated_data.pop("password", None)
@@ -106,7 +107,7 @@ class UserSerializer(serializers.HyperlinkedModelSerializer):
         return user
 
 
-class GroupSerializer(serializers.HyperlinkedModelSerializer):
+class GroupSerializer(ValidatedModelSerializer):
     url = serializers.HyperlinkedIdentityField(view_name="api:users-api:group-detail")
     permissions = SerializedPKRelatedField(
         serializer=NestedPermissionSerializer,
@@ -131,9 +132,10 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
             "permissions",
             "object_permissions",
         )
+        brief_fields = ("id", "url", "name", "description")
 
 
-class ObjectPermissionSerializer(serializers.HyperlinkedModelSerializer):
+class ObjectPermissionSerializer(ValidatedModelSerializer):
     url = serializers.HyperlinkedIdentityField(view_name="api:users-api:objectpermission-detail")
     content_types = SerializedPKRelatedField(
         serializer=NestedContentTypeSerializer,
@@ -162,6 +164,7 @@ class ObjectPermissionSerializer(serializers.HyperlinkedModelSerializer):
             "groups",
             "users",
         )
+        brief_fields = ("id", "url", "name", "description", "enabled", "actions")
 
     def validate_actions(self, value):
         if len(set(value)) != len(value):
@@ -169,7 +172,7 @@ class ObjectPermissionSerializer(serializers.HyperlinkedModelSerializer):
         return value
 
 
-class TokenSerializer(serializers.HyperlinkedModelSerializer):
+class TokenSerializer(BaseModelSerializer):
     url = serializers.HyperlinkedIdentityField(view_name="api:users-api:token-detail")
     identifier = serializers.CharField(source="masked_key", read_only=True)
     plaintext_token = serializers.CharField(read_only=True)
@@ -199,6 +202,7 @@ class TokenSerializer(serializers.HyperlinkedModelSerializer):
             "created",
             "last_used",
         )
+        brief_fields = ("id", "url", "identifier", "description", "enabled", "write_enabled")
 
     def validate_expires(self, value):
         if value is not None and value <= timezone.now():

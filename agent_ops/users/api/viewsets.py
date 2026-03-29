@@ -8,9 +8,9 @@ from rest_framework.response import Response
 from rest_framework.reverse import reverse
 from rest_framework.routers import APIRootView
 from rest_framework.views import APIView
-from rest_framework.viewsets import ModelViewSet
 
 from agent_ops.api.permissions import IsStaffUser
+from agent_ops.api.viewsets import ModelViewSet
 from users import filtersets
 from users.models import Group, ObjectPermission, Token, User
 from users.preferences import DEFAULT_USER_PREFERENCES
