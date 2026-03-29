@@ -385,6 +385,40 @@ class APITestCase(TestCase):
         self.assertEqual(payload["user"]["username"], self.user.username)
         self.assertEqual(Token.objects.filter(user=self.user).count(), 1)
 
+    def test_read_only_token_cannot_create_token(self):
+        token = Token(user=self.user, description="Read only", write_enabled=False)
+        token.save()
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Token {token.plaintext_token}")
+
+        response = client.post(
+            reverse("api:users-api:token-list"),
+            {"description": "Blocked", "enabled": True, "write_enabled": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_read_only_staff_token_can_read_but_cannot_write_staff_endpoint(self):
+        token = Token(user=self.staff_user, description="Staff read only", write_enabled=False)
+        token.save()
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Token {token.plaintext_token}")
+
+        list_response = client.get(reverse("api:users-api:user-list"))
+        create_response = client.post(
+            reverse("api:users-api:user-list"),
+            {
+                "username": "blocked-user",
+                "email": "blocked-user@example.com",
+                "password": "testpass123",
+            },
+            format="json",
+        )
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(create_response.status_code, 403)
+
     def test_config_endpoint_returns_current_user_preferences(self):
         self.client.force_login(self.user)
 
@@ -424,3 +458,17 @@ class APITestCase(TestCase):
         self.user.refresh_from_db()
         self.assertEqual(self.user.get_config().get("ui.theme"), "dark")
         self.assertEqual(self.user.get_config().get("ui.page_size"), 100)
+
+    def test_read_only_token_cannot_patch_config(self):
+        token = Token(user=self.user, description="Read only", write_enabled=False)
+        token.save()
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Token {token.plaintext_token}")
+
+        response = client.patch(
+            reverse("api:users-api:config"),
+            {"ui": {"theme": "dark"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)

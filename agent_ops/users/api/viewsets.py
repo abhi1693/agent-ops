@@ -3,13 +3,12 @@ from copy import deepcopy
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.reverse import reverse
 from rest_framework.routers import APIRootView
 from rest_framework.views import APIView
 
-from agent_ops.api.permissions import IsStaffUser
+from agent_ops.api.permissions import IsStaffUser, TokenPermissions
 from agent_ops.api.viewsets import ModelViewSet
 from users import filtersets
 from users.models import Group, ObjectPermission, Token, User
@@ -58,7 +57,7 @@ class UserViewSet(ModelViewSet):
     serializer_class = UserSerializer
     filterset_class = filtersets.UserFilterSet
     ordering_fields = ("username", "email", "date_joined", "last_login")
-    permission_classes = [IsStaffUser]
+    permission_classes = [TokenPermissions, IsStaffUser]
 
 
 class GroupViewSet(ModelViewSet):
@@ -69,7 +68,7 @@ class GroupViewSet(ModelViewSet):
     serializer_class = GroupSerializer
     filterset_class = filtersets.GroupFilterSet
     ordering_fields = ("name",)
-    permission_classes = [IsStaffUser]
+    permission_classes = [TokenPermissions, IsStaffUser]
 
 
 class ObjectPermissionViewSet(ModelViewSet):
@@ -81,14 +80,14 @@ class ObjectPermissionViewSet(ModelViewSet):
     serializer_class = ObjectPermissionSerializer
     filterset_class = filtersets.ObjectPermissionFilterSet
     ordering_fields = ("name",)
-    permission_classes = [IsStaffUser]
+    permission_classes = [TokenPermissions, IsStaffUser]
 
 
 class TokenViewSet(ModelViewSet):
     serializer_class = TokenSerializer
     filterset_class = filtersets.TokenFilterSet
     ordering_fields = ("created", "expires", "last_used")
-    permission_classes = [IsAuthenticated]
+    permission_classes = [TokenPermissions]
 
     def get_queryset(self):
         return self.request.user.tokens.select_related("user").order_by("-created")
@@ -98,7 +97,7 @@ class TokenViewSet(ModelViewSet):
 
 
 class UserConfigView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [TokenPermissions]
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
     def get(self, request):
