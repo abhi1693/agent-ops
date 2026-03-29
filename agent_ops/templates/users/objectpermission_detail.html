@@ -2,32 +2,65 @@
 
 {% block title %}{{ object.name }}{% endblock %}
 
-{% block pretitle %}<div class="page-pretitle">Object permission</div>{% endblock %}
-
-{% block subtitle %}
-  <p class="page-subtitle">{{ object.description|default:"Managed object permission." }}</p>
-{% endblock %}
-
 {% block controls %}
-  <div class="btn-list">
-    <a class="btn btn-primary" href="{% url 'objectpermission_edit' object.pk %}">Edit permission</a>
+  <div class="btn-list object-page-actions">
+    <a class="btn btn-warning" href="{% url 'objectpermission_edit' object.pk %}">
+      <i class="mdi mdi-pencil" aria-hidden="true"></i>
+      <span>Edit</span>
+    </a>
   </div>
 {% endblock %}
 
 {% block main %}
   <section class="card">
     <div class="card-header">
-      <h3 class="card-title">Content types</h3>
+      <h3 class="card-title">Details</h3>
     </div>
-    <div class="card-body">
-      <p class="text-secondary">Models this permission can be applied against.</p>
-      <ul class="object-list mt-3">
-        {% for content_type in object.content_types.all %}
-          <li>{{ content_type.app_label }}.{{ content_type.model }}</li>
-        {% empty %}
-          <li class="text-secondary">No content types selected.</li>
-        {% endfor %}
-      </ul>
+    <table class="table table-hover attr-table mb-0">
+      <tr>
+        <th scope="row">Description</th>
+        <td>{{ object.description|default:"Not set" }}</td>
+      </tr>
+      <tr>
+        <th scope="row">Enabled</th>
+        <td>
+          <span class="badge {% if object.enabled %}text-bg-success{% else %}text-bg-secondary{% endif %}">
+            {% if object.enabled %}Yes{% else %}No{% endif %}
+          </span>
+        </td>
+      </tr>
+      <tr>
+        <th scope="row">Actions</th>
+        <td>
+          {% if object.actions %}
+            <div class="badge-row">
+              {% for action in object.actions %}
+                <span class="badge text-bg-primary">{{ action|capfirst }}</span>
+              {% endfor %}
+            </div>
+          {% else %}
+            <span class="text-secondary">No actions selected.</span>
+          {% endif %}
+        </td>
+      </tr>
+    </table>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Content types</h3>
+      <div class="card-actions">
+        <span class="badge text-bg-secondary object-panel-count">{{ object.content_type_count }}</span>
+      </div>
+    </div>
+    <div class="list-group list-group-flush object-panel-list">
+      {% for content_type in object.content_types.all %}
+        <div class="list-group-item">
+          <span class="fw-medium">{{ content_type.app_label }}</span>.{{ content_type.model }}
+        </div>
+      {% empty %}
+        <div class="list-group-item text-secondary">No content types selected.</div>
+      {% endfor %}
     </div>
   </section>
 
@@ -36,9 +69,8 @@
       <h3 class="card-title">Constraints</h3>
     </div>
     <div class="card-body">
-      <p class="text-secondary">Optional JSON conditions that narrow the scope of the grant.</p>
       {% if object.constraints %}
-        <pre class="code-block mt-3">{{ object.constraints }}</pre>
+        <pre class="code-block">{{ object.constraints }}</pre>
       {% else %}
         <p class="mb-0 text-secondary">No additional constraints.</p>
       {% endif %}
@@ -47,36 +79,45 @@
 
   <section class="card">
     <div class="card-header">
-      <h3 class="card-title">Assignments</h3>
-    </div>
-    <div class="card-body">
-      <p class="text-secondary">Where this object permission is currently in use.</p>
-      <div class="row row-cards mt-3">
-        <div class="col-md-6">
-          <h4 class="mb-2">Assigned users</h4>
-          {% if object.users.all %}
-            <ul class="object-list">
-              {% for user in object.users.all %}
-                <li><a href="{% url 'user_detail' user.pk %}">{{ user.username }}</a></li>
-              {% endfor %}
-            </ul>
-          {% else %}
-            <p class="mb-0 text-secondary">No direct user assignments.</p>
-          {% endif %}
-        </div>
-        <div class="col-md-6">
-          <h4 class="mb-2">Assigned groups</h4>
-          {% if object.groups.all %}
-            <ul class="object-list">
-              {% for group in object.groups.all %}
-                <li><a href="{% url 'group_detail' group.pk %}">{{ group.name }}</a></li>
-              {% endfor %}
-            </ul>
-          {% else %}
-            <p class="mb-0 text-secondary">No group assignments.</p>
-          {% endif %}
-        </div>
+      <h3 class="card-title">Assigned users</h3>
+      <div class="card-actions">
+        <span class="badge text-bg-secondary object-panel-count">{{ object.user_count }}</span>
       </div>
+    </div>
+    <div class="list-group list-group-flush object-panel-list">
+      {% for user in object.users.all %}
+        <a class="list-group-item list-group-item-action" href="{% url 'user_detail' user.pk %}">
+          <div class="fw-medium">{{ user.username }}</div>
+          {% if user.display_name %}
+            <div class="text-secondary small">{{ user.display_name }}</div>
+          {% elif user.email %}
+            <div class="text-secondary small">{{ user.email }}</div>
+          {% endif %}
+        </a>
+      {% empty %}
+        <div class="list-group-item text-secondary">No direct user assignments.</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Assigned groups</h3>
+      <div class="card-actions">
+        <span class="badge text-bg-secondary object-panel-count">{{ object.group_count }}</span>
+      </div>
+    </div>
+    <div class="list-group list-group-flush object-panel-list">
+      {% for group in object.groups.all %}
+        <a class="list-group-item list-group-item-action" href="{% url 'group_detail' group.pk %}">
+          <div class="fw-medium">{{ group.name }}</div>
+          {% if group.description %}
+            <div class="text-secondary small">{{ group.description }}</div>
+          {% endif %}
+        </a>
+      {% empty %}
+        <div class="list-group-item text-secondary">No group assignments.</div>
+      {% endfor %}
     </div>
   </section>
 {% endblock %}
@@ -86,13 +127,19 @@
     <div class="card-header">
       <h3 class="card-title">Scope</h3>
     </div>
-    <div class="card-body">
-      <p class="text-secondary">Operational status and action set.</p>
-      <dl class="object-data-list mt-3">
-        <div><dt>Enabled</dt><dd>{% if object.enabled %}Yes{% else %}No{% endif %}</dd></div>
-        <div><dt>Actions</dt><dd>{{ object.actions|join:", " }}</dd></div>
-        <div><dt>Content types</dt><dd>{{ object.content_types.count }}</dd></div>
-      </dl>
-    </div>
+    <table class="table table-hover attr-table mb-0">
+      <tr>
+        <th scope="row">Content types</th>
+        <td>{{ object.content_type_count }}</td>
+      </tr>
+      <tr>
+        <th scope="row">Assigned users</th>
+        <td>{{ object.user_count }}</td>
+      </tr>
+      <tr>
+        <th scope="row">Assigned groups</th>
+        <td>{{ object.group_count }}</td>
+      </tr>
+    </table>
   </section>
 {% endblock %}

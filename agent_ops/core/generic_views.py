@@ -1,12 +1,14 @@
 from django.core.exceptions import ImproperlyConfigured
 from django.shortcuts import render
-from django.views.generic import View
+from django.urls import NoReverseMatch, reverse
+from django.views.generic import DetailView, View
 
 from core.form_widgets import apply_standard_widget_classes
 
 
 __all__ = (
     "BaseMultiObjectView",
+    "ObjectView",
     "ObjectListView",
     "TableMixin",
 )
@@ -44,6 +46,31 @@ class TableMixin:
         table = self.table(data)
         table.configure(request)
         return table
+
+
+class ObjectView(DetailView):
+    def get_list_url(self):
+        try:
+            return reverse(f"{self.object._meta.model_name}_list")
+        except NoReverseMatch:
+            return None
+
+    def get_object_identifier(self):
+        return f"{self.object._meta.app_label}.{self.object._meta.model_name}:{self.object.pk}"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        meta = self.object._meta
+
+        context.update(
+            {
+                "object_identifier": self.get_object_identifier(),
+                "object_list_url": self.get_list_url(),
+                "object_verbose_name": str(meta.verbose_name).title(),
+                "object_verbose_name_plural": str(meta.verbose_name_plural).title(),
+            }
+        )
+        return context
 
 
 class ObjectListView(BaseMultiObjectView, TableMixin):

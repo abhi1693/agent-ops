@@ -398,6 +398,68 @@ class AuthViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Object Permissions")
 
+    def test_staff_user_can_render_user_detail(self) -> None:
+        group = Group.objects.create(name="Operators", description="Operational staff")
+        object_permission = ObjectPermission.objects.create(name="View active users", actions=["view"])
+        object_permission.content_types.add(self.user_content_type)
+        token = Token(user=self.user, description="CLI access")
+        token.save()
+        self.user.groups.add(group)
+        self.user.object_permissions.add(object_permission)
+        self.user.user_permissions.add(self.change_user_permission)
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("user_detail", args=[self.user.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Access summary")
+        self.assertContains(response, 'class="table table-hover attr-table mb-0"', html=False)
+        self.assertContains(response, group.name)
+        self.assertContains(response, object_permission.name)
+        self.assertContains(response, self.change_user_permission.name)
+
+    def test_staff_user_can_render_group_detail(self) -> None:
+        group = Group.objects.create(name="Operators", description="Operational staff")
+        group.permissions.add(self.change_user_permission)
+        object_permission = ObjectPermission.objects.create(name="View active users", actions=["view"])
+        object_permission.content_types.add(self.user_content_type)
+        group.object_permissions.add(object_permission)
+        group.users.add(self.user)
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("group_detail", args=[group.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Details")
+        self.assertContains(response, "Summary")
+        self.assertContains(response, group.description)
+        self.assertContains(response, self.user.username)
+        self.assertContains(response, object_permission.name)
+
+    def test_staff_user_can_render_object_permission_detail(self) -> None:
+        object_permission = ObjectPermission.objects.create(
+            name="View active users",
+            description="Manage active users",
+            enabled=True,
+            actions=["view", "change"],
+            constraints={"is_active": True},
+        )
+        object_permission.content_types.add(self.user_content_type)
+        object_permission.users.add(self.user)
+        group = Group.objects.create(name="Operators", description="Operational staff")
+        object_permission.groups.add(group)
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("objectpermission_detail", args=[object_permission.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Content types")
+        self.assertContains(response, "Assigned users")
+        self.assertContains(response, "Assigned groups")
+        self.assertContains(response, object_permission.description)
+        self.assertContains(response, self.user.username)
+        self.assertContains(response, group.name)
+
     def test_logout_clears_session(self) -> None:
         self.client.force_login(self.user)
 

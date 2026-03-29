@@ -2,15 +2,12 @@
 
 {% block title %}{{ object.username }}{% endblock %}
 
-{% block pretitle %}<div class="page-pretitle">User</div>{% endblock %}
-
-{% block subtitle %}
-  <p class="page-subtitle">Platform user details.</p>
-{% endblock %}
-
 {% block controls %}
-  <div class="btn-list">
-    <a class="btn btn-primary" href="{% url 'user_edit' object.pk %}">Edit user</a>
+  <div class="btn-list object-page-actions">
+    <a class="btn btn-warning" href="{% url 'user_edit' object.pk %}">
+      <i class="mdi mdi-pencil" aria-hidden="true"></i>
+      <span>Edit</span>
+    </a>
   </div>
 {% endblock %}
 
@@ -19,68 +16,84 @@
     <div class="card-header">
       <h3 class="card-title">Identity</h3>
     </div>
-    <div class="card-body">
-      <p class="text-secondary">Profile data stored on the managed user record.</p>
-      <dl class="object-data-grid mt-3">
-        <div class="object-data-list"><div><dt>Email</dt><dd>{{ object.email }}</dd></div></div>
-        <div class="object-data-list"><div><dt>Full name</dt><dd>{{ object.get_full_name|default:"Not set" }}</dd></div></div>
-        <div class="object-data-list"><div><dt>Display name</dt><dd>{{ object.display_name|default:"Not set" }}</dd></div></div>
-        <div class="object-data-list"><div><dt>Joined</dt><dd>{{ object.date_joined }}</dd></div></div>
-      </dl>
-    </div>
+    <table class="table table-hover attr-table mb-0">
+      <tr>
+        <th scope="row">Email</th>
+        <td>{{ object.email }}</td>
+      </tr>
+      <tr>
+        <th scope="row">Full name</th>
+        <td>{{ object.get_full_name|default:"Not set" }}</td>
+      </tr>
+      <tr>
+        <th scope="row">Display name</th>
+        <td>{{ object.display_name|default:"Not set" }}</td>
+      </tr>
+      <tr>
+        <th scope="row">Joined</th>
+        <td>{{ object.date_joined }}</td>
+      </tr>
+    </table>
   </section>
 
   <section class="card">
     <div class="card-header">
       <h3 class="card-title">Groups</h3>
+      <div class="card-actions">
+        <span class="badge text-bg-secondary object-panel-count">{{ object.group_count }}</span>
+      </div>
     </div>
-    <div class="card-body">
-      <p class="text-secondary">Reusable access bundles assigned to this account.</p>
-      {% if object.groups.all %}
-        <div class="badge-row mt-3">
-          {% for group in object.groups.all %}
-            <a class="badge text-bg-primary" href="{% url 'group_detail' group.pk %}">{{ group.name }}</a>
-          {% endfor %}
-        </div>
-      {% else %}
-        <p class="mb-0 text-secondary">No groups assigned.</p>
-      {% endif %}
+    <div class="list-group list-group-flush object-panel-list">
+      {% for group in object.groups.all %}
+        <a class="list-group-item list-group-item-action" href="{% url 'group_detail' group.pk %}">
+          <div class="fw-medium">{{ group.name }}</div>
+          {% if group.description %}
+            <div class="text-secondary small">{{ group.description }}</div>
+          {% endif %}
+        </a>
+      {% empty %}
+        <div class="list-group-item text-secondary">No groups assigned.</div>
+      {% endfor %}
     </div>
   </section>
 
   <section class="card">
     <div class="card-header">
       <h3 class="card-title">Object permissions</h3>
+      <div class="card-actions">
+        <span class="badge text-bg-secondary object-panel-count">{{ object.object_permission_count }}</span>
+      </div>
     </div>
-    <div class="card-body">
-      <p class="text-secondary">Direct scoped grants attached to the user record.</p>
-      {% if object.object_permissions.all %}
-        <ul class="object-list mt-3">
-          {% for permission in object.object_permissions.all %}
-            <li><a href="{% url 'objectpermission_detail' permission.pk %}">{{ permission.name }}</a></li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <p class="mb-0 text-secondary">No direct object permissions.</p>
-      {% endif %}
+    <div class="list-group list-group-flush object-panel-list">
+      {% for permission in object.object_permissions.all %}
+        <a class="list-group-item list-group-item-action" href="{% url 'objectpermission_detail' permission.pk %}">
+          <div class="fw-medium">{{ permission.name }}</div>
+          {% if permission.description %}
+            <div class="text-secondary small">{{ permission.description }}</div>
+          {% endif %}
+        </a>
+      {% empty %}
+        <div class="list-group-item text-secondary">No direct object permissions.</div>
+      {% endfor %}
     </div>
   </section>
 
   <section class="card">
     <div class="card-header">
       <h3 class="card-title">Auth permissions</h3>
+      <div class="card-actions">
+        <span class="badge text-bg-secondary object-panel-count">{{ object.user_permission_count }}</span>
+      </div>
     </div>
-    <div class="card-body">
-      <p class="text-secondary">Direct Django permission grants still attached to the first-party account.</p>
-      {% if object.user_permissions.all %}
-        <ul class="object-list mt-3">
-          {% for permission in object.user_permissions.all %}
-            <li>{{ permission.content_type.app_label }}.{{ permission.codename }}</li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <p class="mb-0 text-secondary">No direct auth permissions.</p>
-      {% endif %}
+    <div class="list-group list-group-flush object-panel-list">
+      {% for permission in object.user_permissions.all %}
+        <div class="list-group-item">
+          <div class="fw-medium">{{ permission.name }}</div>
+          <div class="text-secondary small">{{ permission.content_type.app_label }}.{{ permission.codename }}</div>
+        </div>
+      {% empty %}
+        <div class="list-group-item text-secondary">No direct auth permissions.</div>
+      {% endfor %}
     </div>
   </section>
 {% endblock %}
@@ -90,14 +103,35 @@
     <div class="card-header">
       <h3 class="card-title">Access summary</h3>
     </div>
-    <div class="card-body">
-      <p class="text-secondary">Administrative status and token footprint.</p>
-      <dl class="object-data-list mt-3">
-        <div><dt>Staff</dt><dd>{% if object.is_staff %}Yes{% else %}No{% endif %}</dd></div>
-        <div><dt>Superuser</dt><dd>{% if object.is_superuser %}Yes{% else %}No{% endif %}</dd></div>
-        <div><dt>Active</dt><dd>{% if object.is_active %}Yes{% else %}No{% endif %}</dd></div>
-        <div><dt>Tokens</dt><dd>{{ object.tokens.count }}</dd></div>
-      </dl>
-    </div>
+    <table class="table table-hover attr-table mb-0">
+      <tr>
+        <th scope="row">Staff</th>
+        <td>
+          <span class="badge {% if object.is_staff %}text-bg-success{% else %}text-bg-secondary{% endif %}">
+            {% if object.is_staff %}Yes{% else %}No{% endif %}
+          </span>
+        </td>
+      </tr>
+      <tr>
+        <th scope="row">Superuser</th>
+        <td>
+          <span class="badge {% if object.is_superuser %}text-bg-success{% else %}text-bg-secondary{% endif %}">
+            {% if object.is_superuser %}Yes{% else %}No{% endif %}
+          </span>
+        </td>
+      </tr>
+      <tr>
+        <th scope="row">Active</th>
+        <td>
+          <span class="badge {% if object.is_active %}text-bg-success{% else %}text-bg-secondary{% endif %}">
+            {% if object.is_active %}Yes{% else %}No{% endif %}
+          </span>
+        </td>
+      </tr>
+      <tr>
+        <th scope="row">Tokens</th>
+        <td>{{ object.token_count }}</td>
+      </tr>
+    </table>
   </section>
 {% endblock %}

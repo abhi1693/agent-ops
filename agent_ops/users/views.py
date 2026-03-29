@@ -1,9 +1,9 @@
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db.models import Count
 from django.urls import reverse
-from django.views.generic import CreateView, DetailView, UpdateView
+from django.views.generic import CreateView, UpdateView
 
-from core.generic_views import ObjectListView
+from core.generic_views import ObjectListView, ObjectView
 from . import filtersets, tables
 from .forms import (
     GroupForm,
@@ -25,8 +25,14 @@ class UserListView(StaffRequiredMixin, ObjectListView):
         return super().get_queryset(request).order_by("username")
 
 
-class UserDetailView(StaffRequiredMixin, DetailView):
+class UserDetailView(StaffRequiredMixin, ObjectView):
     model = User
+    queryset = User.objects.prefetch_related("groups", "object_permissions", "user_permissions").annotate(
+        group_count=Count("groups", distinct=True),
+        object_permission_count=Count("object_permissions", distinct=True),
+        user_permission_count=Count("user_permissions", distinct=True),
+        token_count=Count("tokens", distinct=True),
+    )
     template_name = "users/user_detail.html"
 
 
@@ -80,8 +86,13 @@ class GroupListView(StaffRequiredMixin, ObjectListView):
         )
 
 
-class GroupDetailView(StaffRequiredMixin, DetailView):
+class GroupDetailView(StaffRequiredMixin, ObjectView):
     model = Group
+    queryset = Group.objects.prefetch_related("users", "permissions", "object_permissions").annotate(
+        member_count=Count("user", distinct=True),
+        permission_count=Count("permissions", distinct=True),
+        object_permission_count=Count("object_permissions", distinct=True),
+    )
     template_name = "users/group_detail.html"
 
 
@@ -131,8 +142,13 @@ class ObjectPermissionListView(StaffRequiredMixin, ObjectListView):
         )
 
 
-class ObjectPermissionDetailView(StaffRequiredMixin, DetailView):
+class ObjectPermissionDetailView(StaffRequiredMixin, ObjectView):
     model = ObjectPermission
+    queryset = ObjectPermission.objects.prefetch_related("content_types", "users", "groups").annotate(
+        content_type_count=Count("content_types", distinct=True),
+        user_count=Count("users", distinct=True),
+        group_count=Count("groups", distinct=True),
+    )
     template_name = "users/objectpermission_detail.html"
 
 

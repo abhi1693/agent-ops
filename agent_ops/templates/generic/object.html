@@ -1,9 +1,47 @@
 {% extends "generic/_base.html" %}
 
+{% block page-header %}
+  <div class="container-fluid mt-2 d-print-none object-page-header">
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-start gap-2">
+      <ol class="breadcrumb mb-0" aria-label="breadcrumbs">
+        {% block breadcrumbs %}
+          {% if object_list_url %}
+            <li class="breadcrumb-item">
+              <a href="{{ object_list_url }}">{{ object_verbose_name_plural }}</a>
+            </li>
+          {% endif %}
+        {% endblock %}
+      </ol>
+
+      <code class="d-block text-muted bg-transparent px-0 mb-0 object-page-identifier">
+        {% block object_identifier %}
+          {{ object_identifier }}
+        {% endblock %}
+      </code>
+    </div>
+
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-start gap-3 mt-2">
+      <div>
+        <h1 class="page-title mb-0">{% block title %}{{ object }}{% endblock title %}</h1>
+      </div>
+
+      <div class="d-print-none object-page-controls">
+        {% block controls %}
+          <div class="btn-list object-page-actions">
+            {% block control-buttons %}{% endblock %}
+          </div>
+        {% endblock controls %}
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
 {% block tabs %}
-  <ul class="nav nav-tabs" role="tablist">
+  <ul class="nav nav-tabs object-page-tabs" role="presentation">
     <li class="nav-item" role="presentation">
-      <button class="nav-link active" id="object-view-tab" data-bs-toggle="tab" data-bs-target="#object-view" type="button" role="tab" aria-controls="object-view" aria-selected="true">Details</button>
+      <a class="nav-link active" id="object-view-tab" href="{{ object.get_absolute_url }}" aria-current="page">
+        {{ object_verbose_name }}
+      </a>
     </li>
   </ul>
 {% endblock %}
