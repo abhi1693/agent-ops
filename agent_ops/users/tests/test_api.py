@@ -70,6 +70,7 @@ class APITestCase(TestCase):
             response.json(),
             {
                 "changelog": "http://testserver/api/changelog/",
+                "integrations": "http://testserver/api/integrations/",
                 "tenancy": "http://testserver/api/tenancy/",
                 "users": "http://testserver/api/users/",
                 "status": "http://testserver/api/status/",

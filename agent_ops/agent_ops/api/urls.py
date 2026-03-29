@@ -12,6 +12,7 @@ urlpatterns = [
     path("", APIRootView.as_view(), name="api-root"),
     path("changelog/", ObjectChangeViewSet.as_view({"get": "list"}), name="changelog-list"),
     path("changelog/<int:pk>/", ObjectChangeViewSet.as_view({"get": "retrieve"}), name="changelog-detail"),
+    path("integrations/", include(("integrations.api.urls", "integrations-api"), namespace="integrations-api")),
     path("tenancy/", include(("tenancy.api.urls", "tenancy-api"), namespace="tenancy-api")),
     path("users/", include(("users.api.urls", "users-api"), namespace="users-api")),
     path("status/", StatusView.as_view(), name="status"),

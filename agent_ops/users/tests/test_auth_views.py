@@ -164,9 +164,9 @@ class AuthViewTests(TestCase):
 
         nav_items = build_navigation(request)
 
-        self.assertEqual(len(nav_items), 3)
+        self.assertEqual(len(nav_items), 4)
         nav_by_label = {item["label"]: item for item in nav_items}
-        self.assertEqual(set(nav_by_label), {"Activity", "Administration", "Tenancy"})
+        self.assertEqual(set(nav_by_label), {"Activity", "Administration", "Integrations", "Tenancy"})
 
         activity_entries = [
             (item["label"], item["icon_class"], item["add_url"])
@@ -207,8 +207,25 @@ class AuthViewTests(TestCase):
                 ("Environments", "mdi mdi-cloud-outline", reverse("environment_add")),
             ],
         )
+        integration_entries = [
+            (item["label"], item["icon_class"], item["add_url"])
+            for group in nav_by_label["Integrations"]["groups"]
+            for item in group["items"]
+        ]
+        self.assertEqual(
+            integration_entries,
+            [
+                ("Secrets", "mdi mdi-key-chain-variant", reverse("secret_add")),
+            ],
+        )
         menu_labels = [
-            label for label, _icon, _add_url in [*activity_entries, *administration_entries, *tenancy_entries]
+            label
+            for label, _icon, _add_url in [
+                *activity_entries,
+                *administration_entries,
+                *integration_entries,
+                *tenancy_entries,
+            ]
         ]
         self.assertNotIn("Profile", menu_labels)
         self.assertNotIn("Preferences", menu_labels)

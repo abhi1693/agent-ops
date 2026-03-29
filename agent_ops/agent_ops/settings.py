@@ -66,6 +66,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "core.apps.CoreConfig",
     "account.apps.AccountConfig",
+    "integrations.apps.IntegrationsConfig",
     "tenancy.apps.TenancyConfig",
     "users.apps.UsersConfig",
 ]
