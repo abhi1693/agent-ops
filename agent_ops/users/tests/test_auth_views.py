@@ -162,19 +162,19 @@ class AuthViewTests(TestCase):
         self.assertEqual(nav_items[0]["icon_class"], "mdi mdi-account-multiple")
 
         menu_entries = [
-            (item["label"], item["icon_class"])
+            (item["label"], item["icon_class"], item["add_url"])
             for group in nav_items[0]["groups"]
             for item in group["items"]
         ]
         self.assertEqual(
             menu_entries,
             [
-                ("Users", "mdi mdi-account-outline"),
-                ("Groups", "mdi mdi-account-group-outline"),
-                ("Object Permissions", "mdi mdi-shield-key-outline"),
+                ("Users", "mdi mdi-account-outline", reverse("user_add")),
+                ("Groups", "mdi mdi-account-group-outline", reverse("group_add")),
+                ("Object Permissions", "mdi mdi-shield-key-outline", reverse("objectpermission_add")),
             ],
         )
-        menu_labels = [label for label, _icon in menu_entries]
+        menu_labels = [label for label, _icon, _add_url in menu_entries]
         self.assertNotIn("Profile", menu_labels)
         self.assertNotIn("Preferences", menu_labels)
         self.assertNotIn("API Tokens", menu_labels)

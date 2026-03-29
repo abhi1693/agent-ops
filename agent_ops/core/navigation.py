@@ -16,19 +16,28 @@ class MenuItem:
     link: str
     link_text: str
     icon_class: str | None = None
+    add_link: str | None = None
+    add_button_label: str | None = None
     active_links: Sequence[str] = ()
     permissions: Sequence[str] = ()
     auth_required: bool = False
     staff_only: bool = False
     _url: str | None = field(init=False, default=None, repr=False)
+    _add_url: str | None = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
         if self.link:
             self._url = reverse_lazy(self.link)
+        if self.add_link:
+            self._add_url = reverse_lazy(self.add_link)
 
     @property
     def url(self) -> str | None:
         return self._url
+
+    @property
+    def add_url(self) -> str | None:
+        return self._add_url
 
     def is_visible(self, user) -> bool:
         if self.auth_required and not user.is_authenticated:
@@ -104,6 +113,8 @@ def build_navigation(request) -> list[dict]:
                             "label": item.link_text,
                             "icon_class": item.icon_class,
                             "url": item.url,
+                            "add_url": item.add_url,
+                            "add_button_label": item.add_button_label,
                             "active": item_is_active,
                         }
                     )
