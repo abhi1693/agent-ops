@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.urls import reverse
@@ -30,13 +31,23 @@ class APITestCase(TestCase):
             password="testpass123",
         )
         cls.group = Group.objects.create(name="Operators", description="Operations team")
+        cls.user_content_type = ContentType.objects.get_for_model(User)
+        cls.permission = Permission.objects.get(
+            content_type=cls.user_content_type,
+            codename="view_user",
+        )
         cls.object_permission = ObjectPermission.objects.create(
             name="View users",
             description="View user records",
             enabled=True,
             actions=["view"],
         )
-        cls.object_permission.content_types.add(ContentType.objects.get_for_model(User))
+        cls.object_permission.content_types.add(cls.user_content_type)
+        cls.group.permissions.add(cls.permission)
+        cls.group.object_permissions.add(cls.object_permission)
+        cls.user.groups.add(cls.group)
+        cls.user.user_permissions.add(cls.permission)
+        cls.user.object_permissions.add(cls.object_permission)
 
     def test_api_root_requires_authentication(self):
         response = self.client.get(reverse("api:api-root"))
@@ -111,6 +122,68 @@ class APITestCase(TestCase):
         self.assertEqual(payload["count"], 3)
         usernames = {result["username"] for result in payload["results"]}
         self.assertEqual(usernames, {self.user.username, self.staff_user.username, self.other_user.username})
+        result = next(item for item in payload["results"] if item["username"] == self.user.username)
+        self.assertEqual(result["groups"], [{"id": self.group.id, "name": self.group.name, "description": self.group.description}])
+        self.assertEqual(
+            result["object_permissions"],
+            [
+                {
+                    "id": self.object_permission.id,
+                    "name": self.object_permission.name,
+                    "description": self.object_permission.description,
+                    "enabled": True,
+                    "actions": ["view"],
+                }
+            ],
+        )
+        self.assertEqual(
+            result["user_permissions"],
+            [
+                {
+                    "id": self.permission.id,
+                    "name": self.permission.name,
+                    "codename": self.permission.codename,
+                    "content_type": {
+                        "id": self.user_content_type.id,
+                        "app_label": self.user_content_type.app_label,
+                        "model": self.user_content_type.model,
+                    },
+                }
+            ],
+        )
+
+    def test_user_create_accepts_primary_keys_for_related_fields(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("api:users-api:user-list"),
+            {
+                "username": "nested-user",
+                "email": "nested-user@example.com",
+                "password": "testpass123",
+                "groups": [self.group.id],
+                "object_permissions": [self.object_permission.id],
+                "user_permissions": [self.permission.id],
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertEqual(
+            payload["groups"],
+            [{"id": self.group.id, "name": self.group.name, "description": self.group.description}],
+        )
+        self.assertEqual(payload["object_permissions"][0]["id"], self.object_permission.id)
+        self.assertEqual(payload["user_permissions"][0]["id"], self.permission.id)
+
+    def test_user_list_browsable_api_renders_form(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("api:users-api:user-list"), HTTP_ACCEPT="text/html")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"<html", response.content)
 
     def test_group_list_endpoint_returns_groups_for_staff(self):
         self.client.force_login(self.staff_user)
@@ -121,6 +194,52 @@ class APITestCase(TestCase):
         payload = response.json()
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["results"][0]["name"], self.group.name)
+        self.assertEqual(
+            payload["results"][0]["permissions"],
+            [
+                {
+                    "id": self.permission.id,
+                    "name": self.permission.name,
+                    "codename": self.permission.codename,
+                    "content_type": {
+                        "id": self.user_content_type.id,
+                        "app_label": self.user_content_type.app_label,
+                        "model": self.user_content_type.model,
+                    },
+                }
+            ],
+        )
+        self.assertEqual(
+            payload["results"][0]["object_permissions"],
+            [
+                {
+                    "id": self.object_permission.id,
+                    "name": self.object_permission.name,
+                    "description": self.object_permission.description,
+                    "enabled": True,
+                    "actions": ["view"],
+                }
+            ],
+        )
+
+    def test_group_create_accepts_primary_keys_for_related_fields(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("api:users-api:group-list"),
+            {
+                "name": "Engineers",
+                "description": "Engineering team",
+                "permissions": [self.permission.id],
+                "object_permissions": [self.object_permission.id],
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertEqual(payload["permissions"][0]["id"], self.permission.id)
+        self.assertEqual(payload["object_permissions"][0]["id"], self.object_permission.id)
 
     def test_object_permission_list_endpoint_returns_permissions_for_staff(self):
         self.client.force_login(self.staff_user)
@@ -132,6 +251,69 @@ class APITestCase(TestCase):
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["results"][0]["name"], self.object_permission.name)
         self.assertEqual(payload["results"][0]["actions"], ["view"])
+        self.assertEqual(
+            payload["results"][0]["content_types"],
+            [
+                {
+                    "id": self.user_content_type.id,
+                    "app_label": self.user_content_type.app_label,
+                    "model": self.user_content_type.model,
+                }
+            ],
+        )
+        self.assertEqual(
+            payload["results"][0]["groups"],
+            [{"id": self.group.id, "name": self.group.name, "description": self.group.description}],
+        )
+        self.assertEqual(
+            payload["results"][0]["users"],
+            [
+                {
+                    "id": self.user.id,
+                    "username": self.user.username,
+                    "display_name": self.user.display_name,
+                    "first_name": self.user.first_name,
+                    "last_name": self.user.last_name,
+                    "email": self.user.email,
+                }
+            ],
+        )
+
+    def test_object_permission_create_accepts_primary_keys_for_content_types(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("api:users-api:objectpermission-list"),
+            {
+                "name": "Add users",
+                "description": "Add user records",
+                "enabled": True,
+                "actions": ["add"],
+                "content_types": [self.user_content_type.id],
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertEqual(
+            payload["content_types"],
+            [
+                {
+                    "id": self.user_content_type.id,
+                    "app_label": self.user_content_type.app_label,
+                    "model": self.user_content_type.model,
+                }
+            ],
+        )
+
+    def test_object_permission_list_browsable_api_renders_form(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("api:users-api:objectpermission-list"), HTTP_ACCEPT="text/html")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"<html", response.content)
 
     def test_token_list_is_scoped_to_current_user(self):
         Token(user=self.user, description="CLI access").save()
@@ -144,6 +326,8 @@ class APITestCase(TestCase):
         payload = response.json()
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["results"][0]["description"], "CLI access")
+        self.assertEqual(payload["results"][0]["user"]["id"], self.user.id)
+        self.assertEqual(payload["results"][0]["user"]["username"], self.user.username)
 
     def test_token_authentication_for_token_list(self):
         token = Token(user=self.user, description="CLI access")
@@ -156,6 +340,7 @@ class APITestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["description"], "CLI access")
+        self.assertEqual(response.json()["results"][0]["user"]["id"], self.user.id)
 
         token.refresh_from_db()
         self.assertIsNotNone(token.last_used)
@@ -187,6 +372,8 @@ class APITestCase(TestCase):
         payload = response.json()
         self.assertEqual(payload["description"], "Automation access")
         self.assertTrue(payload["plaintext_token"].startswith("agt_"))
+        self.assertEqual(payload["user"]["id"], self.user.id)
+        self.assertEqual(payload["user"]["username"], self.user.username)
         self.assertEqual(Token.objects.filter(user=self.user).count(), 1)
 
     def test_config_endpoint_returns_current_user_preferences(self):

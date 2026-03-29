@@ -50,7 +50,11 @@ class UsersRootView(APIRootView):
 
 
 class UserViewSet(ModelViewSet):
-    queryset = User.objects.all().order_by("username")
+    queryset = User.objects.prefetch_related(
+        "groups",
+        "object_permissions",
+        "user_permissions__content_type",
+    ).order_by("username")
     serializer_class = UserSerializer
     filterset_class = filtersets.UserFilterSet
     ordering_fields = ("username", "email", "date_joined", "last_login")
@@ -58,7 +62,10 @@ class UserViewSet(ModelViewSet):
 
 
 class GroupViewSet(ModelViewSet):
-    queryset = Group.objects.all().order_by("name")
+    queryset = Group.objects.prefetch_related(
+        "permissions__content_type",
+        "object_permissions",
+    ).order_by("name")
     serializer_class = GroupSerializer
     filterset_class = filtersets.GroupFilterSet
     ordering_fields = ("name",)
@@ -66,7 +73,11 @@ class GroupViewSet(ModelViewSet):
 
 
 class ObjectPermissionViewSet(ModelViewSet):
-    queryset = ObjectPermission.objects.all().order_by("name")
+    queryset = ObjectPermission.objects.prefetch_related(
+        "content_types",
+        "groups",
+        "users",
+    ).order_by("name")
     serializer_class = ObjectPermissionSerializer
     filterset_class = filtersets.ObjectPermissionFilterSet
     ordering_fields = ("name",)
@@ -80,7 +91,7 @@ class TokenViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return self.request.user.tokens.all().order_by("-created")
+        return self.request.user.tokens.select_related("user").order_by("-created")
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
