@@ -72,6 +72,27 @@ class RestrictedObjectViewMixin(RestrictedModelPermissionMixin):
         return context
 
 
+class RestrictedObjectChangeLogMixin(RestrictedModelPermissionMixin):
+    permission_action = "view"
+
+    def get_queryset(self):
+        return restrict_queryset(
+            super().get_queryset(),
+            request=self.request,
+            action=self.get_permission_action(),
+        )
+
+    def get_extra_context(self, request, obj=None):
+        context = super().get_extra_context(request, obj)
+        if obj is not None:
+            context["can_edit"] = is_object_action_allowed(
+                obj,
+                request=request,
+                action="change",
+            )
+        return context
+
+
 class RestrictedObjectEditMixin(RestrictedModelPermissionMixin):
     def get_permission_action(self):
         return "change" if getattr(self, "kwargs", None) else "add"

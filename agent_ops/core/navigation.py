@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 from django.urls import reverse_lazy
+from users.restrictions import resolve_restriction_scope
 
 
 NavigationProvider = Callable[[object], object]
@@ -139,3 +140,30 @@ def build_navigation(request) -> list[dict]:
                 )
 
     return nav_items
+
+
+ACTIVITY_MENU = Menu(
+    label="Activity",
+    icon_class="mdi mdi-history",
+    auth_required=True,
+    groups=(
+        MenuGroup(
+            label="Audit",
+            items=(
+                MenuItem(
+                    link="objectchange_list",
+                    link_text="Changelog",
+                    icon_class="mdi mdi-history",
+                    active_links=("objectchange_list",),
+                    auth_required=True,
+                ),
+            ),
+        ),
+    ),
+)
+
+
+def get_navigation_menus(request):
+    if resolve_restriction_scope(request=request) is None:
+        return ()
+    return (ACTIVITY_MENU,)

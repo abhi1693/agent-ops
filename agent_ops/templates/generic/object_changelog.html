@@ -1,0 +1,66 @@
+{% extends "generic/object.html" %}
+
+{% block main %}
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Change History</h3>
+    </div>
+    <div class="list-group list-group-flush object-panel-list">
+      {% for change in changes %}
+        <article class="list-group-item">
+          <div class="d-flex flex-column flex-md-row justify-content-between gap-2">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="badge {{ change.badge_class }}">{{ change.get_action_display }}</span>
+              <strong>{{ change.object_repr }}</strong>
+            </div>
+            <div class="text-secondary small">
+              {{ change.time }}
+              {% if change.user_name %}
+                by {{ change.user_name }}
+              {% endif %}
+            </div>
+          </div>
+
+          {% if change.diff_items %}
+            <div class="table-responsive mt-3">
+              <table class="table table-sm table-hover mb-0">
+                <thead>
+                  <tr>
+                    <th scope="col">Field</th>
+                    <th scope="col">Before</th>
+                    <th scope="col">After</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item in change.diff_items %}
+                    <tr>
+                      <th scope="row">{{ item.field }}</th>
+                      <td>{{ item.before|default:"—" }}</td>
+                      <td>{{ item.after|default:"—" }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+        </article>
+      {% empty %}
+        <div class="list-group-item text-secondary">No changes recorded.</div>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}
+
+{% block side %}
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title">Summary</h3>
+    </div>
+    <table class="table table-hover attr-table mb-0">
+      <tr>
+        <th scope="row">Changes</th>
+        <td>{{ changes|length }}</td>
+      </tr>
+    </table>
+  </section>
+{% endblock %}

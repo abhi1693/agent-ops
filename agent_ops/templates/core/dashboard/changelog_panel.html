@@ -1,0 +1,49 @@
+<div class="card h-100">
+  <h6 class="card-header text-primary d-flex justify-content-between align-items-center">
+    <div class="d-flex align-items-center gap-2">
+      <span>
+        <i class="mdi mdi-{{ panel.icon }}"></i>
+        <span class="ms-1">{{ panel.title }}</span>
+      </span>
+      {% if panel.change_count %}
+        <span class="badge text-bg-light">{{ panel.change_count }}</span>
+      {% endif %}
+    </div>
+    {% if panel.url %}
+      <a href="{{ panel.url }}" class="btn btn-sm btn-outline-primary">View all</a>
+    {% endif %}
+  </h6>
+  <div class="card-body p-0">
+    {% if panel.changes %}
+      <div class="list-group list-group-flush">
+        {% for change in panel.changes %}
+          {% if change.url %}
+            <a href="{{ change.url }}" class="list-group-item list-group-item-action">
+              <div class="d-flex justify-content-between align-items-start gap-2">
+                <div>
+                  <div class="fw-semibold">{{ change.object_repr }}</div>
+                  <div class="small text-body-secondary mt-2">{{ change.user_name }} · {{ change.time|timesince }} ago</div>
+                </div>
+                <span class="badge {{ change.badge_class }}">{{ change.action }}</span>
+              </div>
+            </a>
+          {% else %}
+            <div class="list-group-item">
+              <div class="d-flex justify-content-between align-items-start gap-2">
+                <div>
+                  <div class="fw-semibold">{{ change.object_repr }}</div>
+                  <div class="small text-body-secondary mt-2">{{ change.user_name }} · {{ change.time|timesince }} ago</div>
+                </div>
+                <span class="badge {{ change.badge_class }}">{{ change.action }}</span>
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="p-3 text-body-secondary small">
+        {{ panel.empty_message }}
+      </div>
+    {% endif %}
+  </div>
+</div>

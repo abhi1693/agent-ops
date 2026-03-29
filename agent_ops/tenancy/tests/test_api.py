@@ -3,6 +3,7 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 
+from core.models import ObjectChange
 from tenancy.models import Organization, Workspace
 from users.models import Membership, ObjectPermission, Token, User
 
@@ -80,6 +81,32 @@ class TenancyAPITests(TestCase):
         self.assertEqual(payload["workspace"]["id"], self.workspace.pk)
         self.assertEqual(payload["organization"]["id"], self.organization.pk)
         self.assertEqual(payload["organization"]["name"], self.organization.name)
+
+    def test_api_create_records_changelog_entry_without_message_field(self):
+        organization_content_type = ContentType.objects.get_for_model(
+            Organization,
+            for_concrete_model=False,
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("api:tenancy-api:organization-list"),
+            {
+                "name": "Gamma",
+                "description": "Tertiary tenant",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertNotIn("changelog_message", payload)
+        change = ObjectChange.objects.get(
+            changed_object_type=organization_content_type,
+            changed_object_id=payload["id"],
+            action=ObjectChange.ActionChoices.CREATE,
+        )
+        self.assertEqual(change.user, self.staff_user)
 
     def test_scoped_member_only_lists_objects_inside_active_scope(self):
         self.client.force_login(self.standard_user)

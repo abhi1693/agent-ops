@@ -142,3 +142,6 @@ class Membership(PrimaryModel):
                 self.is_default = True
 
         return super().save(*args, **kwargs)
+
+    def get_changelog_related_object(self):
+        return self.user

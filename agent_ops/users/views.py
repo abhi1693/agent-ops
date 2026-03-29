@@ -1,6 +1,12 @@
 from django.db.models import Count
 
-from core.generic_views import ObjectDeleteView, ObjectEditView, ObjectListView, ObjectView
+from core.generic_views import (
+    ObjectChangeLogView,
+    ObjectDeleteView,
+    ObjectEditView,
+    ObjectListView,
+    ObjectView,
+)
 from . import filtersets, tables
 from .forms import (
     GroupForm,
@@ -40,6 +46,18 @@ class UserDetailView(StaffRequiredMixin, ObjectView):
         token_count=Count("tokens", distinct=True),
     )
     template_name = "users/user_detail.html"
+
+
+class UserChangelogView(StaffRequiredMixin, ObjectChangeLogView):
+    model = User
+    queryset = User.objects.prefetch_related(
+        "groups",
+        "object_permissions",
+        "user_permissions",
+        "memberships__organization",
+        "memberships__workspace",
+        "memberships__environment",
+    ).order_by("username")
 
 
 class UserCreateView(StaffRequiredMixin, ObjectEditView):
@@ -88,6 +106,11 @@ class GroupDetailView(StaffRequiredMixin, ObjectView):
     template_name = "users/group_detail.html"
 
 
+class GroupChangelogView(StaffRequiredMixin, ObjectChangeLogView):
+    model = Group
+    queryset = Group.objects.prefetch_related("users", "permissions", "object_permissions").order_by("name")
+
+
 class GroupCreateView(StaffRequiredMixin, ObjectEditView):
     model = Group
     form_class = GroupForm
@@ -128,6 +151,11 @@ class ObjectPermissionDetailView(StaffRequiredMixin, ObjectView):
         group_count=Count("groups", distinct=True),
     )
     template_name = "users/objectpermission_detail.html"
+
+
+class ObjectPermissionChangelogView(StaffRequiredMixin, ObjectChangeLogView):
+    model = ObjectPermission
+    queryset = ObjectPermission.objects.prefetch_related("content_types", "users", "groups").order_by("name")
 
 
 class ObjectPermissionCreateView(StaffRequiredMixin, ObjectEditView):
@@ -183,6 +211,21 @@ class MembershipDetailView(StaffRequiredMixin, ObjectView):
         object_permission_count=Count("object_permissions", distinct=True),
     )
     template_name = "users/membership_detail.html"
+
+
+class MembershipChangelogView(StaffRequiredMixin, ObjectChangeLogView):
+    model = Membership
+    queryset = Membership.objects.select_related(
+        "user",
+        "organization",
+        "workspace",
+        "environment",
+    ).prefetch_related("groups", "object_permissions").order_by(
+        "user__username",
+        "organization__name",
+        "workspace__name",
+        "environment__name",
+    )
 
 
 class MembershipCreateView(StaffRequiredMixin, ObjectEditView):

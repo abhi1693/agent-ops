@@ -20,6 +20,7 @@ TOKEN_PREFIX = "agt_"
 
 class Token(PrimaryModel):
     _token = None
+    changelog_exclude_fields = ("digest",)
 
     user = models.ForeignKey(
         "users.User",
@@ -117,3 +118,6 @@ class Token(PrimaryModel):
     @staticmethod
     def generate(length=TOKEN_DEFAULT_LENGTH) -> str:
         return "".join(secrets.choice(TOKEN_CHARSET) for _ in range(length))
+
+    def get_changelog_related_object(self):
+        return self.user

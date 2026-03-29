@@ -6,14 +6,18 @@ from django.db.models.fields.related import RelatedField
 from django.db.models.fields.reverse_related import ManyToOneRel
 from django.urls import NoReverseMatch, reverse
 from django.utils.safestring import mark_safe
+from django.utils.html import format_html
 from django_tables2.data import TableQuerysetData
 
+from core.changelog import get_objectchange_target_url
+from core.models import ObjectChange
 from core.paginator import EnhancedPaginator, get_paginate_count
 
 
 __all__ = (
     "AgentOpsTable",
     "BaseTable",
+    "ObjectChangeTable",
     "RowActionsColumn",
 )
 
@@ -269,3 +273,48 @@ class BaseTable(tables.Table):
 class AgentOpsTable(BaseTable):
     class Meta(BaseTable.Meta):
         pass
+
+
+class ObjectChangeTable(AgentOpsTable):
+    time = tables.DateTimeColumn()
+    action = tables.Column()
+    changed_object_type = tables.Column(verbose_name="Object type")
+    object_repr = tables.Column(verbose_name="Object")
+    user_name = tables.Column(verbose_name="User")
+    request_id = tables.Column(verbose_name="Request ID")
+
+    class Meta(AgentOpsTable.Meta):
+        model = ObjectChange
+        fields = (
+            "time",
+            "action",
+            "changed_object_type",
+            "object_repr",
+            "user_name",
+            "request_id",
+        )
+        default_columns = fields
+
+    def render_action(self, _value, record):
+        return format_html(
+            '<span class="badge {}">{}</span>',
+            record.badge_class,
+            record.get_action_display(),
+        )
+
+    def render_changed_object_type(self, value):
+        return f"{value.app_label}.{value.model}"
+
+    def render_object_repr(self, value, record):
+        url = get_objectchange_target_url(record)
+        if url:
+            return format_html('<a href="{}">{}</a>', url, value)
+        return value
+
+    def render_user_name(self, value):
+        return value or "System"
+
+    def render_request_id(self, value):
+        if not value:
+            return "-"
+        return format_html("<code>{}</code>", str(value)[:12])

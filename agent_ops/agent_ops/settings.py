@@ -36,6 +36,7 @@ if not hasattr(configuration, "DATABASES"):
 ALLOWED_HOSTS = getattr(configuration, "ALLOWED_HOSTS")
 DATABASES = getattr(configuration, "DATABASES")
 DEBUG = getattr(configuration, "DEBUG", False)
+CHANGELOG_RETENTION = getattr(configuration, "CHANGELOG_RETENTION", None)
 HOSTNAME = getattr(configuration, "HOSTNAME", platform.node())
 LANGUAGE_CODE = getattr(configuration, "LANGUAGE_CODE", "en-us")
 LOGIN_REDIRECT_URL = getattr(configuration, "LOGIN_REDIRECT_URL", "home")
@@ -75,6 +76,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "core.middleware.RequestTrackingMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django.middleware.security.SecurityMiddleware",

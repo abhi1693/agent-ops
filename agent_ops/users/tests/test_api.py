@@ -70,6 +70,7 @@ class APITestCase(TestCase):
         self.assertEqual(
             response.json(),
             {
+                "changelog": "http://testserver/api/changelog/",
                 "tenancy": "http://testserver/api/tenancy/",
                 "users": "http://testserver/api/users/",
                 "status": "http://testserver/api/status/",

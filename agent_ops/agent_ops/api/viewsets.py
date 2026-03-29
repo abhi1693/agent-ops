@@ -61,3 +61,11 @@ class ModelViewSet(
     def perform_destroy(self, instance):
         self.validate_saved_object_permissions(instance)
         return super().perform_destroy(instance)
+
+
+class ReadOnlyModelViewSet(
+    mixins.RetrieveModelMixin,
+    mixins.ListModelMixin,
+    BaseViewSet,
+):
+    pass

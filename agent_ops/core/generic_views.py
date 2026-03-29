@@ -77,6 +77,31 @@ class QuerysetBackedObjectView(View):
         except NoReverseMatch:
             return None
 
+    def get_changelog_url(self, obj=None):
+        model = obj or self.get_queryset().model
+        object_pk = getattr(obj, "pk", None)
+        if object_pk is None:
+            return None
+
+        try:
+            return reverse(f"{model._meta.model_name}_changelog", args=[object_pk])
+        except NoReverseMatch:
+            return None
+
+    def get_object_identifier(self, obj):
+        return f"{obj._meta.app_label}.{obj._meta.model_name}:{obj.pk}"
+
+    def build_object_context(self, obj):
+        meta = obj._meta
+        return {
+            "object": obj,
+            "object_identifier": self.get_object_identifier(obj),
+            "object_list_url": self.get_list_url(obj),
+            "object_changelog_url": self.get_changelog_url(obj),
+            "object_verbose_name": str(meta.verbose_name).title(),
+            "object_verbose_name_plural": str(meta.verbose_name_plural).title(),
+        }
+
     def get_return_url(self, request, obj=None):
         explicit_return_url = request.POST.get("return_url") or request.GET.get("return_url")
         if explicit_return_url and explicit_return_url.startswith("/"):
@@ -103,17 +128,23 @@ class ObjectView(DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        meta = self.object._meta
-
         context.update(
             {
+                "active_tab": "view",
                 "object_identifier": self.get_object_identifier(),
                 "object_list_url": self.get_list_url(),
-                "object_verbose_name": str(meta.verbose_name).title(),
-                "object_verbose_name_plural": str(meta.verbose_name_plural).title(),
+                "object_changelog_url": self.get_changelog_url(),
+                "object_verbose_name": str(self.object._meta.verbose_name).title(),
+                "object_verbose_name_plural": str(self.object._meta.verbose_name_plural).title(),
             }
         )
         return context
+
+    def get_changelog_url(self):
+        try:
+            return reverse(f"{self.object._meta.model_name}_changelog", args=[self.object.pk])
+        except NoReverseMatch:
+            return None
 
 
 class ObjectEditView(QuerysetBackedObjectView):
@@ -271,3 +302,42 @@ class ObjectListView(BaseMultiObjectView, TableMixin):
         }
 
         return render(request, self.template_name, context)
+
+
+class ObjectChangeLogView(QuerysetBackedObjectView):
+    template_name = "generic/object_changelog.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.object = self.get_object(**kwargs)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_objectchanges(self):
+        from django.contrib.contenttypes.models import ContentType
+        from django.db.models import Q
+
+        from core.models import ObjectChange
+
+        content_type = ContentType.objects.get_for_model(
+            self.object,
+            for_concrete_model=False,
+        )
+        return ObjectChange.objects.select_related(
+            "user",
+            "changed_object_type",
+            "related_object_type",
+        ).filter(
+            Q(changed_object_type=content_type, changed_object_id=self.object.pk)
+            | Q(related_object_type=content_type, related_object_id=self.object.pk)
+        )
+
+    def get_context_data(self, request):
+        object_context = self.build_object_context(self.object)
+        object_context["active_tab"] = "changelog"
+        object_context["changes"] = self.get_objectchanges()
+        return {
+            **object_context,
+            **self.get_extra_context(request, self.object),
+        }
+
+    def get(self, request, *args, **kwargs):
+        return render(request, self.template_name, self.get_context_data(request))

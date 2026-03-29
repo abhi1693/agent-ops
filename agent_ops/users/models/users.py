@@ -8,6 +8,8 @@ from django.db import models
 from django.urls import reverse
 from django.utils import timezone
 
+from core.models import ChangeLoggedModel
+
 
 class UserManager(DjangoUserManager):
     def create_user(self, username, email=None, password=None, **extra_fields):
@@ -25,7 +27,9 @@ class UserManager(DjangoUserManager):
         return self._create_user(username, email, password, **extra_fields)
 
 
-class User(AbstractBaseUser, PermissionsMixin):
+class User(ChangeLoggedModel, AbstractBaseUser, PermissionsMixin):
+    changelog_exclude_fields = ("last_login", "password")
+
     username = models.CharField(
         max_length=150,
         unique=True,

@@ -2,6 +2,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.urls import reverse
 
+from core.models import ObjectChange
 from tenancy.models import Environment, Organization, Workspace
 from users.models import Membership, ObjectPermission, User
 
@@ -68,6 +69,14 @@ class TenancyViewTests(TestCase):
         self.assertContains(response, "Organizations")
         self.assertContains(response, self.organization.name)
 
+    def test_organization_detail_includes_changelog_tab(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("organization_detail", args=[self.organization.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("organization_changelog", args=[self.organization.pk]))
+
     def test_workspace_detail_shows_related_environments(self):
         self.client.force_login(self.staff_user)
 
@@ -84,6 +93,34 @@ class TenancyViewTests(TestCase):
         response = self.client.get(reverse("workspace_detail", args=[self.other_workspace.pk]))
 
         self.assertEqual(response.status_code, 404)
+
+    def test_workspace_changelog_is_scoped_for_members(self):
+        self.workspace.description = "Scope-safe update"
+        self.workspace.save()
+        self.client.force_login(self.standard_user)
+
+        response = self.client.get(reverse("workspace_changelog", args=[self.workspace.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Scope-safe update")
+
+    def test_workspace_changelog_is_forbidden_outside_active_scope(self):
+        self.client.force_login(self.standard_user)
+
+        response = self.client.get(reverse("workspace_changelog", args=[self.other_workspace.pk]))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_organization_changelog_includes_workspace_related_changes(self):
+        self.workspace.description = "Workspace updated"
+        self.workspace.save()
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("organization_changelog", args=[self.organization.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.workspace.name)
+        self.assertContains(response, "Workspace updated")
 
     def test_workspace_add_requires_explicit_add_permission(self):
         self.client.force_login(self.standard_user)
@@ -107,6 +144,33 @@ class TenancyViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.organization.name)
         self.assertNotContains(response, self.other_organization.name)
+
+    def test_organization_edit_form_does_not_render_changelog_message_field(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("organization_edit", args=[self.organization.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'name="changelog_message"')
+        self.assertNotContains(response, 'id="id_changelog_message"')
+
+    def test_organization_edit_records_changelog_entry_without_message(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("organization_edit", args=[self.organization.pk]),
+            {
+                "name": self.organization.name,
+                "description": "Updated tenant",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        latest_change = ObjectChange.objects.filter(
+            changed_object_id=self.organization.pk,
+            action=ObjectChange.ActionChoices.UPDATE,
+        ).first()
+        self.assertIsNotNone(latest_change)
 
     def test_member_home_dashboard_includes_scoped_tenancy_summary(self):
         self.client.force_login(self.standard_user)
@@ -141,7 +205,32 @@ class TenancyViewTests(TestCase):
         self.assertEqual(tenancy_items["Organizations"]["count"], 2)
         self.assertEqual(tenancy_items["Workspaces"]["count"], 2)
         self.assertEqual(tenancy_items["Environments"]["count"], 2)
-        self.assertFalse(response.context["dashboard_panels"])
+        self.assertContains(response, "Recent Changes")
+
+    def test_home_dashboard_includes_recent_changes_panel_for_staff(self):
+        self.organization.description = "Updated primary tenant"
+        self.organization.save()
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Recent Changes")
+        self.assertContains(response, self.organization.name)
+
+    def test_home_dashboard_scopes_recent_changes_panel_for_members(self):
+        self.workspace.description = "Scoped workspace update"
+        self.workspace.save()
+        self.other_workspace.description = "Other workspace update"
+        self.other_workspace.save()
+        self.client.force_login(self.standard_user)
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Recent Changes")
+        self.assertContains(response, self.workspace.name)
+        self.assertNotContains(response, self.other_workspace.name)
 
     def test_home_dashboard_omits_tenancy_summary_for_non_staff(self):
         unscoped_user = User.objects.create_user(

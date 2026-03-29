@@ -1,9 +1,16 @@
 from django.db.models import Count
 
-from core.generic_views import ObjectDeleteView, ObjectEditView, ObjectListView, ObjectView
+from core.generic_views import (
+    ObjectChangeLogView,
+    ObjectDeleteView,
+    ObjectEditView,
+    ObjectListView,
+    ObjectView,
+)
 from tenancy import filtersets, tables
 from tenancy.forms import EnvironmentForm, OrganizationForm, WorkspaceForm
 from tenancy.mixins import (
+    RestrictedObjectChangeLogMixin,
     RestrictedObjectDeleteMixin,
     RestrictedObjectEditMixin,
     RestrictedObjectListMixin,
@@ -44,6 +51,11 @@ class OrganizationDetailView(RestrictedObjectViewMixin, ObjectView):
             environment_count=Count("environments", distinct=True),
         )
         return queryset
+
+
+class OrganizationChangelogView(RestrictedObjectChangeLogMixin, ObjectChangeLogView):
+    model = Organization
+    queryset = Organization.objects.order_by("name")
 
 
 class OrganizationCreateView(RestrictedObjectEditMixin, ObjectEditView):
@@ -93,6 +105,11 @@ class WorkspaceDetailView(RestrictedObjectViewMixin, ObjectView):
         return queryset
 
 
+class WorkspaceChangelogView(RestrictedObjectChangeLogMixin, ObjectChangeLogView):
+    model = Workspace
+    queryset = Workspace.objects.select_related("organization").order_by("organization__name", "name")
+
+
 class WorkspaceCreateView(RestrictedObjectEditMixin, ObjectEditView):
     model = Workspace
     form_class = WorkspaceForm
@@ -133,6 +150,15 @@ class EnvironmentDetailView(RestrictedObjectViewMixin, ObjectView):
     def get_queryset(self):
         queryset = super().get_queryset().select_related("organization", "workspace")
         return queryset
+
+
+class EnvironmentChangelogView(RestrictedObjectChangeLogMixin, ObjectChangeLogView):
+    model = Environment
+    queryset = Environment.objects.select_related("organization", "workspace").order_by(
+        "organization__name",
+        "workspace__name",
+        "name",
+    )
 
 
 class EnvironmentCreateView(RestrictedObjectEditMixin, ObjectEditView):

@@ -33,6 +33,9 @@ class Workspace(PrimaryModel):
     def get_absolute_url(self):
         return reverse("workspace_detail", args=[self.pk])
 
+    def get_changelog_related_object(self):
+        return self.organization
+
 
 class Environment(PrimaryModel):
     organization = models.ForeignKey(
@@ -85,3 +88,6 @@ class Environment(PrimaryModel):
         if self.workspace_id:
             self.organization = self.workspace.organization
         return super().save(*args, **kwargs)
+
+    def get_changelog_related_object(self):
+        return self.workspace

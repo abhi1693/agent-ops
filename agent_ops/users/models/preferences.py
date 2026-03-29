@@ -86,3 +86,6 @@ class UserConfig(ChangeLoggedModel):
             self.save()
 
     clear.alters_data = True
+
+    def get_changelog_related_object(self):
+        return self.user

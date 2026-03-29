@@ -164,9 +164,21 @@ class AuthViewTests(TestCase):
 
         nav_items = build_navigation(request)
 
-        self.assertEqual(len(nav_items), 2)
+        self.assertEqual(len(nav_items), 3)
         nav_by_label = {item["label"]: item for item in nav_items}
-        self.assertEqual(set(nav_by_label), {"Administration", "Tenancy"})
+        self.assertEqual(set(nav_by_label), {"Activity", "Administration", "Tenancy"})
+
+        activity_entries = [
+            (item["label"], item["icon_class"], item["add_url"])
+            for group in nav_by_label["Activity"]["groups"]
+            for item in group["items"]
+        ]
+        self.assertEqual(
+            activity_entries,
+            [
+                ("Changelog", "mdi mdi-history", None),
+            ],
+        )
 
         administration_entries = [
             (item["label"], item["icon_class"], item["add_url"])
@@ -196,7 +208,7 @@ class AuthViewTests(TestCase):
             ],
         )
         menu_labels = [
-            label for label, _icon, _add_url in [*administration_entries, *tenancy_entries]
+            label for label, _icon, _add_url in [*activity_entries, *administration_entries, *tenancy_entries]
         ]
         self.assertNotIn("Profile", menu_labels)
         self.assertNotIn("Preferences", menu_labels)

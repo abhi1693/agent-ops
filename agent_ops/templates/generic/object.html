@@ -39,10 +39,17 @@
 {% block tabs %}
   <ul class="nav nav-tabs object-page-tabs" role="presentation">
     <li class="nav-item" role="presentation">
-      <a class="nav-link active" id="object-view-tab" href="{{ object.get_absolute_url }}" aria-current="page">
+      <a class="nav-link{% if active_tab == 'view' %} active{% endif %}" id="object-view-tab" href="{{ object.get_absolute_url }}" {% if active_tab == 'view' %}aria-current="page"{% endif %}>
         {{ object_verbose_name }}
       </a>
     </li>
+    {% if object_changelog_url %}
+      <li class="nav-item" role="presentation">
+        <a class="nav-link{% if active_tab == 'changelog' %} active{% endif %}" id="object-changelog-tab" href="{{ object_changelog_url }}" {% if active_tab == 'changelog' %}aria-current="page"{% endif %}>
+          Changelog
+        </a>
+      </li>
+    {% endif %}
   </ul>
 {% endblock %}
 
