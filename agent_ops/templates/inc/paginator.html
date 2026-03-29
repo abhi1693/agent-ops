@@ -1,39 +1,43 @@
 {% load django_tables2 %}
 
-{% if table.page and table.paginator.num_pages > 1 %}
-  <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mt-3">
-    <div class="small text-secondary">
-      Showing {{ table.page.start_index }}-{{ table.page.end_index }} of {{ table.paginator.count }}
-    </div>
-
-    <nav aria-label="Pagination">
-      <ul class="pagination pagination-sm mb-0">
-        {% if table.page.has_previous %}
-          <li class="page-item">
-            <a class="page-link" href="{% querystring page=table.page.previous_page_number %}">&laquo;</a>
-          </li>
-        {% else %}
-          <li class="page-item disabled"><span class="page-link">&laquo;</span></li>
-        {% endif %}
-
-        {% for page_number in table.page.smart_pages %}
-          {% if page_number %}
-            <li class="page-item {% if page_number == table.page.number %}active{% endif %}">
-              <a class="page-link" href="{% querystring page=page_number %}">{{ page_number }}</a>
+{% if table.page %}
+  <div class="table-pagination d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
+    {% if table.paginator.num_pages > 1 %}
+      <nav aria-label="Pagination">
+        <ul class="pagination mb-0">
+          {% if table.page.has_previous %}
+            <li class="page-item">
+              <a class="page-link" href="{% querystring page=table.page.previous_page_number %}" aria-label="Previous page">
+                <i class="mdi mdi-chevron-left" aria-hidden="true"></i>
+              </a>
             </li>
-          {% else %}
-            <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
           {% endif %}
-        {% endfor %}
 
-        {% if table.page.has_next %}
-          <li class="page-item">
-            <a class="page-link" href="{% querystring page=table.page.next_page_number %}">&raquo;</a>
-          </li>
-        {% else %}
-          <li class="page-item disabled"><span class="page-link">&raquo;</span></li>
-        {% endif %}
-      </ul>
-    </nav>
+          {% for page_number in table.page.smart_pages %}
+            {% if page_number %}
+              <li class="page-item{% if page_number == table.page.number %} active{% endif %}">
+                <a class="page-link{% if page_number == table.page.number %} active{% endif %}" href="{% querystring page=page_number %}">{{ page_number }}</a>
+              </li>
+            {% else %}
+              <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
+            {% endif %}
+          {% endfor %}
+
+          {% if table.page.has_next %}
+            <li class="page-item">
+              <a class="page-link" href="{% querystring page=table.page.next_page_number %}" aria-label="Next page">
+                <i class="mdi mdi-chevron-right" aria-hidden="true"></i>
+              </a>
+            </li>
+          {% endif %}
+        </ul>
+      </nav>
+    {% else %}
+      <div></div>
+    {% endif %}
+
+    <small class="text-end text-muted">
+      Showing {{ table.page.start_index }}-{{ table.page.end_index }} of {{ table.paginator.count }}
+    </small>
   </div>
 {% endif %}

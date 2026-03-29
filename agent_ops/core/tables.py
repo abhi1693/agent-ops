@@ -25,6 +25,7 @@ class BaseTable(tables.Table):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._configure_structural_columns()
 
         if self.empty_text is None and getattr(self._meta, "model", None) is not None:
             model = self._meta.model._meta.verbose_name_plural
@@ -49,6 +50,30 @@ class BaseTable(tables.Table):
     def selected_columns(self):
         return self._get_columns(visible=True)
 
+    def _append_column_class(self, column_name, target, css_class):
+        if column_name not in self.columns.names():
+            return
+
+        column = self.columns[column_name].column
+        attrs = column.attrs.setdefault(target, {})
+        existing = attrs.get("class", "")
+        classes = existing.split()
+
+        if css_class not in classes:
+            classes.append(css_class)
+
+        attrs["class"] = " ".join(classes).strip()
+
+    def _configure_structural_columns(self):
+        if "pk" in self.columns.names():
+            self._append_column_class("pk", "th", "column-select")
+            self._append_column_class("pk", "td", "column-select")
+
+        if "actions" in self.columns.names():
+            self._append_column_class("actions", "th", "column-actions")
+            self._append_column_class("actions", "td", "column-actions")
+            self._append_column_class("actions", "td", "text-nowrap")
+
     def _set_columns(self, selected_columns):
         if not selected_columns:
             return
@@ -63,6 +88,14 @@ class BaseTable(tables.Table):
             *[name for name in selected_column_names if name in self.columns.names()],
             *[name for name in self.columns.names() if name not in selected_column_names],
         ]
+
+        if "pk" in self.sequence:
+            self.sequence.remove("pk")
+            self.sequence.insert(0, "pk")
+
+        if "actions" in self.sequence:
+            self.sequence.remove("actions")
+            self.sequence.append("actions")
 
     def _apply_prefetching(self):
         if not isinstance(self.data, TableQuerysetData):
