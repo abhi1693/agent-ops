@@ -83,13 +83,51 @@ class AuthViewTests(TestCase):
         self.assertContains(response, "Please enter a correct username and password.")
         self.assertNotIn("_auth_user_id", self.client.session)
 
-    def test_home_renders_for_authenticated_user(self) -> None:
+    def test_home_renders_netbox_style_sections_for_authenticated_user(self) -> None:
+        group = Group.objects.create(name="Operators", description="Operational staff")
+        object_permission = ObjectPermission.objects.create(
+            name="View active users",
+            actions=["view", "change"],
+        )
+        object_permission.content_types.add(self.user_content_type)
+        token = Token(user=self.user, description="CLI access")
+        token.save()
+
+        self.user.groups.add(group)
+        self.user.object_permissions.add(object_permission)
         self.client.force_login(self.user)
 
         response = self.client.get(reverse("home"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Welcome, alice")
+        self.assertContains(response, "Your Account")
+        self.assertContains(response, "Automation")
+        self.assertContains(response, "Administration")
+        self.assertContains(response, "Recent API Tokens")
+        self.assertContains(response, "Access Relationships")
+        self.assertContains(response, token.description)
+        self.assertContains(response, group.name)
+        self.assertContains(response, object_permission.name)
+
+    def test_home_renders_staff_catalog_sections(self) -> None:
+        group = Group.objects.create(name="Operators", description="Operational staff")
+        group.users.add(self.user)
+
+        object_permission = ObjectPermission.objects.create(
+            name="Manage active users",
+            actions=["view", "change"],
+        )
+        object_permission.content_types.add(self.user_content_type)
+
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Newest Users")
+        self.assertContains(response, "Access Catalog")
+        self.assertContains(response, group.name)
+        self.assertContains(response, object_permission.name)
         self.assertContains(response, "alice@example.com")
 
     def test_user_config_is_created_automatically(self) -> None:

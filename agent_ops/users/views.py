@@ -2,8 +2,10 @@ from django.contrib import messages
 from django.contrib.auth.views import LoginView, LogoutView
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.messages.views import SuccessMessageMixin
+from django.db.models import Count, Q
 from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
 from .forms import (
@@ -41,17 +43,76 @@ class HomeView(LoginRequiredMixin, TemplateView):
     template_name = "users/home.html"
     login_url = reverse_lazy("login")
 
+    @staticmethod
+    def _stat_item(label, count, url, disabled=False):
+        return {
+            "label": label,
+            "count": count,
+            "url": url,
+            "disabled": disabled,
+        }
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
         config = user.get_config()
-        context["token_count"] = user.tokens.count()
-        context["group_count"] = user.groups.count()
-        context["preference_count"] = len(config.all())
-        if user.is_staff or user.is_superuser:
-            context["user_count"] = User.objects.count()
-            context["managed_group_count"] = Group.objects.count()
-            context["object_permission_count"] = ObjectPermission.objects.count()
+        is_staff = user.is_staff or user.is_superuser
+        now = timezone.now()
+
+        user_tokens = user.tokens.all()
+        active_tokens = user_tokens.filter(enabled=True).filter(Q(expires__isnull=True) | Q(expires__gt=now))
+        writable_tokens = active_tokens.filter(write_enabled=True)
+        direct_permissions = user.object_permissions.order_by("name")
+        group_memberships = user.groups.order_by("name")
+
+        user_count = User.objects.count()
+        group_count = Group.objects.count()
+        object_permission_count = ObjectPermission.objects.count()
+
+        context["stats"] = [
+            (
+                "Your Account",
+                [
+                    self._stat_item("Preferences", len(config.all()), "preferences"),
+                    self._stat_item("Group Memberships", group_memberships.count(), "profile"),
+                    self._stat_item("Direct Permissions", direct_permissions.count(), "profile"),
+                ],
+                "account-circle-outline",
+            ),
+            (
+                "Automation",
+                [
+                    self._stat_item("All Tokens", user_tokens.count(), "token_list"),
+                    self._stat_item("Active Tokens", active_tokens.count(), "token_list"),
+                    self._stat_item("Writable Tokens", writable_tokens.count(), "token_list"),
+                ],
+                "key-chain-variant",
+            ),
+            (
+                "Administration",
+                [
+                    self._stat_item("Users", user_count, "user_list", disabled=not is_staff),
+                    self._stat_item("Groups", group_count, "group_list", disabled=not is_staff),
+                    self._stat_item(
+                        "Object Permissions",
+                        object_permission_count,
+                        "objectpermission_list",
+                        disabled=not is_staff,
+                    ),
+                ],
+                "shield-account-outline",
+            ),
+        ]
+
+        context["recent_tokens"] = user_tokens.order_by("-created")[:5]
+        context["group_memberships"] = group_memberships[:5]
+        context["direct_permissions"] = direct_permissions[:5]
+        context["is_staff_dashboard"] = is_staff
+
+        if is_staff:
+            context["newest_users"] = User.objects.order_by("-date_joined")[:5]
+            context["catalog_groups"] = Group.objects.annotate(member_total=Count("user")).order_by("name")[:5]
+            context["catalog_permissions"] = ObjectPermission.objects.order_by("name")[:5]
         return context
 
 
