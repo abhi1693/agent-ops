@@ -1,10 +1,12 @@
 import re
+from types import SimpleNamespace
 
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
+from core.navigation import build_navigation
 from users.models import Group, ObjectPermission, Token, User
 
 
@@ -26,6 +28,7 @@ class AuthViewTests(TestCase):
             content_type=self.user_content_type,
             codename="change_user",
         )
+        self.factory = RequestFactory()
 
     def test_home_redirects_anonymous_user_to_login(self) -> None:
         response = self.client.get(reverse("home"))
@@ -38,6 +41,30 @@ class AuthViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Sign in")
         self.assertContains(response, "Username or email")
+
+    def test_base_template_uses_stored_theme_for_anonymous_users(self) -> None:
+        response = self.client.get(reverse("login"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'const useStoredTheme = true;')
+        self.assertContains(response, 'const preferredTheme = "system";')
+        self.assertContains(response, 'initMode();')
+        self.assertNotContains(response, 'data-bs-theme="system"')
+
+    def test_base_template_renders_explicit_dark_theme_on_root_elements(self) -> None:
+        config = self.user.get_config()
+        config.set("ui.theme", "dark", commit=True)
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('const useStoredTheme = false;', content)
+        self.assertIn('const preferredTheme = "dark";', content)
+        self.assertIn('initMode(preferredTheme);', content)
+        self.assertRegex(content, r'<html[^>]*data-bs-theme="dark"')
+        self.assertRegex(content, r'<body[^>]*data-bs-theme="dark"')
 
     def test_authenticated_user_visiting_login_redirects_home(self) -> None:
         self.client.force_login(self.user)
@@ -90,8 +117,7 @@ class AuthViewTests(TestCase):
             actions=["view", "change"],
         )
         object_permission.content_types.add(self.user_content_type)
-        token = Token(user=self.user, description="CLI access")
-        token.save()
+        Token(user=self.user, description="CLI access").save()
 
         self.user.groups.add(group)
         self.user.object_permissions.add(object_permission)
@@ -103,32 +129,55 @@ class AuthViewTests(TestCase):
         self.assertContains(response, "Your Account")
         self.assertContains(response, "Automation")
         self.assertContains(response, "Administration")
-        self.assertContains(response, "Recent API Tokens")
         self.assertContains(response, "Access Relationships")
-        self.assertContains(response, token.description)
+        self.assertNotContains(response, "Recent API Tokens")
         self.assertContains(response, group.name)
         self.assertContains(response, object_permission.name)
 
-    def test_home_renders_staff_catalog_sections(self) -> None:
-        group = Group.objects.create(name="Operators", description="Operational staff")
-        group.users.add(self.user)
-
-        object_permission = ObjectPermission.objects.create(
-            name="Manage active users",
-            actions=["view", "change"],
-        )
-        object_permission.content_types.add(self.user_content_type)
-
+    def test_home_does_not_render_removed_staff_panels(self) -> None:
         self.client.force_login(self.staff_user)
 
         response = self.client.get(reverse("home"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Newest Users")
-        self.assertContains(response, "Access Catalog")
-        self.assertContains(response, group.name)
-        self.assertContains(response, object_permission.name)
-        self.assertContains(response, "alice@example.com")
+        self.assertContains(response, "Administration")
+        self.assertNotContains(response, "Recent API Tokens")
+        self.assertNotContains(response, "Newest Users")
+        self.assertNotContains(response, "Access Catalog")
+        self.assertContains(response, "Users")
+        self.assertContains(response, "Authentication")
+        self.assertContains(response, "Object Permissions")
+        self.assertNotContains(response, "Workspace")
+
+    def test_navigation_registry_excludes_account_links_from_sidebar(self) -> None:
+        request = self.factory.get(reverse("home"))
+        request.user = self.staff_user
+        request.resolver_match = SimpleNamespace(url_name="home")
+
+        nav_items = build_navigation(request)
+
+        self.assertEqual(len(nav_items), 1)
+        self.assertEqual(nav_items[0]["label"], "Administration")
+        self.assertEqual([group["label"] for group in nav_items[0]["groups"]], ["Authentication"])
+        self.assertEqual(nav_items[0]["icon_class"], "mdi mdi-account-multiple")
+
+        menu_entries = [
+            (item["label"], item["icon_class"])
+            for group in nav_items[0]["groups"]
+            for item in group["items"]
+        ]
+        self.assertEqual(
+            menu_entries,
+            [
+                ("Users", "mdi mdi-account-outline"),
+                ("Groups", "mdi mdi-account-group-outline"),
+                ("Object Permissions", "mdi mdi-shield-key-outline"),
+            ],
+        )
+        menu_labels = [label for label, _icon in menu_entries]
+        self.assertNotIn("Profile", menu_labels)
+        self.assertNotIn("Preferences", menu_labels)
+        self.assertNotIn("API Tokens", menu_labels)
 
     def test_user_config_is_created_automatically(self) -> None:
         config = self.user.get_config()

@@ -1,23 +1,14 @@
 from django.urls import path
 
 from .views import (
-    AgentOpsLoginView,
-    AgentOpsLogoutView,
     GroupCreateView,
     GroupDetailView,
     GroupListView,
     GroupUpdateView,
-    HomeView,
     ObjectPermissionCreateView,
     ObjectPermissionDetailView,
     ObjectPermissionListView,
     ObjectPermissionUpdateView,
-    PreferenceUpdateView,
-    ProfileUpdateView,
-    ProfileView,
-    TokenCreateView,
-    TokenDeleteView,
-    TokenListView,
     UserCreateView,
     UserDetailView,
     UserListView,
@@ -25,15 +16,6 @@ from .views import (
 )
 
 urlpatterns = [
-    path("", HomeView.as_view(), name="home"),
-    path("login/", AgentOpsLoginView.as_view(), name="login"),
-    path("logout/", AgentOpsLogoutView.as_view(), name="logout"),
-    path("profile/", ProfileView.as_view(), name="profile"),
-    path("profile/edit/", ProfileUpdateView.as_view(), name="profile_edit"),
-    path("preferences/", PreferenceUpdateView.as_view(), name="preferences"),
-    path("tokens/", TokenListView.as_view(), name="token_list"),
-    path("tokens/add/", TokenCreateView.as_view(), name="token_add"),
-    path("tokens/<int:pk>/delete/", TokenDeleteView.as_view(), name="token_delete"),
     path("users/", UserListView.as_view(), name="user_list"),
     path("users/add/", UserCreateView.as_view(), name="user_add"),
     path("users/<int:pk>/", UserDetailView.as_view(), name="user_detail"),

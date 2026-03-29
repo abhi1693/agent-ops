@@ -1,0 +1,37 @@
+{% if nav_items %}
+  <div class="accordion accordion-flush agentops-sidebar-accordion pt-lg-2" id="sidebar-nav-accordion">
+    {% for menu in nav_items %}
+      <div class="accordion-item{% if menu.active %} is-open{% endif %}">
+        <h2 class="accordion-header" id="sidebar-nav-heading-{{ forloop.counter }}">
+          <button class="accordion-button{% if not menu.active %} collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#sidebar-nav-panel-{{ forloop.counter }}" aria-expanded="{% if menu.active %}true{% else %}false{% endif %}" aria-controls="sidebar-nav-panel-{{ forloop.counter }}">
+            <span class="nav-link-icon d-md-none d-lg-inline-block">
+              <i class="{{ menu.icon_class }}"></i>
+            </span>
+            <span class="nav-link-title">{{ menu.label }}</span>
+          </button>
+        </h2>
+        <div id="sidebar-nav-panel-{{ forloop.counter }}" class="accordion-collapse collapse{% if menu.active %} show{% endif %}" aria-labelledby="sidebar-nav-heading-{{ forloop.counter }}" data-bs-parent="#sidebar-nav-accordion">
+          <div class="accordion-body pb-2">
+              {% for group in menu.groups %}
+                <div class="agentops-nav-group-heading text-uppercase fw-bold fs-5 ps-3 pt-3 pb-1">
+                  {{ group.label }}
+                </div>
+                {% for item in group.items %}
+                  <div class="agentops-nav-item d-flex justify-content-between ps-3 py-0{% if item.active %} active{% endif %}">
+                    <a href="{{ item.url }}" class="d-inline-flex align-items-center flex-fill py-1">
+                      {% if item.icon_class %}
+                        <span class="agentops-nav-item-icon">
+                          <i class="{{ item.icon_class }}"></i>
+                        </span>
+                      {% endif %}
+                      <span>{{ item.label }}</span>
+                    </a>
+                  </div>
+                {% endfor %}
+              {% endfor %}
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}

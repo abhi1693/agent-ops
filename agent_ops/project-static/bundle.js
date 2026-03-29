@@ -16,10 +16,12 @@ async function bundleScripts() {
     ...options,
     entryPoints: {
       app: 'src/index.ts',
+      'color-mode': 'src/colorMode.ts',
     },
     target: 'es2018',
   });
   console.log("Bundled 'src/index.ts' to 'dist/app.js'");
+  console.log("Bundled 'src/colorMode.ts' to 'dist/color-mode.js'");
 }
 
 async function bundleStyles() {

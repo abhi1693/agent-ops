@@ -11,8 +11,6 @@ def agent_ops_ui(request):
     return {
         "agent_ops_ui": {
             "app_name": "Agent Ops",
-            "app_edition": "Users Module",
-            "release_name": "First-Party Identity",
             "hostname": socket.gethostname(),
             "theme": theme,
         }

@@ -1,0 +1,56 @@
+{% extends "base/layout.html" %}
+
+{% block title %}Home{% endblock %}
+
+{% block page %}
+  <div class="page-body my-1">
+    <div class="container-fluid py-3">
+      <div class="p-3">
+        <div class="row masonry">
+          {% for section in stats %}
+            <div class="col col-sm-12 col-lg-6 col-xl-4 my-2 masonry-item">
+              <div class="card">
+                <h6 class="card-header text-primary text-center">
+                  <i class="mdi mdi-{{ section.icon }}"></i>
+                  <span class="ms-1">{{ section.title }}</span>
+                </h6>
+                <div class="card-body">
+                  <div class="list-group list-group-flush">
+                    {% for item in section.items %}
+                      {% if not item.disabled %}
+                        <a href="{{ item.url }}" class="list-group-item list-group-item-action">
+                          <div class="d-flex w-100 justify-content-between align-items-center">
+                            {{ item.label }}
+                            <h4 class="mb-1">{{ item.count }}</h4>
+                          </div>
+                        </a>
+                      {% else %}
+                        <li class="list-group-item list-group-item-action disabled">
+                          <div class="d-flex w-100 justify-content-between align-items-center">
+                            {{ item.label }}
+                            <h4 class="mb-1">
+                              <i title="No permission" class="mdi mdi-lock"></i>
+                            </h4>
+                          </div>
+                        </li>
+                      {% endif %}
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+
+        <div class="row my-4">
+          {% for panel in dashboard_panels %}
+            <div class="{{ panel.column_classes }}">
+              {% include panel.template_name with panel=panel only %}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+

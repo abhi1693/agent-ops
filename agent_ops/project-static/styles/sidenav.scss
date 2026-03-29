@@ -1,14 +1,25 @@
 .agentops-brand-link {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  display: block;
+  text-align: center;
 }
 
 .agentops-brand-link:hover {
   text-decoration: none;
 }
 
-.agentops-brand-mark.navbar-brand-image,
+.agentops-brand-logo.navbar-brand-image {
+  display: block;
+  width: 4.5rem;
+  height: 4.5rem;
+  margin: 0 auto 0.75rem;
+}
+
+.agentops-brand-name {
+  color: inherit;
+  letter-spacing: 0.08rem;
+  line-height: 1.2;
+}
+
 .logo-mark--large.navbar-brand-image {
   display: inline-flex;
   align-items: center;
@@ -20,50 +31,21 @@
   overflow: hidden;
 }
 
-.agentops-brand-mark.navbar-brand-image {
-  width: 2.75rem;
-  height: 2.75rem;
-  flex: 0 0 2.75rem;
-}
-
 .logo-mark--large.navbar-brand-image {
   width: 4.5rem;
   height: 4.5rem;
   margin: 0 auto 1rem;
 }
 
-.agentops-brand-mark svg,
 .logo-mark--large svg {
   display: block;
-}
-
-.agentops-brand-mark svg {
-  width: 1.6rem;
-  height: 1.6rem;
 }
 
 .logo-mark--large svg {
   width: 2.5rem;
   height: 2.5rem;
 }
-
-.agentops-brand-copy {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.2;
-}
-
-.agentops-brand-copy strong {
-  color: inherit;
-  font-size: 1rem;
-  font-weight: 700;
-}
-
-.agentops-brand-copy span,
 .brand-edition,
-.agentops-nav-heading,
-.agentops-topbar-copy,
 .page-pretitle,
 .eyebrow,
 .stat-label,
@@ -71,9 +53,7 @@
   color: var(--tblr-secondary) !important;
 }
 
-.agentops-brand-copy span,
 .brand-edition,
-.agentops-nav-heading,
 .page-pretitle,
 .eyebrow,
 .stat-label,
@@ -84,18 +64,17 @@
   text-transform: uppercase;
 }
 
-.agentops-nav-section + .agentops-nav-section {
-  margin-top: 0.75rem;
+.agentops-nav-group-heading {
+  letter-spacing: var(--app-shell-heading-tracking);
+  color: var(--app-shell-sidebar-blue-muted-light);
 }
 
-.agentops-nav-heading {
-  margin: 0 0 0.5rem;
-  padding: 0 0.75rem;
+[data-bs-theme='light'] .agentops-nav-group-heading {
+  color: var(--app-shell-sidebar-blue-muted-light) !important;
 }
 
-.agentops-topbar-copy {
-  font-size: 0.875rem;
-  font-weight: 500;
+[data-bs-theme='dark'] .agentops-nav-group-heading {
+  color: var(--app-shell-sidebar-blue-muted-dark) !important;
 }
 
 .navbar-vertical.navbar-expand-lg {
@@ -104,15 +83,28 @@
 }
 
 [data-bs-theme='light'] .navbar-vertical.navbar-expand-lg {
-  background: var(--app-shell-sidebar-surface-light) !important;
+  background:
+    radial-gradient(circle at left bottom, rgba(var(--app-shell-sidebar-blue-rgb-light), 0.12) 0%, rgba(var(--app-shell-sidebar-blue-rgb-light), 0) 52%),
+    linear-gradient(180deg, var(--app-shell-sidebar-blue-top-light) 0%, var(--app-shell-sidebar-blue-surface-light) 100%) !important;
 }
 
 [data-bs-theme='dark'] .navbar-vertical.navbar-expand-lg {
-  background: var(--app-shell-sidebar-surface-dark) !important;
+  background:
+    radial-gradient(circle at left bottom, rgba(var(--app-shell-sidebar-blue-rgb-dark), 0.16) 0%, rgba(var(--app-shell-sidebar-blue-rgb-dark), 0) 58%),
+    linear-gradient(180deg, var(--app-shell-sidebar-blue-top-dark) 0%, var(--app-shell-sidebar-blue-surface-dark) 100%) !important;
 }
 
 .navbar-vertical.navbar-expand-lg img.motif {
-  display: none !important;
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 18rem;
+  display: none;
+  opacity: 0.28;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0) 8%, rgba(0, 0, 0, 0.32) 48%, rgba(0, 0, 0, 1) 100%);
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
 }
 
 .navbar-vertical.navbar-expand-lg .nav-link {
@@ -120,41 +112,142 @@
   color: var(--tblr-sidenav-link-color);
 }
 
-.navbar-vertical.navbar-expand-lg .nav-link:hover,
-.navbar-vertical.navbar-expand-lg .dropdown-menu .dropdown-item:hover,
-.navbar-vertical.navbar-expand-lg .dropdown-menu .dropdown-item.active {
-  background-color: var(--tblr-navbar-active-bg) !important;
-  color: var(--tblr-navbar-active-color) !important;
-  text-decoration: none;
+.navbar-vertical.navbar-expand-lg .navbar-brand,
+.navbar-vertical.navbar-expand-lg .navbar-nav,
+.navbar-vertical.navbar-expand-lg .navbar-toggler,
+.navbar-vertical.navbar-expand-lg .navbar-collapse {
+  position: relative;
+  z-index: 1;
 }
 
-.navbar-vertical.navbar-expand-lg .nav-link.active {
-  background-color: var(--tblr-navbar-active-bg);
-  color: var(--tblr-navbar-active-color);
-  font-weight: 600;
+.navbar-vertical.navbar-expand-lg .navbar-nav.pt-lg-2 {
+  width: 100%;
+}
+
+.agentops-sidebar-accordion {
+  width: 100%;
+}
+
+.agentops-sidebar-accordion .accordion-item {
+  background: transparent;
+  border: 0;
+}
+
+.agentops-sidebar-accordion .accordion-item + .accordion-item {
+  margin-top: 0.5rem;
+}
+
+.agentops-sidebar-accordion .accordion-button {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: var(--tblr-border-radius);
+  background: transparent;
+  color: var(--tblr-sidenav-link-color);
+  box-shadow: none;
+}
+
+.agentops-sidebar-accordion .accordion-button::after {
+  margin-left: auto;
+}
+
+.agentops-sidebar-accordion .accordion-button:not(.collapsed) {
+  background-color: var(--app-shell-sidebar-blue-active-bg-light);
+  color: var(--app-shell-sidebar-blue-active-color-light);
+}
+
+.agentops-sidebar-accordion .accordion-button:hover {
+  background-color: var(--app-shell-sidebar-blue-active-bg-light);
+  color: var(--app-shell-sidebar-blue-active-color-light);
+}
+
+.agentops-sidebar-accordion .accordion-collapse {
+  background: transparent;
+}
+
+.agentops-sidebar-accordion .accordion-body {
+  padding: 0.25rem 0 0;
 }
 
 .navbar-vertical.navbar-expand-lg .navbar-collapse .text-secondary {
   color: var(--tblr-secondary) !important;
 }
 
-.navbar-vertical.navbar-expand-lg .navbar-collapse .dropdown-menu .dropdown-item a,
-.navbar-vertical.navbar-expand-lg .navbar-collapse .dropdown-menu .dropdown-item.active a {
-  color: inherit;
-}
-
-.dropdown-menu {
-  background: var(--tblr-bg-surface);
-  border-color: var(--tblr-border-color);
-  box-shadow: var(--tblr-box-shadow-dropdown);
-}
-
-.dropdown-item {
+.agentops-nav-item {
+  border-radius: var(--tblr-border-radius);
+  margin: 0 0.5rem;
   color: var(--tblr-body-color);
 }
 
-.dropdown-item:hover,
-.dropdown-item:focus {
-  background: var(--tblr-primary-bg-subtle);
-  color: var(--tblr-emphasis-color);
+.agentops-nav-item a {
+  color: inherit;
+  text-decoration: none;
+  gap: 0.625rem;
+}
+
+.agentops-nav-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  color: var(--app-shell-sidebar-blue-muted-light);
+  flex: 0 0 1rem;
+}
+
+.agentops-nav-item:hover,
+.agentops-nav-item.active {
+  background-color: var(--app-shell-sidebar-blue-active-bg-light) !important;
+  color: var(--app-shell-sidebar-blue-active-color-light) !important;
+}
+
+.agentops-nav-item.active a {
+  font-weight: 600;
+}
+
+.agentops-nav-item:hover .agentops-nav-item-icon,
+.agentops-nav-item.active .agentops-nav-item-icon {
+  color: inherit;
+}
+
+@media (min-width: 992px) {
+  .navbar-vertical.navbar-expand-lg img.motif {
+    display: block;
+  }
+}
+
+[data-bs-theme='dark'] .navbar-vertical.navbar-expand-lg img.motif {
+  opacity: 0.16;
+}
+
+[data-bs-theme='dark'] .navbar-vertical.navbar-expand-lg .navbar-brand,
+[data-bs-theme='dark'] .agentops-brand-link,
+[data-bs-theme='dark'] .agentops-brand-name {
+  color: var(--app-shell-sidebar-blue-active-color-dark) !important;
+}
+
+[data-bs-theme='dark'] .agentops-sidebar-accordion .accordion-button,
+[data-bs-theme='dark'] .agentops-sidebar-accordion .accordion-button .nav-link-title {
+  color: var(--tblr-sidenav-link-color) !important;
+}
+
+[data-bs-theme='dark'] .agentops-sidebar-accordion .accordion-button::after {
+  opacity: 0.92;
+}
+
+[data-bs-theme='dark'] .agentops-nav-item,
+[data-bs-theme='dark'] .agentops-nav-item a {
+  color: var(--tblr-sidenav-link-color) !important;
+}
+
+[data-bs-theme='dark'] .agentops-sidebar-accordion .accordion-button:not(.collapsed),
+[data-bs-theme='dark'] .agentops-sidebar-accordion .accordion-button:hover,
+[data-bs-theme='dark'] .agentops-nav-item:hover,
+[data-bs-theme='dark'] .agentops-nav-item.active {
+  background-color: var(--app-shell-sidebar-blue-active-bg-dark) !important;
+  color: var(--app-shell-sidebar-blue-active-color-dark) !important;
+}
+
+[data-bs-theme='dark'] .agentops-nav-item-icon {
+  color: var(--app-shell-sidebar-blue-muted-dark);
 }

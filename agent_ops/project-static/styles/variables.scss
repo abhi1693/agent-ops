@@ -2,6 +2,16 @@
   --app-shell-heading-size: 0.75rem;
   --app-shell-heading-tracking: 0.08em;
   --app-shell-card-padding: 1rem;
-  --app-shell-sidebar-surface-light: #e9ecef;
-  --app-shell-sidebar-surface-dark: #212529;
+  --app-shell-sidebar-blue-top-light: #f8faff;
+  --app-shell-sidebar-blue-surface-light: #eef3fb;
+  --app-shell-sidebar-blue-top-dark: #161c27;
+  --app-shell-sidebar-blue-surface-dark: #121823;
+  --app-shell-sidebar-blue-rgb-light: 13, 110, 253;
+  --app-shell-sidebar-blue-rgb-dark: 110, 168, 254;
+  --app-shell-sidebar-blue-active-bg-light: rgba(13, 110, 253, 0.1);
+  --app-shell-sidebar-blue-active-bg-dark: rgba(110, 168, 254, 0.18);
+  --app-shell-sidebar-blue-active-color-light: #16376d;
+  --app-shell-sidebar-blue-active-color-dark: #f5f8ff;
+  --app-shell-sidebar-blue-muted-light: #5b6b86;
+  --app-shell-sidebar-blue-muted-dark: #b6c5db;
 }

@@ -1,0 +1,39 @@
+<div class="card">
+  <h6 class="card-header text-primary text-center">
+    <i class="mdi mdi-account-details-outline"></i>
+    <span class="ms-1">Access Relationships</span>
+  </h6>
+  <div class="card-body">
+    <div class="row g-4">
+      <div class="col-12 col-xl-6">
+        <div class="page-pretitle mb-2">Group Memberships</div>
+        <div class="list-group list-group-flush">
+          {% for item in panel.groups %}
+            <a href="{{ item.url }}" class="list-group-item list-group-item-action">
+              <div>{{ item.title }}</div>
+              {% if item.subtitle %}
+                <small class="text-secondary">{{ item.subtitle }}</small>
+              {% endif %}
+            </a>
+          {% empty %}
+            <div class="text-muted">No group memberships are assigned.</div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="col-12 col-xl-6">
+        <div class="page-pretitle mb-2">Direct Permissions</div>
+        <div class="list-group list-group-flush">
+          {% for item in panel.permissions %}
+            <a href="{{ item.url }}" class="list-group-item list-group-item-action">
+              <div>{{ item.title }}</div>
+              <small class="text-secondary">{{ item.subtitle }}</small>
+            </a>
+          {% empty %}
+            <div class="text-muted">No direct object permissions are assigned.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+

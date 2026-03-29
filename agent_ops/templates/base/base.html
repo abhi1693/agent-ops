@@ -1,6 +1,6 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en" data-agent-ops-url-name="{{ request.resolver_match.url_name|default:'' }}">
+<html lang="en" data-agent-ops-url-name="{{ request.resolver_match.url_name|default:'' }}"{% if agent_ops_ui.theme != 'system' %} data-bs-theme="{{ agent_ops_ui.theme }}"{% endif %}>
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="initial-scale=1, maximum-scale=5, width=device-width, viewport-fit=cover">
@@ -12,11 +12,12 @@
       (function () {
         try {
           const preferredTheme = "{{ agent_ops_ui.theme|default:'system' }}";
-          if (preferredTheme === "light" || preferredTheme === "dark") {
-            setMode(preferredTheme);
-          } else {
-            localStorage.removeItem("app-ui-color-mode");
+          const useStoredTheme = {% if request.user.is_authenticated %}false{% else %}true{% endif %};
+
+          if (useStoredTheme) {
             initMode();
+          } else {
+            initMode(preferredTheme);
           }
         } catch (error) {
           console.error(error);
@@ -36,7 +37,7 @@
 
     {% block head %}{% endblock %}
   </head>
-  <body>
+  <body{% if agent_ops_ui.theme != 'system' %} data-bs-theme="{{ agent_ops_ui.theme }}"{% endif %}>
     {% block layout %}{% endblock %}
 
     {% include "inc/messages.html" %}

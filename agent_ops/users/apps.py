@@ -7,3 +7,11 @@ class UsersConfig(AppConfig):
 
     def ready(self) -> None:
         from . import signals  # noqa: F401
+        from core.dashboard import register_dashboard_provider
+        from core.navigation import register_navigation_provider
+
+        from .dashboard import get_dashboard_contribution
+        from .navigation import get_navigation_menus
+
+        register_dashboard_provider(get_dashboard_contribution)
+        register_navigation_provider(get_navigation_menus)
