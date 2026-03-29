@@ -149,40 +149,4 @@ def get_effective_object_permissions(user, membership: Membership | None = None)
     return ObjectPermission.objects.filter(
         pk__in=permission_ids,
         enabled=True,
-    ).distinct().order_by("name")
-
-
-def scope_organizations_queryset(queryset, actor_scope: ActorScope | None):
-    if actor_scope is None:
-        return queryset.none()
-    if actor_scope.is_staff:
-        return queryset
-    if actor_scope.organization is None:
-        return queryset.none()
-    return queryset.filter(pk=actor_scope.organization.pk)
-
-
-def scope_workspaces_queryset(queryset, actor_scope: ActorScope | None):
-    if actor_scope is None:
-        return queryset.none()
-    if actor_scope.is_staff:
-        return queryset
-    if actor_scope.workspace is not None:
-        return queryset.filter(pk=actor_scope.workspace.pk)
-    if actor_scope.organization is not None:
-        return queryset.filter(organization=actor_scope.organization)
-    return queryset.none()
-
-
-def scope_environments_queryset(queryset, actor_scope: ActorScope | None):
-    if actor_scope is None:
-        return queryset.none()
-    if actor_scope.is_staff:
-        return queryset
-    if actor_scope.environment is not None:
-        return queryset.filter(pk=actor_scope.environment.pk)
-    if actor_scope.workspace is not None:
-        return queryset.filter(workspace=actor_scope.workspace)
-    if actor_scope.organization is not None:
-        return queryset.filter(organization=actor_scope.organization)
-    return queryset.none()
+    ).prefetch_related("content_types").distinct().order_by("name")

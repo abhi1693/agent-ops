@@ -1,7 +1,10 @@
 from functools import cached_property
 
+from django.db import transaction
 from rest_framework import mixins
 from rest_framework.viewsets import GenericViewSet
+
+from users.restrictions import get_action_for_method
 
 
 class BaseViewSet(GenericViewSet):
@@ -27,6 +30,15 @@ class BaseViewSet(GenericViewSet):
             return getattr(serializer_class.Meta, "brief_fields", None)
         return None
 
+    def get_permission_action(self):
+        request = getattr(self, "request", None)
+        if request is None:
+            return "view"
+        return get_action_for_method(request.method)
+
+    def validate_saved_object_permissions(self, obj):
+        return obj
+
 
 class ModelViewSet(
     mixins.CreateModelMixin,
@@ -36,4 +48,16 @@ class ModelViewSet(
     mixins.ListModelMixin,
     BaseViewSet,
 ):
-    pass
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            obj = serializer.save()
+            return self.validate_saved_object_permissions(obj)
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            obj = serializer.save()
+            return self.validate_saved_object_permissions(obj)
+
+    def perform_destroy(self, instance):
+        self.validate_saved_object_permissions(instance)
+        return super().perform_destroy(instance)

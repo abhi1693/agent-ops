@@ -3,12 +3,14 @@
 {% block title %}{{ object.name }}{% endblock %}
 
 {% block controls %}
-  <div class="btn-list object-page-actions">
-    <a class="btn btn-warning" href="{% url 'environment_edit' object.pk %}">
-      <i class="mdi mdi-pencil" aria-hidden="true"></i>
-      <span>Edit</span>
-    </a>
-  </div>
+  {% if can_edit %}
+    <div class="btn-list object-page-actions">
+      <a class="btn btn-warning" href="{% url 'environment_edit' object.pk %}">
+        <i class="mdi mdi-pencil" aria-hidden="true"></i>
+        <span>Edit</span>
+      </a>
+    </div>
+  {% endif %}
 {% endblock %}
 
 {% block main %}

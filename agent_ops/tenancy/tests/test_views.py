@@ -1,8 +1,9 @@
+from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.urls import reverse
 
 from tenancy.models import Environment, Organization, Workspace
-from users.models import Membership, User
+from users.models import Membership, ObjectPermission, User
 
 
 class TenancyViewTests(TestCase):
@@ -46,6 +47,7 @@ class TenancyViewTests(TestCase):
             workspace=self.workspace,
             is_default=True,
         )
+        self.workspace_content_type = ContentType.objects.get_for_model(Workspace)
 
     def test_organization_list_is_scoped_for_members(self):
         self.client.force_login(self.standard_user)
@@ -55,6 +57,7 @@ class TenancyViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.organization.name)
         self.assertNotContains(response, self.other_organization.name)
+        self.assertNotContains(response, "Add organization")
 
     def test_organization_list_renders_for_staff(self):
         self.client.force_login(self.staff_user)
@@ -81,6 +84,29 @@ class TenancyViewTests(TestCase):
         response = self.client.get(reverse("workspace_detail", args=[self.other_workspace.pk]))
 
         self.assertEqual(response.status_code, 404)
+
+    def test_workspace_add_requires_explicit_add_permission(self):
+        self.client.force_login(self.standard_user)
+
+        response = self.client.get(reverse("workspace_add"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_workspace_add_form_uses_scoped_choices_when_permission_granted(self):
+        permission = ObjectPermission.objects.create(
+            name="Scoped workspace add form",
+            actions=["add"],
+            constraints={"organization": "$organization"},
+        )
+        permission.content_types.add(self.workspace_content_type)
+        self.membership.object_permissions.add(permission)
+        self.client.force_login(self.standard_user)
+
+        response = self.client.get(reverse("workspace_add"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.organization.name)
+        self.assertNotContains(response, self.other_organization.name)
 
     def test_member_home_dashboard_includes_scoped_tenancy_summary(self):
         self.client.force_login(self.standard_user)

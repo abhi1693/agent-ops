@@ -1,11 +1,10 @@
 from django.urls import reverse
 
 from tenancy.models import Environment, Organization, Workspace
-from users.scopes import (
-    get_request_actor_scope,
-    scope_environments_queryset,
-    scope_organizations_queryset,
-    scope_workspaces_queryset,
+from users.restrictions import (
+    has_model_action_permission,
+    resolve_restriction_scope,
+    restrict_queryset,
 )
 
 
@@ -18,25 +17,34 @@ def _stat_item(label, count, route_name):
 
 
 def get_dashboard_contribution(request):
-    actor_scope = get_request_actor_scope(request)
+    actor_scope = resolve_restriction_scope(request=request)
     if actor_scope is None:
         return {}
 
-    organizations = scope_organizations_queryset(
+    if not any(
+        has_model_action_permission(model, actor_scope=actor_scope, action="view")
+        for model in (Organization, Workspace, Environment)
+    ):
+        return {}
+
+    organizations = restrict_queryset(
         Organization.objects.order_by("name"),
-        actor_scope,
+        actor_scope=actor_scope,
+        action="view",
     )
-    workspaces = scope_workspaces_queryset(
+    workspaces = restrict_queryset(
         Workspace.objects.select_related("organization").order_by(
             "organization__name", "name"
         ),
-        actor_scope,
+        actor_scope=actor_scope,
+        action="view",
     )
-    environments = scope_environments_queryset(
+    environments = restrict_queryset(
         Environment.objects.select_related(
             "organization", "workspace"
         ).order_by("organization__name", "workspace__name", "name"),
-        actor_scope,
+        actor_scope=actor_scope,
+        action="view",
     )
 
     stats = [

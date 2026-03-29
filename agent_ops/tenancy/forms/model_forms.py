@@ -2,6 +2,7 @@ from django import forms
 
 from core.form_widgets import apply_standard_widget_classes
 from tenancy.models import Environment, Organization, Workspace
+from users.restrictions import restrict_queryset
 
 
 class OrganizationForm(forms.ModelForm):
@@ -16,7 +17,7 @@ class OrganizationForm(forms.ModelForm):
         model = Organization
         fields = ("name", "description")
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, request=None, **kwargs):
         super().__init__(*args, **kwargs)
         apply_standard_widget_classes(self)
 
@@ -36,9 +37,12 @@ class WorkspaceForm(forms.ModelForm):
         model = Workspace
         fields = ("organization", "name", "description")
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, request=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["organization"].queryset = Organization.objects.order_by("name")
+        queryset = Organization.objects.order_by("name")
+        if request is not None:
+            queryset = restrict_queryset(queryset, request=request, action="view")
+        self.fields["organization"].queryset = queryset
         apply_standard_widget_classes(self)
 
 
@@ -57,9 +61,12 @@ class EnvironmentForm(forms.ModelForm):
         model = Environment
         fields = ("workspace", "name", "description")
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, request=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["workspace"].queryset = Workspace.objects.select_related("organization").order_by(
+        queryset = Workspace.objects.select_related("organization").order_by(
             "organization__name", "name"
         )
+        if request is not None:
+            queryset = restrict_queryset(queryset, request=request, action="view")
+        self.fields["workspace"].queryset = queryset
         apply_standard_widget_classes(self)

@@ -1,20 +1,18 @@
 from django.db.models import Count
 
 from core.generic_views import ObjectDeleteView, ObjectEditView, ObjectListView, ObjectView
-from core.mixins import StaffRequiredMixin
 from tenancy import filtersets, tables
 from tenancy.forms import EnvironmentForm, OrganizationForm, WorkspaceForm
-from tenancy.mixins import StaffOrScopedUserRequiredMixin
-from tenancy.models import Environment, Organization, Workspace
-from users.scopes import (
-    get_request_actor_scope,
-    scope_environments_queryset,
-    scope_organizations_queryset,
-    scope_workspaces_queryset,
+from tenancy.mixins import (
+    RestrictedObjectDeleteMixin,
+    RestrictedObjectEditMixin,
+    RestrictedObjectListMixin,
+    RestrictedObjectViewMixin,
 )
+from tenancy.models import Environment, Organization, Workspace
 
 
-class OrganizationListView(StaffOrScopedUserRequiredMixin, ObjectListView):
+class OrganizationListView(RestrictedObjectListMixin, ObjectListView):
     queryset = Organization.objects.all()
     table = tables.OrganizationTable
     filterset = filtersets.OrganizationFilterSet
@@ -30,42 +28,42 @@ class OrganizationListView(StaffOrScopedUserRequiredMixin, ObjectListView):
             )
             .order_by("name")
         )
-        return scope_organizations_queryset(queryset, get_request_actor_scope(request))
+        return queryset
 
 
-class OrganizationDetailView(StaffOrScopedUserRequiredMixin, ObjectView):
+class OrganizationDetailView(RestrictedObjectViewMixin, ObjectView):
     model = Organization
     template_name = "tenancy/organization_detail.html"
 
     def get_queryset(self):
-        queryset = Organization.objects.prefetch_related(
+        queryset = super().get_queryset().prefetch_related(
             "workspaces",
             "environments__workspace",
         ).annotate(
             workspace_count=Count("workspaces", distinct=True),
             environment_count=Count("environments", distinct=True),
         )
-        return scope_organizations_queryset(queryset, get_request_actor_scope(self.request))
+        return queryset
 
 
-class OrganizationCreateView(StaffRequiredMixin, ObjectEditView):
+class OrganizationCreateView(RestrictedObjectEditMixin, ObjectEditView):
     model = Organization
     form_class = OrganizationForm
     success_message = "Organization created."
 
 
-class OrganizationUpdateView(StaffRequiredMixin, ObjectEditView):
+class OrganizationUpdateView(RestrictedObjectEditMixin, ObjectEditView):
     model = Organization
     form_class = OrganizationForm
     success_message = "Organization updated."
 
 
-class OrganizationDeleteView(StaffRequiredMixin, ObjectDeleteView):
+class OrganizationDeleteView(RestrictedObjectDeleteMixin, ObjectDeleteView):
     model = Organization
     success_message = "Organization deleted."
 
 
-class WorkspaceListView(StaffOrScopedUserRequiredMixin, ObjectListView):
+class WorkspaceListView(RestrictedObjectListMixin, ObjectListView):
     queryset = Workspace.objects.select_related("organization")
     table = tables.WorkspaceTable
     filterset = filtersets.WorkspaceFilterSet
@@ -79,40 +77,40 @@ class WorkspaceListView(StaffOrScopedUserRequiredMixin, ObjectListView):
             .annotate(environment_count=Count("environments", distinct=True))
             .order_by("organization__name", "name")
         )
-        return scope_workspaces_queryset(queryset, get_request_actor_scope(request))
+        return queryset
 
 
-class WorkspaceDetailView(StaffOrScopedUserRequiredMixin, ObjectView):
+class WorkspaceDetailView(RestrictedObjectViewMixin, ObjectView):
     model = Workspace
     template_name = "tenancy/workspace_detail.html"
 
     def get_queryset(self):
-        queryset = Workspace.objects.select_related("organization").prefetch_related(
+        queryset = super().get_queryset().select_related("organization").prefetch_related(
             "environments"
         ).annotate(
             environment_count=Count("environments", distinct=True),
         )
-        return scope_workspaces_queryset(queryset, get_request_actor_scope(self.request))
+        return queryset
 
 
-class WorkspaceCreateView(StaffRequiredMixin, ObjectEditView):
+class WorkspaceCreateView(RestrictedObjectEditMixin, ObjectEditView):
     model = Workspace
     form_class = WorkspaceForm
     success_message = "Workspace created."
 
 
-class WorkspaceUpdateView(StaffRequiredMixin, ObjectEditView):
+class WorkspaceUpdateView(RestrictedObjectEditMixin, ObjectEditView):
     model = Workspace
     form_class = WorkspaceForm
     success_message = "Workspace updated."
 
 
-class WorkspaceDeleteView(StaffRequiredMixin, ObjectDeleteView):
+class WorkspaceDeleteView(RestrictedObjectDeleteMixin, ObjectDeleteView):
     model = Workspace
     success_message = "Workspace deleted."
 
 
-class EnvironmentListView(StaffOrScopedUserRequiredMixin, ObjectListView):
+class EnvironmentListView(RestrictedObjectListMixin, ObjectListView):
     queryset = Environment.objects.select_related("organization", "workspace")
     table = tables.EnvironmentTable
     filterset = filtersets.EnvironmentFilterSet
@@ -125,30 +123,30 @@ class EnvironmentListView(StaffOrScopedUserRequiredMixin, ObjectListView):
             .select_related("organization", "workspace")
             .order_by("organization__name", "workspace__name", "name")
         )
-        return scope_environments_queryset(queryset, get_request_actor_scope(request))
+        return queryset
 
 
-class EnvironmentDetailView(StaffOrScopedUserRequiredMixin, ObjectView):
+class EnvironmentDetailView(RestrictedObjectViewMixin, ObjectView):
     model = Environment
     template_name = "tenancy/environment_detail.html"
 
     def get_queryset(self):
-        queryset = Environment.objects.select_related("organization", "workspace")
-        return scope_environments_queryset(queryset, get_request_actor_scope(self.request))
+        queryset = super().get_queryset().select_related("organization", "workspace")
+        return queryset
 
 
-class EnvironmentCreateView(StaffRequiredMixin, ObjectEditView):
+class EnvironmentCreateView(RestrictedObjectEditMixin, ObjectEditView):
     model = Environment
     form_class = EnvironmentForm
     success_message = "Environment created."
 
 
-class EnvironmentUpdateView(StaffRequiredMixin, ObjectEditView):
+class EnvironmentUpdateView(RestrictedObjectEditMixin, ObjectEditView):
     model = Environment
     form_class = EnvironmentForm
     success_message = "Environment updated."
 
 
-class EnvironmentDeleteView(StaffRequiredMixin, ObjectDeleteView):
+class EnvironmentDeleteView(RestrictedObjectDeleteMixin, ObjectDeleteView):
     model = Environment
     success_message = "Environment deleted."
