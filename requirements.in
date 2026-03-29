@@ -3,7 +3,7 @@
 #
 # This file should contain only direct runtime dependencies.
 
-Django==5.2.12
-django-filter==25.2
-django-tables2==2.7.5
-psycopg==3.3.3
+Django<6.0
+django-filter<26
+django-tables2<3
+psycopg<4
