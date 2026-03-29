@@ -3,7 +3,7 @@
 {% block tabs %}
   <ul class="nav nav-tabs" role="tablist">
     <li class="nav-item" role="presentation">
-      <a class="nav-link active" href="#confirm-form" role="tab" aria-selected="true">Confirm</a>
+      <button class="nav-link active" id="confirm-form-tab" data-bs-toggle="tab" data-bs-target="#confirm-form" type="button" role="tab" aria-controls="confirm-form" aria-selected="true">Confirm</button>
     </li>
   </ul>
 {% endblock %}
@@ -15,7 +15,7 @@
 {% endblock %}
 
 {% block content %}
-  <div class="tab-pane show active" id="confirm-form" role="tabpanel">
+  <div class="tab-pane show active" id="confirm-form" role="tabpanel" aria-labelledby="confirm-form-tab">
     <section class="card">
       <div class="card-body stack-sm">
         {% block confirmation_text %}{% endblock %}

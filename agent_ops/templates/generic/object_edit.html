@@ -3,7 +3,7 @@
 {% block tabs %}
   <ul class="nav nav-tabs" role="tablist">
     <li class="nav-item" role="presentation">
-      <a class="nav-link active" href="#edit-form" role="tab" aria-selected="true">{% if object.pk %}Edit{% else %}Create{% endif %}</a>
+      <button class="nav-link active" id="edit-form-tab" data-bs-toggle="tab" data-bs-target="#edit-form" type="button" role="tab" aria-controls="edit-form" aria-selected="true">{% if object.pk %}Edit{% else %}Create{% endif %}</button>
     </li>
   </ul>
 {% endblock %}
@@ -15,8 +15,8 @@
 {% endblock %}
 
 {% block content %}
-  <div class="tab-pane show active" id="edit-form" role="tabpanel">
-    <form method="post" class="object-edit">
+  <div class="tab-pane show active" id="edit-form" role="tabpanel" aria-labelledby="edit-form-tab">
+    <form method="post" class="object-edit mt-5">
       {% csrf_token %}
       {{ form.non_field_errors }}
 
@@ -49,7 +49,7 @@
                   {{ field.errors }}
                 </div>
               {% else %}
-                <div class="field-wrapper">
+                <div class="field-wrapper{% if field.field.widget.input_type == 'textarea' or field.field.widget.allow_multiple_selected %} field-wrapper--full{% endif %}">
                   <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
                   {{ field }}
                   {% if field.help_text %}
@@ -61,7 +61,7 @@
             {% endfor %}
           </div>
 
-          <div class="btn-list justify-content-end mt-4">
+          <div class="btn-float-group-right mt-4">
             <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancel</a>
             <button type="submit" class="btn btn-primary">{{ submit_label }}</button>
           </div>

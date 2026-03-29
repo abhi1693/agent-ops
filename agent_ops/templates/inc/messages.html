@@ -1,9 +1,20 @@
-{% if messages %}
-  <div class="message-stack">
-    {% for message in messages %}
-      <div class="message {% if 'error' in message.tags %}message--error{% elif 'success' in message.tags %}message--success{% elif 'warning' in message.tags %}message--warning{% else %}message--info{% endif %}">
-        {{ message }}
+<div id="django-messages" class="toast-container position-fixed bottom-0 end-0 p-3">
+  {% for message in messages %}
+    <div class="toast toast-dark border-0 shadow-sm" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="10000">
+      <div class="toast-header text-bg-{% if 'error' in message.tags %}danger{% elif 'success' in message.tags %}success{% elif 'warning' in message.tags %}warning{% else %}info{% endif %}">
+        <i class="mdi {% if 'error' in message.tags %}mdi-alert{% elif 'success' in message.tags %}mdi-check-circle{% elif 'warning' in message.tags %}mdi-alert-outline{% else %}mdi-information{% endif %} me-1"></i>
+        {% if 'error' in message.tags %}
+          Error
+        {% elif 'success' in message.tags %}
+          Success
+        {% elif 'warning' in message.tags %}
+          Warning
+        {% else %}
+          Notice
+        {% endif %}
+        <button type="button" class="btn-close me-0 ms-auto" data-bs-dismiss="toast" aria-label="Close"></button>
       </div>
-    {% endfor %}
-  </div>
-{% endif %}
+      <div class="toast-body">{{ message }}</div>
+    </div>
+  {% endfor %}
+</div>

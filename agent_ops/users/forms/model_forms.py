@@ -4,6 +4,7 @@ from django.contrib.contenttypes.models import ContentType
 
 from users.models import Group, ObjectPermission, Token, User
 from users.preferences import THEME_CHOICES
+from .auth import apply_standard_widget_classes
 
 
 class BaseUserForm(forms.ModelForm):
@@ -44,6 +45,7 @@ class BaseUserForm(forms.ModelForm):
         self.fields["user_permissions"].queryset = Permission.objects.order_by(
             "content_type__app_label", "content_type__model", "codename"
         )
+        apply_standard_widget_classes(self)
 
 
 class UserCreateForm(BaseUserForm):
@@ -100,6 +102,10 @@ class ProfileForm(forms.ModelForm):
         model = User
         fields = ("email", "first_name", "last_name", "display_name")
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        apply_standard_widget_classes(self)
+
 
 class GroupForm(forms.ModelForm):
     permissions = forms.ModelMultipleChoiceField(
@@ -123,6 +129,7 @@ class GroupForm(forms.ModelForm):
             "content_type__app_label", "content_type__model", "codename"
         )
         self.fields["object_permissions"].queryset = ObjectPermission.objects.order_by("name")
+        apply_standard_widget_classes(self)
 
 
 class ObjectPermissionForm(forms.ModelForm):
@@ -144,6 +151,7 @@ class ObjectPermissionForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["content_types"].queryset = ContentType.objects.order_by("app_label", "model")
         self.initial.setdefault("actions", self.instance.actions if self.instance.pk else ["view"])
+        apply_standard_widget_classes(self)
 
     def clean_constraints(self):
         return self.cleaned_data["constraints"] or None
@@ -153,6 +161,10 @@ class TokenCreateForm(forms.ModelForm):
     class Meta:
         model = Token
         fields = ("description", "expires", "enabled", "write_enabled")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        apply_standard_widget_classes(self)
 
 
 class UserPreferenceForm(forms.Form):
@@ -166,6 +178,7 @@ class UserPreferenceForm(forms.Form):
         self.fields["theme"].initial = config.get("ui.theme")
         self.fields["page_size"].initial = config.get("ui.page_size")
         self.fields["landing_page"].initial = config.get("ui.landing_page")
+        apply_standard_widget_classes(self)
 
     def save(self):
         self.config.set("ui.theme", self.cleaned_data["theme"])
