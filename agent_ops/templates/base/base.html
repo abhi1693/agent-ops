@@ -7,7 +7,7 @@
 
     <title>{% block title %}Home{% endblock %} | {{ agent_ops_ui.app_name }}</title>
 
-    <script src="{% static 'ui/theme-mode.js' %}"></script>
+    <script src="{% static 'dist/color-mode.js' %}"></script>
     <script>
       (function () {
         try {
@@ -24,30 +24,15 @@
         }
         window.CSRF_TOKEN = "{{ csrf_token }}";
       })();
-
-      document.addEventListener("DOMContentLoaded", function () {
-        document.querySelectorAll(".color-mode-toggle").forEach(function (button) {
-          button.addEventListener("click", function (event) {
-            event.preventDefault();
-            const nextMode = document.documentElement.getAttribute("data-bs-theme") === "dark" ? "light" : "dark";
-            setMode(nextMode);
-          });
-        });
-
-        document.querySelectorAll("#django-messages .toast").forEach(function (element) {
-          if (window.Toast) {
-            new window.Toast(element).show();
-          }
-        });
-      });
     </script>
 
-    <link rel="stylesheet" href="{% static 'ui/vendor.css' %}">
-    <link rel="stylesheet" href="{% static 'ui/app-ui.css' %}">
-    <link rel="stylesheet" href="{% static 'ui/shell.css' %}">
-    <link rel="icon" type="image/svg+xml" href="{% static 'ui/app-icon.svg' %}">
+    <link rel="stylesheet" href="{% static 'dist/vendor.css' %}">
+    <link rel="stylesheet" href="{% static 'dist/framework.css' %}">
+    <link rel="stylesheet" href="{% static 'dist/app.css' %}">
+    <link rel="icon" type="image/svg+xml" href="{% static 'img/app-icon.svg' %}">
 
-    <script src="{% static 'ui/app-ui.js' %}" defer></script>
+    <script src="{% static 'dist/vendor.js' %}" defer></script>
+    <script src="{% static 'dist/app.js' %}" defer></script>
 
     {% block head %}{% endblock %}
   </head>

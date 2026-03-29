@@ -1,0 +1,114 @@
+.page-pretitle,
+.eyebrow {
+  margin: 0 0 0.35rem;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.stat-card {
+  padding: var(--app-shell-card-padding) 1.1rem;
+  background: var(--tblr-bg-surface);
+  border: 1px solid var(--tblr-border-color);
+  border-radius: var(--tblr-border-radius);
+  box-shadow: var(--tblr-box-shadow);
+}
+
+.stat-label {
+  display: block;
+}
+
+.stat-value {
+  display: block;
+  margin-top: 0.45rem;
+  font-size: 1.875rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.object-data-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.object-data-list {
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.object-data-list > div {
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--tblr-border-color);
+  border-radius: var(--tblr-border-radius);
+  background: var(--tblr-bg-surface-secondary);
+}
+
+.object-data-list dd {
+  margin: 0.35rem 0 0;
+  color: var(--tblr-body-color);
+  font-weight: 600;
+}
+
+.object-list {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.object-list li + li {
+  margin-top: 0.5rem;
+}
+
+.stack-sm {
+  display: grid;
+  gap: 1rem;
+}
+
+.empty-state {
+  padding: 1rem !important;
+  color: var(--tblr-secondary);
+  text-align: center;
+}
+
+.code-block {
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--tblr-border-color);
+  border-radius: var(--tblr-border-radius);
+  background: var(--tblr-bg-surface-secondary);
+  color: var(--tblr-body-color);
+  white-space: pre-wrap;
+}
+
+#django-messages .toast {
+  min-width: min(24rem, calc(100vw - 2rem));
+}
+
+.page-link.active,
+.active > .page-link {
+  color: var(--tblr-primary-fg) !important;
+}
+
+.footer .text-primary {
+  color: var(--tblr-primary) !important;
+}
+
+tr[data-cable-status='planned'],
+tr[data-virtual='true'] {
+  background-color: rgba(var(--tblr-primary-rgb), 0.08);
+}
+
+[data-bs-theme='dark'] tr[data-cable-status='planned'],
+[data-bs-theme='dark'] tr[data-virtual='true'] {
+  background-color: rgba(var(--tblr-primary-rgb), 0.16);
+}

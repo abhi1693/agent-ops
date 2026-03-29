@@ -1,0 +1,44 @@
+.btn-primary,
+.text-bg-primary,
+.bg-primary .card-title,
+.bg-primary a,
+.bg-primary i {
+  color: var(--tblr-primary-fg) !important;
+}
+
+.card,
+.page-body .card {
+  border: 1px solid var(--tblr-border-color);
+  box-shadow: var(--tblr-box-shadow-card);
+}
+
+.page-body .card .card-header {
+  background: var(--tblr-bg-surface-secondary) !important;
+  border-bottom: 1px solid var(--tblr-border-color);
+}
+
+.page-header,
+.navbar:not(.navbar-vertical) {
+  background: var(--tblr-bg-surface);
+  border-bottom: 1px solid var(--tblr-border-color);
+}
+
+.footer {
+  background: var(--tblr-bg-surface);
+  border-top: 1px solid var(--tblr-border-color);
+}
+
+.page,
+.page-wrapper {
+  background: var(--tblr-bg-surface-tertiary);
+}
+
+.table thead th,
+.markdown > table thead th {
+  background: var(--tblr-bg-surface-tertiary) !important;
+}
+
+[data-bs-theme='dark'] .table thead th,
+[data-bs-theme='dark'] .markdown > table thead th {
+  background: var(--tblr-bg-surface) !important;
+}

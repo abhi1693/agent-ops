@@ -1,0 +1,19 @@
+{
+  "name": "agent-ops-project-static",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/app.js",
+  "license": "UNLICENSED",
+  "scripts": {
+    "bundle": "node bundle.js",
+    "bundle:styles": "node bundle.js --styles",
+    "bundle:scripts": "node bundle.js --scripts",
+    "validate:types": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.9",
+    "esbuild-sass-plugin": "^3.3.1",
+    "sass": "^1.93.2",
+    "typescript": "^5.9.2"
+  }
+}
