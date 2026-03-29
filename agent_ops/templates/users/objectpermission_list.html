@@ -2,52 +2,11 @@
 
 {% block title %}Object Permissions{% endblock %}
 
-{% block pretitle %}<div class="page-pretitle">Administration</div>{% endblock %}
-
-{% block subtitle %}
-  <p class="page-subtitle">Action grants over selected content types with optional JSON constraints.</p>
-{% endblock %}
-
 {% block controls %}
-  <div class="btn-list">
-    <a class="btn btn-primary" href="{% url 'objectpermission_add' %}">Create permission</a>
+  <div class="btn-list list-page-actions">
+    <a class="btn btn-primary list-page-primary-action" href="{% url 'objectpermission_add' %}">
+      <i class="mdi mdi-plus-thick" aria-hidden="true"></i>
+      <span>Add permission</span>
+    </a>
   </div>
-{% endblock %}
-
-{% block tab_badge %}<span class="badge text-bg-secondary">{{ object_permissions.count }}</span>{% endblock %}
-
-{% block summary %}
-  <div class="stats-grid mb-3">
-    <div class="stat-card">
-      <span class="stat-label">Object permissions</span>
-      <span class="stat-value">{{ object_permissions.count }}</span>
-    </div>
-  </div>
-{% endblock %}
-
-{% block table %}
-  <table class="table">
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Actions</th>
-        <th>Content types</th>
-        <th>Enabled</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for permission in object_permissions %}
-        <tr>
-          <td><a href="{% url 'objectpermission_detail' permission.pk %}">{{ permission.name }}</a></td>
-          <td>{{ permission.actions|join:", " }}</td>
-          <td>{{ permission.content_types.count }}</td>
-          <td><span class="badge {% if permission.enabled %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if permission.enabled %}Yes{% else %}No{% endif %}</span></td>
-        </tr>
-      {% empty %}
-        <tr>
-          <td colspan="4" class="empty-state">No object permissions found.</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
 {% endblock %}

@@ -1,23 +1,43 @@
 {% extends "generic/_base.html" %}
+{% load render_table from django_tables2 %}
+
+{% block page-header %}
+  <div class="container-fluid mt-2 d-print-none list-page-header">
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-start gap-3">
+      <div>
+        <h1 class="page-title">{% block title %}{% endblock title %}</h1>
+      </div>
+
+      <div class="d-print-none list-page-controls">
+        {% block controls %}
+          <div class="btn-list list-page-actions">
+            {% block control-buttons %}{% endblock %}
+          </div>
+        {% endblock controls %}
+      </div>
+    </div>
+  </div>
+{% endblock %}
 
 {% block tabs %}
-  <ul class="nav nav-tabs" role="tablist">
+  <ul class="nav nav-tabs list-page-tabs" role="tablist">
     <li class="nav-item" role="presentation">
-      <button class="nav-link active" id="object-list-tab" data-bs-toggle="tab" data-bs-target="#object-list" type="button" role="tab" aria-controls="object-list" aria-selected="true">
+      <a class="nav-link active" id="object-list-tab" data-bs-toggle="tab" data-bs-target="#object-list" type="button" role="tab" aria-controls="object-list" aria-selected="true">
         Results
-        {% block tab_badge %}{% endblock %}
-      </button>
+        <span class="badge text-bg-secondary total-object-count">{{ table.paginator.count|default:0 }}</span>
+      </a>
     </li>
   </ul>
 {% endblock %}
 
 {% block content %}
   <div class="tab-pane show active" id="object-list" role="tabpanel" aria-labelledby="object-list-tab">
-    {% block summary %}{% endblock %}
-    <section class="card">
-      {% block table_intro %}{% endblock %}
+    <section class="card object-list-card">
       <div class="table-responsive">
-        {% block table %}{% endblock %}
+        {% render_table table %}
+      </div>
+      <div class="card-body pt-0">
+        {% include "inc/paginator.html" %}
       </div>
     </section>
   </div>

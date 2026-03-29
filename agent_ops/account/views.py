@@ -4,8 +4,10 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
-from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
+from django.views.generic import CreateView, DeleteView, TemplateView, UpdateView
 
+from core.generic_views import ObjectListView
+from users import filtersets, tables
 from users.models import Token, User
 
 from .forms import LoginForm, ProfileForm, TokenCreateForm, UserPreferenceForm
@@ -77,12 +79,14 @@ class PreferenceUpdateView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class TokenListView(LoginRequiredMixin, ListView):
+class TokenListView(LoginRequiredMixin, ObjectListView):
+    queryset = Token.objects.all()
+    table = tables.TokenTable
+    filterset = filtersets.TokenFilterSet
     template_name = "account/token_list.html"
-    context_object_name = "tokens"
 
-    def get_queryset(self):
-        return self.request.user.tokens.order_by("-created")
+    def get_queryset(self, request):
+        return request.user.tokens.order_by("-created")
 
 
 class TokenCreateView(LoginRequiredMixin, CreateView):
@@ -122,4 +126,3 @@ class TokenDeleteView(LoginRequiredMixin, DeleteView):
     def get_success_url(self):
         messages.success(self.request, "API token deleted.")
         return reverse("token_list")
-

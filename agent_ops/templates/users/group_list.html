@@ -2,52 +2,11 @@
 
 {% block title %}Groups{% endblock %}
 
-{% block pretitle %}<div class="page-pretitle">Administration</div>{% endblock %}
-
-{% block subtitle %}
-  <p class="page-subtitle">Reusable access bundles managed by the platform.</p>
-{% endblock %}
-
 {% block controls %}
-  <div class="btn-list">
-    <a class="btn btn-primary" href="{% url 'group_add' %}">Create group</a>
+  <div class="btn-list list-page-actions">
+    <a class="btn btn-primary list-page-primary-action" href="{% url 'group_add' %}">
+      <i class="mdi mdi-plus-thick" aria-hidden="true"></i>
+      <span>Add group</span>
+    </a>
   </div>
-{% endblock %}
-
-{% block tab_badge %}<span class="badge text-bg-secondary">{{ groups.count }}</span>{% endblock %}
-
-{% block summary %}
-  <div class="stats-grid mb-3">
-    <div class="stat-card">
-      <span class="stat-label">Groups</span>
-      <span class="stat-value">{{ groups.count }}</span>
-    </div>
-  </div>
-{% endblock %}
-
-{% block table %}
-  <table class="table">
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Description</th>
-        <th>Members</th>
-        <th>Permissions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for group in groups %}
-        <tr>
-          <td><a href="{% url 'group_detail' group.pk %}">{{ group.name }}</a></td>
-          <td>{{ group.description|default:"-" }}</td>
-          <td>{{ group.users.count }}</td>
-          <td>{{ group.permissions.count }} auth / {{ group.object_permissions.count }} object</td>
-        </tr>
-      {% empty %}
-        <tr>
-          <td colspan="4" class="empty-state">No groups found.</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
 {% endblock %}

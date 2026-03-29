@@ -1,7 +1,10 @@
 from django.contrib.messages.views import SuccessMessageMixin
+from django.db.models import Count
 from django.urls import reverse
-from django.views.generic import CreateView, DetailView, ListView, UpdateView
+from django.views.generic import CreateView, DetailView, UpdateView
 
+from core.generic_views import ObjectListView
+from . import filtersets, tables
 from .forms import (
     GroupForm,
     ObjectPermissionForm,
@@ -12,13 +15,14 @@ from .mixins import StaffRequiredMixin
 from .models import Group, ObjectPermission, User
 
 
-class UserListView(StaffRequiredMixin, ListView):
-    model = User
+class UserListView(StaffRequiredMixin, ObjectListView):
+    queryset = User.objects.all()
+    table = tables.UserTable
+    filterset = filtersets.UserFilterSet
     template_name = "users/user_list.html"
-    context_object_name = "users"
 
-    def get_queryset(self):
-        return User.objects.order_by("username")
+    def get_queryset(self, request):
+        return super().get_queryset(request).order_by("username")
 
 
 class UserDetailView(StaffRequiredMixin, DetailView):
@@ -57,13 +61,23 @@ class UserUpdateView(StaffRequiredMixin, SuccessMessageMixin, UpdateView):
         return context
 
 
-class GroupListView(StaffRequiredMixin, ListView):
-    model = Group
+class GroupListView(StaffRequiredMixin, ObjectListView):
+    queryset = Group.objects.all()
+    table = tables.GroupTable
+    filterset = filtersets.GroupFilterSet
     template_name = "users/group_list.html"
-    context_object_name = "groups"
 
-    def get_queryset(self):
-        return Group.objects.order_by("name")
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .annotate(
+                user_count=Count("user", distinct=True),
+                permission_count=Count("permissions", distinct=True),
+                object_permission_count=Count("object_permissions", distinct=True),
+            )
+            .order_by("name")
+        )
 
 
 class GroupDetailView(StaffRequiredMixin, DetailView):
@@ -102,13 +116,19 @@ class GroupUpdateView(StaffRequiredMixin, SuccessMessageMixin, UpdateView):
         return context
 
 
-class ObjectPermissionListView(StaffRequiredMixin, ListView):
-    model = ObjectPermission
+class ObjectPermissionListView(StaffRequiredMixin, ObjectListView):
+    queryset = ObjectPermission.objects.all()
+    table = tables.ObjectPermissionTable
+    filterset = filtersets.ObjectPermissionFilterSet
     template_name = "users/objectpermission_list.html"
-    context_object_name = "object_permissions"
 
-    def get_queryset(self):
-        return ObjectPermission.objects.order_by("name")
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .annotate(content_type_count=Count("content_types", distinct=True))
+            .order_by("name")
+        )
 
 
 class ObjectPermissionDetailView(StaffRequiredMixin, DetailView):
