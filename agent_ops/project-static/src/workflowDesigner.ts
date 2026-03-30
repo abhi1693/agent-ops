@@ -75,13 +75,17 @@ type DesignerElements = {
   advancedPanel: HTMLDetailsElement;
   board: HTMLElement;
   canvas: HTMLElement;
+  canvasEmpty: HTMLElement;
   definitionInput: HTMLInputElement | HTMLTextAreaElement;
   deleteNodeButton: HTMLButtonElement;
+  edgeCount: HTMLElement;
+  edgeCountLabel: HTMLElement;
   edgeEmpty: HTMLElement;
   edgeList: HTMLElement;
   edgeSource: HTMLSelectElement;
   edgeTarget: HTMLSelectElement;
   edgesSvg: SVGSVGElement;
+  nodeCount: HTMLElement;
   nodeConfig: HTMLTextAreaElement;
   nodeEmpty: HTMLElement;
   nodeFields: HTMLElement;
@@ -89,6 +93,7 @@ type DesignerElements = {
   nodeLabel: HTMLInputElement;
   nodePalette: HTMLElement;
   nodeTemplateFields: HTMLElement;
+  selectedNodeSummary: HTMLElement;
   selectedTemplate: HTMLElement;
   surface: HTMLElement;
 };
@@ -208,6 +213,48 @@ function getToolName(config: Record<string, unknown> | undefined): string {
   return 'passthrough';
 }
 
+function formatCount(value: number, singular: string, plural = `${singular}s`): string {
+  return `${value} ${value === 1 ? singular : plural}`;
+}
+
+function getNodeSubtitle(
+  node: WorkflowNode,
+  triggerDefinitionMap: Map<string, WorkflowTriggerDefinition>,
+  toolDefinitionMap: Map<string, WorkflowToolDefinition>,
+): string {
+  if (node.kind === 'trigger') {
+    return triggerDefinitionMap.get(getTriggerType(node.config))?.label ?? 'Workflow entry point';
+  }
+
+  if (node.kind === 'tool') {
+    return toolDefinitionMap.get(getToolName(node.config))?.label ?? 'Runs a workflow tool';
+  }
+
+  if (node.kind === 'condition') {
+    const path = getConfigString(node.config, 'path');
+    const operator = getConfigString(node.config, 'operator');
+    if (path && operator) {
+      return `${path} • ${formatKindLabel(operator)}`;
+    }
+    if (path) {
+      return path;
+    }
+    return 'Branches workflow execution';
+  }
+
+  if (node.kind === 'response') {
+    const status = getConfigString(node.config, 'status');
+    return status ? `Marks run as ${status.replace(/_/g, ' ')}` : 'Completes the workflow';
+  }
+
+  if (node.kind === 'agent') {
+    const outputKey = getConfigString(node.config, 'output_key');
+    return outputKey ? `Writes to ${outputKey}` : 'Writes a message into workflow context';
+  }
+
+  return 'Custom workflow node';
+}
+
 function initWorkflowDesigner(): void {
   const root = document.querySelector<HTMLElement>('[data-workflow-designer]');
   if (!root) {
@@ -216,9 +263,14 @@ function initWorkflowDesigner(): void {
 
   const definitionInput = root.querySelector<HTMLInputElement | HTMLTextAreaElement>('#id_definition');
   const canvas = root.querySelector<HTMLElement>('[data-workflow-canvas]');
+  const canvasEmpty = root.querySelector<HTMLElement>('[data-canvas-empty]');
   const surface = root.querySelector<HTMLElement>('[data-workflow-surface]');
   const board = root.querySelector<HTMLElement>('[data-workflow-board]');
   const edgesSvg = root.querySelector<SVGSVGElement>('[data-workflow-edges]');
+  const nodeCount = root.querySelector<HTMLElement>('[data-node-count]');
+  const edgeCount = root.querySelector<HTMLElement>('[data-edge-count]');
+  const edgeCountLabel = root.querySelector<HTMLElement>('[data-edge-count-label]');
+  const selectedNodeSummary = root.querySelector<HTMLElement>('[data-selected-node-summary]');
   const nodePalette = root.querySelector<HTMLElement>('[data-node-palette]');
   const nodeEmpty = root.querySelector<HTMLElement>('[data-node-empty]');
   const nodeFields = root.querySelector<HTMLElement>('[data-node-fields]');
@@ -238,9 +290,14 @@ function initWorkflowDesigner(): void {
   if (
     !definitionInput ||
     !canvas ||
+    !canvasEmpty ||
     !surface ||
     !board ||
     !edgesSvg ||
+    !nodeCount ||
+    !edgeCount ||
+    !edgeCountLabel ||
+    !selectedNodeSummary ||
     !nodePalette ||
     !nodeEmpty ||
     !nodeFields ||
@@ -265,13 +322,17 @@ function initWorkflowDesigner(): void {
     advancedPanel,
     board,
     canvas,
+    canvasEmpty,
     definitionInput,
     deleteNodeButton,
+    edgeCount,
+    edgeCountLabel,
     edgeEmpty,
     edgeList,
     edgeSource,
     edgeTarget,
     edgesSvg,
+    nodeCount,
     nodeConfig,
     nodeEmpty,
     nodeFields,
@@ -279,6 +340,7 @@ function initWorkflowDesigner(): void {
     nodeLabel,
     nodePalette,
     nodeTemplateFields,
+    selectedNodeSummary,
     selectedTemplate,
     surface,
   };
@@ -344,6 +406,20 @@ function initWorkflowDesigner(): void {
 
     elements.surface.style.width = `${width}px`;
     elements.surface.style.height = `${height}px`;
+  }
+
+  function renderBoardSummary(): void {
+    const selectedNode = getNode(selectedNodeId);
+    elements.nodeCount.textContent = String(definition.nodes.length);
+    elements.edgeCount.textContent = String(definition.edges.length);
+    elements.edgeCountLabel.textContent = formatCount(definition.edges.length, 'link');
+    elements.selectedNodeSummary.textContent = selectedNode ? getNodeTitle(selectedNode) : 'None';
+  }
+
+  function renderCanvasState(): void {
+    const isEmpty = definition.nodes.length === 0;
+    elements.canvasEmpty.classList.toggle('d-none', !isEmpty);
+    elements.board.classList.toggle('is-empty', isEmpty);
   }
 
   function syncAdvancedConfigEditor(): void {
@@ -564,6 +640,9 @@ function initWorkflowDesigner(): void {
   }
 
   function renderEdgeOptions(): void {
+    const previousSource = elements.edgeSource.value;
+    const previousTarget = elements.edgeTarget.value;
+
     if (definition.nodes.length === 0) {
       const emptyOption = '<option value="" selected>Add nodes first</option>';
       elements.edgeSource.innerHTML = emptyOption;
@@ -583,6 +662,21 @@ function initWorkflowDesigner(): void {
     elements.edgeSource.disabled = definition.nodes.length < 2;
     elements.edgeTarget.disabled = definition.nodes.length < 2;
     elements.addEdgeButton.disabled = definition.nodes.length < 2;
+
+    const fallbackSource = definition.nodes[0]?.id ?? '';
+    elements.edgeSource.value = definition.nodes.some((node) => node.id === previousSource)
+      ? previousSource
+      : fallbackSource;
+
+    const fallbackTarget =
+      definition.nodes.find((node) => node.id !== elements.edgeSource.value)?.id ?? fallbackSource;
+    elements.edgeTarget.value = definition.nodes.some((node) => node.id === previousTarget)
+      ? previousTarget
+      : fallbackTarget;
+
+    if (definition.nodes.length > 1 && elements.edgeTarget.value === elements.edgeSource.value) {
+      elements.edgeTarget.value = fallbackTarget;
+    }
   }
 
   function renderEdgeList(): void {
@@ -592,10 +686,23 @@ function initWorkflowDesigner(): void {
       .map((edge) => {
         const source = getNode(edge.source);
         const target = getNode(edge.target);
-        const label = `${source ? getNodeTitle(source) : edge.source} → ${target ? getNodeTitle(target) : edge.target}`;
+        const sourceLabel = source ? getNodeTitle(source) : edge.source;
+        const targetLabel = target ? getNodeTitle(target) : edge.target;
         return `
           <div class="workflow-edge-item">
-            <span>${escapeHtml(label)}</span>
+            <div class="workflow-edge-copy">
+              <span class="workflow-edge-terminal">
+                <span class="workflow-edge-terminal-label">Source</span>
+                <strong class="workflow-edge-terminal-value">${escapeHtml(sourceLabel)}</strong>
+              </span>
+              <span class="workflow-edge-arrow" aria-hidden="true">
+                <i class="mdi mdi-arrow-right"></i>
+              </span>
+              <span class="workflow-edge-terminal">
+                <span class="workflow-edge-terminal-label">Target</span>
+                <strong class="workflow-edge-terminal-value">${escapeHtml(targetLabel)}</strong>
+              </span>
+            </div>
             <button type="button" class="btn btn-outline-danger btn-sm" data-remove-edge="${escapeHtml(edge.id)}">
               Remove
             </button>
@@ -610,6 +717,7 @@ function initWorkflowDesigner(): void {
 
     definition.nodes.forEach((node) => {
       const template = getNodeTemplate(node);
+      const subtitle = getNodeSubtitle(node, triggerDefinitionMap, toolDefinitionMap);
       const nodeElement = document.createElement('button');
       nodeElement.type = 'button';
       nodeElement.className = `workflow-node${node.id === selectedNodeId ? ' is-selected' : ''}`;
@@ -624,6 +732,7 @@ function initWorkflowDesigner(): void {
           <span class="workflow-node-kind">${escapeHtml(formatKindLabel(node.kind))}</span>
         </span>
         <strong class="workflow-node-title">${escapeHtml(getNodeTitle(node))}</strong>
+        <span class="workflow-node-subtitle">${escapeHtml(subtitle)}</span>
       `;
       elements.canvas.appendChild(nodeElement);
     });
@@ -667,6 +776,8 @@ function initWorkflowDesigner(): void {
     syncDefinition();
     renderNodes();
     renderEdges();
+    renderCanvasState();
+    renderBoardSummary();
     renderNodeInspector();
     renderEdgeOptions();
     renderEdgeList();

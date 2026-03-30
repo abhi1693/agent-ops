@@ -82,22 +82,50 @@
 
     <div class="workflow-designer-layout">
       <section class="card workflow-designer-main">
-        <div class="card-header d-flex flex-wrap gap-2 align-items-center justify-content-between">
+        <div class="card-header workflow-card-header">
           <div>
+            <div class="workflow-panel-eyebrow">Visual editor</div>
             <h3 class="card-title mb-0">Workflow canvas</h3>
             <div class="text-secondary mt-1">
               Add nodes to the canvas, connect them, and configure each node in the inspector.
             </div>
           </div>
-          <div class="workflow-board-tip">
-            <i class="mdi mdi-cursor-move"></i>
-            <span class="ms-1">Drag nodes to lay out the workflow.</span>
+          <div class="workflow-board-summary">
+            <div class="workflow-board-tip">
+              <i class="mdi mdi-cursor-move"></i>
+              <span class="ms-1">Drag nodes to lay out the workflow.</span>
+            </div>
+            <div class="workflow-board-stats">
+              <div class="workflow-board-stat">
+                <span class="workflow-board-stat-label">Nodes</span>
+                <strong data-node-count>0</strong>
+              </div>
+              <div class="workflow-board-stat">
+                <span class="workflow-board-stat-label">Connections</span>
+                <strong data-edge-count>0</strong>
+              </div>
+              <div class="workflow-board-stat workflow-board-stat-wide">
+                <span class="workflow-board-stat-label">Selected</span>
+                <strong data-selected-node-summary>None</strong>
+              </div>
+            </div>
           </div>
         </div>
         <div class="card-body">
           <div class="workflow-board" data-workflow-board>
             <div class="workflow-surface" data-workflow-surface>
               <svg class="workflow-edges" data-workflow-edges aria-hidden="true"></svg>
+              <div class="workflow-canvas-empty" data-canvas-empty>
+                <div class="workflow-canvas-empty-card">
+                  <span class="workflow-canvas-empty-icon">
+                    <i class="mdi mdi-vector-polyline-plus"></i>
+                  </span>
+                  <div class="workflow-canvas-empty-title">Start with a trigger node</div>
+                  <div class="workflow-canvas-empty-copy">
+                    Use the node palette to add an entry point, then connect logic and response nodes to shape the run.
+                  </div>
+                </div>
+              </div>
               <div class="workflow-canvas" data-workflow-canvas></div>
             </div>
           </div>
@@ -106,46 +134,146 @@
 
       <aside class="stack-sm">
         <section class="card">
-          <div class="card-header">
-            <h3 class="card-title mb-0">Add node</h3>
+          <div class="card-header workflow-card-header">
+            <div>
+              <div class="workflow-panel-eyebrow">Builder blocks</div>
+              <h3 class="card-title mb-0">Add node</h3>
+            </div>
           </div>
           <div class="card-body stack-sm" data-node-palette>
-            {% for template in workflow_node_templates %}
-              <button type="button" class="workflow-template-card" data-add-node="{{ template.kind }}">
-                <span class="workflow-template-icon">
-                  <i class="mdi {{ template.icon }}"></i>
-                </span>
-                <span class="workflow-template-copy">
-                  <span class="workflow-template-title">{{ template.label }}</span>
-                  <span class="workflow-template-description">{{ template.description }}</span>
-                </span>
-              </button>
-            {% endfor %}
+            <div class="workflow-panel-copy">
+              Choose the next block and place it on the canvas.
+            </div>
+
+            <div class="workflow-block-group">
+              <div class="workflow-block-group-heading">
+                <div class="workflow-block-group-title">Entry point</div>
+                <div class="workflow-block-group-copy">Choose how execution begins.</div>
+              </div>
+              <div class="workflow-block-grid">
+                {% for template in workflow_node_templates %}
+                  {% if template.kind == "trigger" %}
+                    <button type="button" class="workflow-template-card" data-add-node="{{ template.kind }}">
+                      <span class="workflow-template-icon">
+                        <i class="mdi {{ template.icon }}"></i>
+                      </span>
+                      <span class="workflow-template-copy">
+                        <span class="workflow-template-title">{{ template.label }}</span>
+                        <span class="workflow-template-description">{{ template.description }}</span>
+                      </span>
+                    </button>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="workflow-block-group">
+              <div class="workflow-block-group-heading">
+                <div class="workflow-block-group-title">Processing</div>
+                <div class="workflow-block-group-copy">Transform context or call external systems.</div>
+              </div>
+              <div class="workflow-block-grid">
+                {% for template in workflow_node_templates %}
+                  {% if template.kind == "agent" or template.kind == "tool" %}
+                    <button type="button" class="workflow-template-card" data-add-node="{{ template.kind }}">
+                      <span class="workflow-template-icon">
+                        <i class="mdi {{ template.icon }}"></i>
+                      </span>
+                      <span class="workflow-template-copy">
+                        <span class="workflow-template-title">{{ template.label }}</span>
+                        <span class="workflow-template-description">{{ template.description }}</span>
+                      </span>
+                    </button>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="workflow-block-group">
+              <div class="workflow-block-group-heading">
+                <div class="workflow-block-group-title">Control flow</div>
+                <div class="workflow-block-group-copy">Route execution through branches.</div>
+              </div>
+              <div class="workflow-block-grid">
+                {% for template in workflow_node_templates %}
+                  {% if template.kind == "condition" %}
+                    <button type="button" class="workflow-template-card" data-add-node="{{ template.kind }}">
+                      <span class="workflow-template-icon">
+                        <i class="mdi {{ template.icon }}"></i>
+                      </span>
+                      <span class="workflow-template-copy">
+                        <span class="workflow-template-title">{{ template.label }}</span>
+                        <span class="workflow-template-description">{{ template.description }}</span>
+                      </span>
+                    </button>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="workflow-block-group">
+              <div class="workflow-block-group-heading">
+                <div class="workflow-block-group-title">Outcome</div>
+                <div class="workflow-block-group-copy">Close the workflow with a final response.</div>
+              </div>
+              <div class="workflow-block-grid">
+                {% for template in workflow_node_templates %}
+                  {% if template.kind == "response" %}
+                    <button type="button" class="workflow-template-card" data-add-node="{{ template.kind }}">
+                      <span class="workflow-template-icon">
+                        <i class="mdi {{ template.icon }}"></i>
+                      </span>
+                      <span class="workflow-template-copy">
+                        <span class="workflow-template-title">{{ template.label }}</span>
+                        <span class="workflow-template-description">{{ template.description }}</span>
+                      </span>
+                    </button>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            </div>
           </div>
         </section>
 
         <section class="card">
-          <div class="card-header">
-            <h3 class="card-title mb-0">Selected node</h3>
+          <div class="card-header workflow-card-header">
+            <div>
+              <div class="workflow-panel-eyebrow">Inspector</div>
+              <h3 class="card-title mb-0">Selected node</h3>
+            </div>
           </div>
           <div class="card-body">
-            <div class="workflow-empty-copy" data-node-empty>Select a node on the canvas to configure it.</div>
+            <div class="workflow-empty-copy" data-node-empty>
+              Select a node on the canvas to configure its fields and runtime settings.
+            </div>
             <div class="workflow-node-fields d-none" data-node-fields>
-              <div class="mb-3">
-                <label class="form-label" for="workflow-node-label">Node name</label>
-                <input id="workflow-node-label" class="form-control" type="text" data-field="label">
+              <div class="workflow-panel-section">
+                <div class="workflow-panel-section-title">Node details</div>
+                <div class="mb-3">
+                  <label class="form-label" for="workflow-node-label">Node name</label>
+                  <input id="workflow-node-label" class="form-control" type="text" data-field="label">
+                </div>
+                <div class="mb-0">
+                  <label class="form-label" for="workflow-node-kind">Node type</label>
+                  <select id="workflow-node-kind" class="form-select" data-field="kind">
+                    {% for template in workflow_node_templates %}
+                      <option value="{{ template.kind }}">{{ template.label }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
               </div>
-              <div class="mb-3">
-                <label class="form-label" for="workflow-node-kind">Node type</label>
-                <select id="workflow-node-kind" class="form-select" data-field="kind">
-                  {% for template in workflow_node_templates %}
-                    <option value="{{ template.kind }}">{{ template.label }}</option>
-                  {% endfor %}
-                </select>
+
+              <div class="workflow-panel-section">
+                <div class="workflow-panel-section-title">Template</div>
+                <div class="workflow-selected-template mb-0" data-selected-template></div>
               </div>
-              <div class="workflow-selected-template mb-3" data-selected-template></div>
-              <div class="workflow-template-fields stack-sm" data-node-template-fields></div>
-              <details class="workflow-advanced-panel mt-3" data-advanced-panel>
+
+              <div class="workflow-panel-section">
+                <div class="workflow-panel-section-title">Configuration</div>
+                <div class="workflow-template-fields stack-sm" data-node-template-fields></div>
+              </div>
+
+              <details class="workflow-advanced-panel" data-advanced-panel>
                 <summary>Advanced runtime JSON</summary>
                 <div class="mt-3">
                   <label class="form-label" for="workflow-node-config">Runtime config</label>
@@ -155,7 +283,8 @@
                   </div>
                 </div>
               </details>
-              <button type="button" class="btn btn-outline-danger mt-3" data-delete-node>
+
+              <button type="button" class="btn btn-outline-danger" data-delete-node>
                 <i class="mdi mdi-trash-can-outline"></i>
                 <span class="ms-1">Delete node</span>
               </button>
@@ -164,10 +293,17 @@
         </section>
 
         <section class="card">
-          <div class="card-header">
-            <h3 class="card-title mb-0">Connections</h3>
+          <div class="card-header workflow-card-header">
+            <div>
+              <div class="workflow-panel-eyebrow">Execution graph</div>
+              <h3 class="card-title mb-0">Connections</h3>
+            </div>
+            <div class="workflow-connection-pill" data-edge-count-label>0 links</div>
           </div>
           <div class="card-body">
+            <div class="workflow-panel-copy mb-3">
+              Connect nodes to define how the workflow advances from one step to the next.
+            </div>
             <div class="mb-3">
               <label class="form-label" for="workflow-edge-source">Source</label>
               <select id="workflow-edge-source" class="form-select" data-edge-source>
