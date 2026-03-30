@@ -71,7 +71,6 @@ type WorkflowDefinition = {
 };
 
 type DesignerElements = {
-  addEdgeButton: HTMLButtonElement;
   advancedPanel: HTMLDetailsElement;
   board: HTMLElement;
   canvas: HTMLElement;
@@ -82,8 +81,6 @@ type DesignerElements = {
   edgeCountLabel: HTMLElement;
   edgeEmpty: HTMLElement;
   edgeList: HTMLElement;
-  edgeSource: HTMLSelectElement;
-  edgeTarget: HTMLSelectElement;
   edgesSvg: SVGSVGElement;
   nodeCount: HTMLElement;
   nodeConfig: HTMLTextAreaElement;
@@ -100,6 +97,8 @@ type DesignerElements = {
 
 const NODE_WIDTH = 232;
 const NODE_HEIGHT = 108;
+const NODE_COLUMN_GAP = 264;
+const NODE_ROW_GAP = 148;
 const SURFACE_PADDING = 96;
 const DEFAULT_SURFACE_HEIGHT = 680;
 
@@ -217,6 +216,23 @@ function formatCount(value: number, singular: string, plural = `${singular}s`): 
   return `${value} ${value === 1 ? singular : plural}`;
 }
 
+function isNodeDisabled(node: WorkflowNode | undefined): boolean {
+  return Boolean(node?.config && node.config['disabled']);
+}
+
+function getNodeStatusLabel(node: WorkflowNode | undefined, isRunning = false): string {
+  if (!node) {
+    return 'Idle';
+  }
+  if (isRunning) {
+    return 'Running';
+  }
+  if (isNodeDisabled(node)) {
+    return 'Disabled';
+  }
+  return 'Ready';
+}
+
 function getNodeSubtitle(
   node: WorkflowNode,
   triggerDefinitionMap: Map<string, WorkflowTriggerDefinition>,
@@ -281,9 +297,6 @@ function initWorkflowDesigner(): void {
   const nodeConfig = root.querySelector<HTMLTextAreaElement>('[data-field="config"]');
   const advancedPanel = root.querySelector<HTMLDetailsElement>('[data-advanced-panel]');
   const deleteNodeButton = root.querySelector<HTMLButtonElement>('[data-delete-node]');
-  const edgeSource = root.querySelector<HTMLSelectElement>('[data-edge-source]');
-  const edgeTarget = root.querySelector<HTMLSelectElement>('[data-edge-target]');
-  const addEdgeButton = root.querySelector<HTMLButtonElement>('[data-add-edge]');
   const edgeList = root.querySelector<HTMLElement>('[data-edge-list]');
   const edgeEmpty = root.querySelector<HTMLElement>('[data-edge-empty]');
 
@@ -308,9 +321,6 @@ function initWorkflowDesigner(): void {
     !nodeConfig ||
     !advancedPanel ||
     !deleteNodeButton ||
-    !edgeSource ||
-    !edgeTarget ||
-    !addEdgeButton ||
     !edgeList ||
     !edgeEmpty
   ) {
@@ -318,7 +328,6 @@ function initWorkflowDesigner(): void {
   }
 
   const elements: DesignerElements = {
-    addEdgeButton,
     advancedPanel,
     board,
     canvas,
@@ -329,8 +338,6 @@ function initWorkflowDesigner(): void {
     edgeCountLabel,
     edgeEmpty,
     edgeList,
-    edgeSource,
-    edgeTarget,
     edgesSvg,
     nodeCount,
     nodeConfig,
@@ -359,6 +366,15 @@ function initWorkflowDesigner(): void {
         id: string;
         offsetX: number;
         offsetY: number;
+      }
+    | null = null;
+  let quickAddSourceId: string | null = null;
+  let runningNodeId: string | null = null;
+  let connectionDraft:
+    | {
+        pointerX: number;
+        pointerY: number;
+        sourceId: string;
       }
     | null = null;
 
@@ -451,7 +467,7 @@ function initWorkflowDesigner(): void {
       'Custom node. Use the advanced runtime JSON editor to configure fields that are not mapped into the inspector.';
 
     elements.selectedTemplate.innerHTML = `
-      <div class="workflow-selected-template-card${template ? '' : ' is-custom'}">
+      <div class="workflow-selected-template-card workflow-selected-template-card--compact${template ? '' : ' is-custom'}">
         <span class="workflow-selected-template-icon">
           <i class="mdi ${escapeHtml(icon)}"></i>
         </span>
@@ -639,43 +655,138 @@ function initWorkflowDesigner(): void {
     syncAdvancedConfigEditor();
   }
 
-  function renderEdgeOptions(): void {
-    const previousSource = elements.edgeSource.value;
-    const previousTarget = elements.edgeTarget.value;
+  function getQuickAddTemplates(sourceId: string): WorkflowNodeTemplate[] {
+    return nodeTemplates
+      .filter((template) => !(template.kind === 'trigger' && definition.nodes.length > 0))
+      .filter((template) => !(template.kind === getNode(sourceId)?.kind && template.kind === 'trigger'))
+      .slice(0, 5);
+  }
 
-    if (definition.nodes.length === 0) {
-      const emptyOption = '<option value="" selected>Add nodes first</option>';
-      elements.edgeSource.innerHTML = emptyOption;
-      elements.edgeTarget.innerHTML = emptyOption;
-      elements.edgeSource.disabled = true;
-      elements.edgeTarget.disabled = true;
-      elements.addEdgeButton.disabled = true;
+  function renderQuickAddMenu(sourceId: string): string {
+    const items = getQuickAddTemplates(sourceId)
+      .map(
+        (template) => `
+          <button
+            type="button"
+            class="workflow-node-quick-add-item"
+            data-quick-add-kind="${escapeHtml(template.kind)}"
+            data-quick-add-source="${escapeHtml(sourceId)}"
+          >
+            <span class="workflow-node-quick-add-item-icon">
+              <i class="mdi ${escapeHtml(template.icon ?? 'mdi-vector-square')}"></i>
+            </span>
+            <span class="workflow-node-quick-add-item-copy">
+              <span class="workflow-node-quick-add-item-title">${escapeHtml(template.label)}</span>
+              <span class="workflow-node-quick-add-item-description">${escapeHtml(template.description)}</span>
+            </span>
+          </button>
+        `,
+      )
+      .join('');
+
+    return `
+      <div class="workflow-node-quick-add-menu" data-quick-add-menu="${escapeHtml(sourceId)}">
+        <div class="workflow-node-quick-add-header">
+          <i class="mdi mdi-magnify"></i>
+          <span>Add next step</span>
+        </div>
+        <div class="workflow-node-quick-add-list">${items}</div>
+      </div>
+    `;
+  }
+
+  function addEdgeBetween(source: string, target: string): boolean {
+    if (!source || !target || source === target) {
+      return false;
+    }
+
+    const duplicate = definition.edges.some((edge) => edge.source === source && edge.target === target);
+    if (duplicate) {
+      return false;
+    }
+
+    definition.edges.push({
+      id: createId('edge'),
+      source,
+      target,
+    });
+    return true;
+  }
+
+  function addConnectedNodeFromKind(sourceId: string, kind: string): void {
+    const template = templateMap.get(kind);
+    const sourceNode = getNode(sourceId);
+    if (!template || !sourceNode) {
       return;
     }
 
-    const options = definition.nodes
-      .map((node) => `<option value="${escapeHtml(node.id)}">${escapeHtml(getNodeTitle(node))}</option>`)
-      .join('');
+    const siblingCount = definition.edges.filter((edge) => edge.source === sourceId).length;
+    const node: WorkflowNode = {
+      config: cloneValue(template.config ?? {}),
+      id: createId('node'),
+      kind: template.kind,
+      label: template.label,
+      position: {
+        x: sourceNode.position.x + NODE_COLUMN_GAP,
+        y: sourceNode.position.y + siblingCount * NODE_ROW_GAP * 0.8,
+      },
+    };
 
-    elements.edgeSource.innerHTML = options;
-    elements.edgeTarget.innerHTML = options;
-    elements.edgeSource.disabled = definition.nodes.length < 2;
-    elements.edgeTarget.disabled = definition.nodes.length < 2;
-    elements.addEdgeButton.disabled = definition.nodes.length < 2;
+    definition.nodes.push(node);
+    addEdgeBetween(sourceId, node.id);
+    quickAddSourceId = null;
+    connectionDraft = null;
+    selectNode(node.id);
+  }
 
-    const fallbackSource = definition.nodes[0]?.id ?? '';
-    elements.edgeSource.value = definition.nodes.some((node) => node.id === previousSource)
-      ? previousSource
-      : fallbackSource;
+  function toggleNodeDisabled(nodeId: string): void {
+    const node = getNode(nodeId);
+    if (!node) {
+      return;
+    }
 
-    const fallbackTarget =
-      definition.nodes.find((node) => node.id !== elements.edgeSource.value)?.id ?? fallbackSource;
-    elements.edgeTarget.value = definition.nodes.some((node) => node.id === previousTarget)
-      ? previousTarget
-      : fallbackTarget;
+    const nextConfig = { ...(node.config ?? {}) };
+    if (nextConfig['disabled']) {
+      delete nextConfig['disabled'];
+    } else {
+      nextConfig['disabled'] = true;
+    }
+    node.config = nextConfig;
+    render();
+  }
 
-    if (definition.nodes.length > 1 && elements.edgeTarget.value === elements.edgeSource.value) {
-      elements.edgeTarget.value = fallbackTarget;
+  function previewRunNode(nodeId: string): void {
+    runningNodeId = nodeId;
+    render();
+    window.setTimeout(() => {
+      if (runningNodeId === nodeId) {
+        runningNodeId = null;
+        render();
+      }
+    }, 900);
+  }
+
+  function beginConnection(sourceId: string, event: MouseEvent | PointerEvent): void {
+    quickAddSourceId = null;
+    connectionDraft = {
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+      sourceId,
+    };
+    selectNode(sourceId);
+  }
+
+  function completeConnection(targetId: string): void {
+    if (!connectionDraft) {
+      return;
+    }
+
+    const didAdd = addEdgeBetween(connectionDraft.sourceId, targetId);
+    connectionDraft = null;
+    if (didAdd) {
+      selectNode(targetId);
+    } else {
+      renderEdges();
     }
   }
 
@@ -718,21 +829,75 @@ function initWorkflowDesigner(): void {
     definition.nodes.forEach((node) => {
       const template = getNodeTemplate(node);
       const subtitle = getNodeSubtitle(node, triggerDefinitionMap, toolDefinitionMap);
-      const nodeElement = document.createElement('button');
-      nodeElement.type = 'button';
-      nodeElement.className = `workflow-node${node.id === selectedNodeId ? ' is-selected' : ''}`;
+      const statusLabel = getNodeStatusLabel(node, runningNodeId === node.id);
+      const isSelected = node.id === selectedNodeId;
+      const nodeElement = document.createElement('article');
+      nodeElement.className = [
+        'workflow-node',
+        `workflow-node--${node.kind}`,
+        isSelected ? 'is-selected' : '',
+        isNodeDisabled(node) ? 'is-disabled' : '',
+        runningNodeId === node.id ? 'is-running' : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
       nodeElement.dataset.nodeId = node.id;
       nodeElement.style.left = `${node.position.x}px`;
       nodeElement.style.top = `${node.position.y}px`;
       nodeElement.innerHTML = `
-        <span class="workflow-node-meta">
-          <span class="workflow-node-icon">
-            <i class="mdi ${escapeHtml(template?.icon ?? 'mdi-vector-square')}"></i>
-          </span>
-          <span class="workflow-node-kind">${escapeHtml(formatKindLabel(node.kind))}</span>
-        </span>
-        <strong class="workflow-node-title">${escapeHtml(getNodeTitle(node))}</strong>
-        <span class="workflow-node-subtitle">${escapeHtml(subtitle)}</span>
+        <span class="workflow-node-port workflow-node-port--input" data-port-input="${escapeHtml(node.id)}" aria-label="Connect into ${escapeHtml(getNodeTitle(node))}"></span>
+        <span class="workflow-node-port workflow-node-port--output" data-port-output="${escapeHtml(node.id)}" aria-label="Connect from ${escapeHtml(getNodeTitle(node))}"></span>
+        ${
+          isSelected
+            ? `
+              <div class="workflow-node-toolbar" data-node-toolbar="${escapeHtml(node.id)}">
+                <button type="button" class="workflow-node-toolbar-button" data-node-action="run" data-node-action-id="${escapeHtml(node.id)}" aria-label="Run node">
+                  <i class="mdi mdi-play"></i>
+                </button>
+                <button type="button" class="workflow-node-toolbar-button" data-node-action="toggle-disabled" data-node-action-id="${escapeHtml(node.id)}" aria-label="Toggle node state">
+                  <i class="mdi ${isNodeDisabled(node) ? 'mdi-power-plug-off-outline' : 'mdi-power'}"></i>
+                </button>
+                <button type="button" class="workflow-node-toolbar-button" data-node-action="delete" data-node-action-id="${escapeHtml(node.id)}" aria-label="Delete node">
+                  <i class="mdi mdi-trash-can-outline"></i>
+                </button>
+                <button type="button" class="workflow-node-toolbar-button" data-node-action="more" data-node-action-id="${escapeHtml(node.id)}" aria-label="More options">
+                  <i class="mdi mdi-dots-horizontal"></i>
+                </button>
+              </div>
+            `
+            : ''
+        }
+        <div class="workflow-node-body" data-node-body="${escapeHtml(node.id)}">
+          <div class="workflow-node-accent" aria-hidden="true"></div>
+          <div class="workflow-node-header">
+            <span class="workflow-node-meta">
+              <span class="workflow-node-icon">
+                <i class="mdi ${escapeHtml(template?.icon ?? 'mdi-vector-square')}"></i>
+              </span>
+              <span class="workflow-node-copy">
+                <strong class="workflow-node-title">${escapeHtml(getNodeTitle(node))}</strong>
+                <span class="workflow-node-subtitle">${escapeHtml(subtitle)}</span>
+              </span>
+            </span>
+            <span class="workflow-node-status">
+              <span class="workflow-node-status-dot" aria-hidden="true"></span>
+              ${escapeHtml(statusLabel)}
+            </span>
+          </div>
+          <div class="workflow-node-footer">
+            <span class="workflow-node-kind">${escapeHtml(formatKindLabel(node.kind))}</span>
+            ${
+              isSelected
+                ? `
+                  <button type="button" class="workflow-node-add-next" data-quick-add-toggle="${escapeHtml(node.id)}" aria-label="Add next node">
+                    <i class="mdi mdi-plus"></i>
+                  </button>
+                `
+                : ''
+            }
+          </div>
+        </div>
+        ${quickAddSourceId === node.id ? renderQuickAddMenu(node.id) : ''}
       `;
       elements.canvas.appendChild(nodeElement);
     });
@@ -755,9 +920,9 @@ function initWorkflowDesigner(): void {
 
       const sourceRect = sourceElement.getBoundingClientRect();
       const targetRect = targetElement.getBoundingClientRect();
-      const sourceX = sourceRect.left - surfaceRect.left + sourceRect.width / 2;
+      const sourceX = sourceRect.right - surfaceRect.left;
       const sourceY = sourceRect.top - surfaceRect.top + sourceRect.height / 2;
-      const targetX = targetRect.left - surfaceRect.left + targetRect.width / 2;
+      const targetX = targetRect.left - surfaceRect.left;
       const targetY = targetRect.top - surfaceRect.top + targetRect.height / 2;
       const controlOffset = Math.max(Math.abs(targetX - sourceX) * 0.35, 56);
 
@@ -769,6 +934,27 @@ function initWorkflowDesigner(): void {
       path.setAttribute('class', 'workflow-edge-path');
       elements.edgesSvg.appendChild(path);
     });
+
+    if (connectionDraft) {
+      const sourceElement = elements.canvas.querySelector<HTMLElement>(`[data-node-id="${connectionDraft.sourceId}"]`);
+      if (!sourceElement) {
+        return;
+      }
+
+      const sourceRect = sourceElement.getBoundingClientRect();
+      const sourceX = sourceRect.right - surfaceRect.left;
+      const sourceY = sourceRect.top - surfaceRect.top + sourceRect.height / 2;
+      const targetX = connectionDraft.pointerX - surfaceRect.left;
+      const targetY = connectionDraft.pointerY - surfaceRect.top;
+      const controlOffset = Math.max(Math.abs(targetX - sourceX) * 0.35, 56);
+      const draftPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      draftPath.setAttribute(
+        'd',
+        `M ${sourceX} ${sourceY} C ${sourceX + controlOffset} ${sourceY}, ${targetX - controlOffset} ${targetY}, ${targetX} ${targetY}`,
+      );
+      draftPath.setAttribute('class', 'workflow-edge-path workflow-edge-path--draft');
+      elements.edgesSvg.appendChild(draftPath);
+    }
   }
 
   function render(): void {
@@ -779,7 +965,6 @@ function initWorkflowDesigner(): void {
     renderCanvasState();
     renderBoardSummary();
     renderNodeInspector();
-    renderEdgeOptions();
     renderEdgeList();
   }
 
@@ -801,12 +986,14 @@ function initWorkflowDesigner(): void {
       kind: template.kind,
       label: template.label,
       position: {
-        x: 40 + (index % 3) * 264,
-        y: 40 + Math.floor(index / 3) * 148,
+        x: 40 + (index % 3) * NODE_COLUMN_GAP,
+        y: 40 + Math.floor(index / 3) * NODE_ROW_GAP,
       },
     };
 
     definition.nodes.push(node);
+    quickAddSourceId = null;
+    connectionDraft = null;
     selectNode(node.id);
   }
 
@@ -935,27 +1122,9 @@ function initWorkflowDesigner(): void {
     definition.edges = definition.edges.filter(
       (edge) => edge.source !== selectedNodeId && edge.target !== selectedNodeId,
     );
+    quickAddSourceId = null;
+    connectionDraft = null;
     selectedNodeId = definition.nodes[0]?.id ?? null;
-    render();
-  }
-
-  function addEdge(): void {
-    const source = elements.edgeSource.value;
-    const target = elements.edgeTarget.value;
-    if (!source || !target || source === target) {
-      return;
-    }
-
-    const duplicate = definition.edges.some((edge) => edge.source === source && edge.target === target);
-    if (duplicate) {
-      return;
-    }
-
-    definition.edges.push({
-      id: createId('edge'),
-      source,
-      target,
-    });
     render();
   }
 
@@ -973,21 +1142,95 @@ function initWorkflowDesigner(): void {
       return;
     }
 
+    const quickAddButton = target.closest<HTMLButtonElement>('[data-quick-add-kind]');
+    if (quickAddButton) {
+      addConnectedNodeFromKind(
+        quickAddButton.dataset.quickAddSource ?? '',
+        quickAddButton.dataset.quickAddKind ?? '',
+      );
+      return;
+    }
+
+    const quickAddToggle = target.closest<HTMLButtonElement>('[data-quick-add-toggle]');
+    if (quickAddToggle) {
+      const sourceId = quickAddToggle.dataset.quickAddToggle ?? null;
+      quickAddSourceId = quickAddSourceId === sourceId ? null : sourceId;
+      connectionDraft = null;
+      render();
+      return;
+    }
+
+    const nodeActionButton = target.closest<HTMLButtonElement>('[data-node-action]');
+    if (nodeActionButton) {
+      const action = nodeActionButton.dataset.nodeAction ?? '';
+      const nodeId = nodeActionButton.dataset.nodeActionId ?? '';
+      if (action === 'run') {
+        previewRunNode(nodeId);
+      } else if (action === 'toggle-disabled') {
+        toggleNodeDisabled(nodeId);
+      } else if (action === 'delete') {
+        if (nodeId === selectedNodeId) {
+          deleteSelectedNode();
+        } else {
+          selectNode(nodeId);
+          deleteSelectedNode();
+        }
+      } else if (action === 'more') {
+        quickAddSourceId = quickAddSourceId === nodeId ? null : nodeId;
+        connectionDraft = null;
+        render();
+      }
+      return;
+    }
+
+    const outputPort = target.closest<HTMLElement>('[data-port-output]');
+    if (outputPort) {
+      beginConnection(outputPort.dataset.portOutput ?? '', event as MouseEvent);
+      return;
+    }
+
+    const inputPort = target.closest<HTMLElement>('[data-port-input]');
+    if (inputPort) {
+      completeConnection(inputPort.dataset.portInput ?? '');
+      return;
+    }
+
     const nodeElement = target.closest<HTMLElement>('[data-node-id]');
     if (nodeElement) {
-      selectNode(nodeElement.dataset.nodeId ?? null);
+      const nodeId = nodeElement.dataset.nodeId ?? null;
+      if (connectionDraft && nodeId && connectionDraft.sourceId !== nodeId) {
+        completeConnection(nodeId);
+      } else {
+        quickAddSourceId = null;
+        selectNode(nodeId);
+      }
       return;
     }
 
     const removeEdgeButton = target.closest<HTMLButtonElement>('[data-remove-edge]');
     if (removeEdgeButton) {
       removeEdge(removeEdgeButton.dataset.removeEdge ?? '');
+      return;
+    }
+
+    if (!target.closest('[data-node-palette]')) {
+      quickAddSourceId = null;
+      connectionDraft = null;
+      render();
     }
   });
 
   elements.canvas.addEventListener('pointerdown', (event) => {
     const nodeElement = (event.target as HTMLElement).closest<HTMLElement>('[data-node-id]');
     if (!nodeElement) {
+      return;
+    }
+
+    if (
+      (event.target as HTMLElement).closest(
+        '[data-port-input], [data-port-output], [data-node-action], [data-quick-add-toggle], [data-quick-add-menu]',
+      )
+    ) {
       return;
     }
 
@@ -1013,6 +1256,11 @@ function initWorkflowDesigner(): void {
 
   window.addEventListener('pointermove', (event) => {
     if (!dragState) {
+      if (connectionDraft) {
+        connectionDraft.pointerX = event.clientX;
+        connectionDraft.pointerY = event.clientY;
+        renderEdges();
+      }
       return;
     }
 
@@ -1073,7 +1321,6 @@ function initWorkflowDesigner(): void {
     updateSelectedNodeConfig(elements.nodeConfig.value);
   });
   elements.deleteNodeButton.addEventListener('click', deleteSelectedNode);
-  elements.addEdgeButton.addEventListener('click', addEdge);
   root.addEventListener('submit', syncDefinition);
 
   render();

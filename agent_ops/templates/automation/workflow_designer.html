@@ -80,67 +80,13 @@
       </div>
     {% endif %}
 
-    <div class="workflow-designer-layout">
-      <section class="card workflow-designer-main">
-        <div class="card-header workflow-card-header">
-          <div>
-            <div class="workflow-panel-eyebrow">Visual editor</div>
-            <h3 class="card-title mb-0">Workflow canvas</h3>
-            <div class="text-secondary mt-1">
-              Add nodes to the canvas, connect them, and configure each node in the inspector.
-            </div>
-          </div>
-          <div class="workflow-board-summary">
-            <div class="workflow-board-tip">
-              <i class="mdi mdi-cursor-move"></i>
-              <span class="ms-1">Drag nodes to lay out the workflow.</span>
-            </div>
-            <div class="workflow-board-stats">
-              <div class="workflow-board-stat">
-                <span class="workflow-board-stat-label">Nodes</span>
-                <strong data-node-count>0</strong>
-              </div>
-              <div class="workflow-board-stat">
-                <span class="workflow-board-stat-label">Connections</span>
-                <strong data-edge-count>0</strong>
-              </div>
-              <div class="workflow-board-stat workflow-board-stat-wide">
-                <span class="workflow-board-stat-label">Selected</span>
-                <strong data-selected-node-summary>None</strong>
-              </div>
-            </div>
-          </div>
+    <section class="workflow-editor-shell">
+      <aside class="workflow-editor-panel workflow-editor-panel--palette">
+        <div class="workflow-editor-panel-head">
+          <div class="workflow-panel-eyebrow">Builder blocks</div>
+          <h3 class="workflow-editor-panel-title">Add node</h3>
         </div>
-        <div class="card-body">
-          <div class="workflow-board" data-workflow-board>
-            <div class="workflow-surface" data-workflow-surface>
-              <svg class="workflow-edges" data-workflow-edges aria-hidden="true"></svg>
-              <div class="workflow-canvas-empty" data-canvas-empty>
-                <div class="workflow-canvas-empty-card">
-                  <span class="workflow-canvas-empty-icon">
-                    <i class="mdi mdi-vector-polyline-plus"></i>
-                  </span>
-                  <div class="workflow-canvas-empty-title">Start with a trigger node</div>
-                  <div class="workflow-canvas-empty-copy">
-                    Use the node palette to add an entry point, then connect logic and response nodes to shape the run.
-                  </div>
-                </div>
-              </div>
-              <div class="workflow-canvas" data-workflow-canvas></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <aside class="stack-sm">
-        <section class="card">
-          <div class="card-header workflow-card-header">
-            <div>
-              <div class="workflow-panel-eyebrow">Builder blocks</div>
-              <h3 class="card-title mb-0">Add node</h3>
-            </div>
-          </div>
-          <div class="card-body stack-sm" data-node-palette>
+        <div class="workflow-editor-panel-body stack-sm" data-node-palette>
             <div class="workflow-panel-copy">
               Choose the next block and place it on the canvas.
             </div>
@@ -232,17 +178,66 @@
                 {% endfor %}
               </div>
             </div>
-          </div>
-        </section>
+        </div>
+      </aside>
 
-        <section class="card">
-          <div class="card-header workflow-card-header">
-            <div>
-              <div class="workflow-panel-eyebrow">Inspector</div>
-              <h3 class="card-title mb-0">Selected node</h3>
+      <section class="workflow-editor-main">
+        <div class="workflow-editor-main-head">
+          <div>
+            <div class="workflow-panel-eyebrow">Visual editor</div>
+            <h3 class="workflow-editor-main-title">Workflow canvas</h3>
+            <div class="workflow-panel-copy mt-1">
+              Add nodes to the canvas, connect them directly from node handles, and configure each step in the inspector.
             </div>
           </div>
-          <div class="card-body">
+          <div class="workflow-board-summary workflow-board-summary--compact">
+            <div class="workflow-board-tip">
+              <i class="mdi mdi-cursor-move"></i>
+              <span class="ms-1">Drag to arrange. Use the plus handle to add the next step.</span>
+            </div>
+            <div class="workflow-board-stats workflow-board-stats--compact">
+              <span class="workflow-board-stat workflow-board-stat--inline">
+                <span class="workflow-board-stat-label">Nodes</span>
+                <strong data-node-count>0</strong>
+              </span>
+              <span class="workflow-board-stat workflow-board-stat--inline">
+                <span class="workflow-board-stat-label">Connections</span>
+                <strong data-edge-count>0</strong>
+              </span>
+              <span class="workflow-board-stat workflow-board-stat--inline workflow-board-stat--selected">
+                <span class="workflow-board-stat-label">Selected</span>
+                <strong data-selected-node-summary>None</strong>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="workflow-editor-main-body">
+          <div class="workflow-board" data-workflow-board>
+            <div class="workflow-surface" data-workflow-surface>
+              <svg class="workflow-edges" data-workflow-edges aria-hidden="true"></svg>
+              <div class="workflow-canvas-empty" data-canvas-empty>
+                <div class="workflow-canvas-empty-card">
+                  <span class="workflow-canvas-empty-icon">
+                    <i class="mdi mdi-vector-polyline-plus"></i>
+                  </span>
+                  <div class="workflow-canvas-empty-title">Start with a trigger node</div>
+                  <div class="workflow-canvas-empty-copy">
+                    Use the node palette to add an entry point, then connect logic and response nodes to shape the run.
+                  </div>
+                </div>
+              </div>
+              <div class="workflow-canvas" data-workflow-canvas></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="workflow-editor-panel workflow-editor-panel--inspector">
+        <div class="workflow-editor-panel-head">
+          <div class="workflow-panel-eyebrow">Inspector</div>
+          <h3 class="workflow-editor-panel-title">Selected node</h3>
+        </div>
+        <div class="workflow-editor-panel-body">
             <div class="workflow-empty-copy" data-node-empty>
               Select a node on the canvas to configure its fields and runtime settings.
             </div>
@@ -289,59 +284,23 @@
                 <span class="ms-1">Delete node</span>
               </button>
             </div>
-          </div>
-        </section>
-
-        <section class="card">
-          <div class="card-header workflow-card-header">
-            <div>
-              <div class="workflow-panel-eyebrow">Execution graph</div>
-              <h3 class="card-title mb-0">Connections</h3>
-            </div>
-            <div class="workflow-connection-pill" data-edge-count-label>0 links</div>
-          </div>
-          <div class="card-body">
-            <div class="workflow-panel-copy mb-3">
-              Connect nodes to define how the workflow advances from one step to the next.
-            </div>
-            <div class="mb-3">
-              <label class="form-label" for="workflow-edge-source">Source</label>
-              <select id="workflow-edge-source" class="form-select" data-edge-source>
-                {% if workflow_nodes %}
-                  {% for node in workflow_nodes %}
-                    <option value="{{ node.id }}">{{ node.label|default:node.kind }}</option>
-                  {% endfor %}
-                {% else %}
-                  <option value="" selected>Add nodes first</option>
-                {% endif %}
-              </select>
-            </div>
-            <div class="mb-3">
-              <label class="form-label" for="workflow-edge-target">Target</label>
-              <select id="workflow-edge-target" class="form-select" data-edge-target>
-                {% if workflow_nodes %}
-                  {% for node in workflow_nodes %}
-                    <option value="{{ node.id }}">{{ node.label|default:node.kind }}</option>
-                  {% endfor %}
-                {% else %}
-                  <option value="" selected>Add nodes first</option>
-                {% endif %}
-              </select>
-            </div>
-            <button type="button" class="btn btn-outline-primary mb-3" data-add-edge>
-              <i class="mdi mdi-plus"></i>
-              <span class="ms-1">Add connection</span>
-            </button>
-            <div class="text-secondary small mb-3">
-              Add at least two nodes before creating a connection.
-            </div>
-
-            <div class="workflow-empty-copy" data-edge-empty>No edges configured yet.</div>
-            <div class="workflow-edge-list" data-edge-list></div>
-          </div>
-        </section>
+        </div>
       </aside>
-    </div>
+    </section>
+
+    <details class="workflow-designer-links-drawer mt-3">
+      <summary>
+        <span>Workflow links</span>
+        <span class="workflow-connection-pill" data-edge-count-label>0 links</span>
+      </summary>
+      <div class="workflow-designer-links-drawer-body mt-3">
+        <div class="workflow-panel-copy mb-3">
+          Links are managed directly on the canvas. Expand this list only when you need a quick audit of the graph.
+        </div>
+        <div class="workflow-empty-copy" data-edge-empty>No edges configured yet.</div>
+        <div class="workflow-edge-list" data-edge-list></div>
+      </div>
+    </details>
 
     <div class="object-edit-actions mt-4">
       <a href="{{ workflow_detail_url }}" class="btn btn-outline-secondary">Back</a>
