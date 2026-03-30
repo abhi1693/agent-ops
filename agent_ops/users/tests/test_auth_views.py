@@ -216,6 +216,8 @@ class AuthViewTests(TestCase):
             integration_entries,
             [
                 ("Secrets", "mdi mdi-key-chain-variant", reverse("secret_add")),
+                ("Secret Groups", "mdi mdi-folder-key-network", reverse("secretgroup_add")),
+                ("Assignments", "mdi mdi-key-link", reverse("secretgroupassignment_add")),
             ],
         )
         menu_labels = [

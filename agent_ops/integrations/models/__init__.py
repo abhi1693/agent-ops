@@ -1,3 +1,3 @@
-from .secrets import Secret
+from .secrets import Secret, SecretGroup, SecretGroupAssignment
 
-__all__ = ("Secret",)
+__all__ = ("Secret", "SecretGroup", "SecretGroupAssignment")

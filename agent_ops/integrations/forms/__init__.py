@@ -1,3 +1,3 @@
-from .model_forms import SecretForm
+from .model_forms import SecretForm, SecretGroupAssignmentForm, SecretGroupForm
 
-__all__ = ("SecretForm",)
+__all__ = ("SecretForm", "SecretGroupForm", "SecretGroupAssignmentForm")
