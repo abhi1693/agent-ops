@@ -1,275 +1,44 @@
-type WorkflowNodeTemplateOption = {
-  label: string;
-  value: string;
-};
-
-type WorkflowNodeTemplateField = {
-  help_text?: string;
-  key: string;
-  label: string;
-  options?: WorkflowNodeTemplateOption[];
-  placeholder?: string;
-  rows?: number;
-  type: 'text' | 'textarea' | 'select' | 'node_target';
-};
-
-type WorkflowNodeTemplate = {
-  category?: string;
-  config?: Record<string, unknown>;
-  description: string;
-  fields: WorkflowNodeTemplateField[];
-  icon?: string;
-  kind: string;
-  label: string;
-};
-
-type WorkflowTriggerDefinition = {
-  category?: string;
-  config?: Record<string, unknown>;
-  description: string;
-  fields: WorkflowNodeTemplateField[];
-  icon?: string;
-  label: string;
-  name: string;
-};
-
-type WorkflowToolDefinition = {
-  category?: string;
-  config?: Record<string, unknown>;
-  description: string;
-  fields: WorkflowNodeTemplateField[];
-  icon?: string;
-  label: string;
-  name: string;
-};
-
-type WorkflowNode = {
-  config?: Record<string, unknown>;
-  id: string;
-  kind: string;
-  label: string;
-  position: {
-    x: number;
-    y: number;
-  };
-};
-
-type WorkflowEdge = {
-  id: string;
-  source: string;
-  target: string;
-};
-
-type WorkflowDefinition = {
-  edges: WorkflowEdge[];
-  nodes: WorkflowNode[];
-  viewport?: {
-    x?: number;
-    y?: number;
-    zoom?: number;
-  };
-};
-
-type DesignerElements = {
-  advancedPanel: HTMLDetailsElement;
-  board: HTMLElement;
-  canvas: HTMLElement;
-  canvasEmpty: HTMLElement;
-  definitionInput: HTMLInputElement | HTMLTextAreaElement;
-  deleteNodeButton: HTMLButtonElement;
-  edgeCount: HTMLElement;
-  edgeCountLabel: HTMLElement;
-  edgeEmpty: HTMLElement;
-  edgeList: HTMLElement;
-  edgesSvg: SVGSVGElement;
-  nodeCount: HTMLElement;
-  nodeConfig: HTMLTextAreaElement;
-  nodeEmpty: HTMLElement;
-  nodeFields: HTMLElement;
-  nodeKind: HTMLSelectElement;
-  nodeLabel: HTMLInputElement;
-  nodePalette: HTMLElement;
-  nodeTemplateFields: HTMLElement;
-  selectedNodeSummary: HTMLElement;
-  selectedTemplate: HTMLElement;
-  surface: HTMLElement;
-};
-
-const NODE_WIDTH = 232;
-const NODE_HEIGHT = 108;
-const NODE_COLUMN_GAP = 264;
-const NODE_ROW_GAP = 148;
-const SURFACE_PADDING = 96;
-const DEFAULT_SURFACE_HEIGHT = 680;
-
-function parseJsonScript<T>(scriptId: string, fallback: T): T {
-  const script = document.getElementById(scriptId);
-  if (!script || !script.textContent) {
-    return fallback;
-  }
-
-  try {
-    return JSON.parse(script.textContent) as T;
-  } catch (error) {
-    console.error(error);
-    return fallback;
-  }
-}
-
-function cloneValue<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function normalizeDefinition(value: unknown): WorkflowDefinition {
-  if (!value || typeof value !== 'object') {
-    return { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
-  }
-
-  const maybeDefinition = value as Partial<WorkflowDefinition>;
-  return {
-    nodes: Array.isArray(maybeDefinition.nodes) ? maybeDefinition.nodes : [],
-    edges: Array.isArray(maybeDefinition.edges) ? maybeDefinition.edges : [],
-    viewport: maybeDefinition.viewport ?? { x: 0, y: 0, zoom: 1 },
-  };
-}
-
-function createId(prefix: string): string {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function getNodeTitle(node: WorkflowNode): string {
-  return node.label || node.kind;
-}
-
-function formatKindLabel(kind: string): string {
-  return kind
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
-function stringifyConfigValue(value: unknown, pretty = false): string {
-  if (value === undefined || value === null) {
-    return '';
-  }
-
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  if (typeof value === 'object') {
-    try {
-      return JSON.stringify(value, null, pretty ? 2 : 0);
-    } catch (error) {
-      console.error(error);
-    }
-  }
-
-  return String(value);
-}
-
-function getConfigString(
-  config: Record<string, unknown> | undefined,
-  key: string,
-  prettyJson = false,
-): string {
-  const value = config?.[key];
-  return stringifyConfigValue(value, prettyJson);
-}
-
-function getTriggerType(config: Record<string, unknown> | undefined): string {
-  const triggerType = getConfigString(config, 'type');
-  if (triggerType) {
-    return triggerType;
-  }
-  return 'manual';
-}
-
-function getToolName(config: Record<string, unknown> | undefined): string {
-  const toolName = getConfigString(config, 'tool_name');
-  if (toolName) {
-    return toolName;
-  }
-
-  const legacyOperation = getConfigString(config, 'operation');
-  if (legacyOperation) {
-    return legacyOperation;
-  }
-
-  return 'passthrough';
-}
-
-function formatCount(value: number, singular: string, plural = `${singular}s`): string {
-  return `${value} ${value === 1 ? singular : plural}`;
-}
-
-function isNodeDisabled(node: WorkflowNode | undefined): boolean {
-  return Boolean(node?.config && node.config['disabled']);
-}
-
-function getNodeStatusLabel(node: WorkflowNode | undefined, isRunning = false): string {
-  if (!node) {
-    return 'Idle';
-  }
-  if (isRunning) {
-    return 'Running';
-  }
-  if (isNodeDisabled(node)) {
-    return 'Disabled';
-  }
-  return 'Ready';
-}
-
-function getNodeSubtitle(
-  node: WorkflowNode,
-  triggerDefinitionMap: Map<string, WorkflowTriggerDefinition>,
-  toolDefinitionMap: Map<string, WorkflowToolDefinition>,
-): string {
-  if (node.kind === 'trigger') {
-    return triggerDefinitionMap.get(getTriggerType(node.config))?.label ?? 'Workflow entry point';
-  }
-
-  if (node.kind === 'tool') {
-    return toolDefinitionMap.get(getToolName(node.config))?.label ?? 'Runs a workflow tool';
-  }
-
-  if (node.kind === 'condition') {
-    const path = getConfigString(node.config, 'path');
-    const operator = getConfigString(node.config, 'operator');
-    if (path && operator) {
-      return `${path} • ${formatKindLabel(operator)}`;
-    }
-    if (path) {
-      return path;
-    }
-    return 'Branches workflow execution';
-  }
-
-  if (node.kind === 'response') {
-    const status = getConfigString(node.config, 'status');
-    return status ? `Marks run as ${status.replace(/_/g, ' ')}` : 'Completes the workflow';
-  }
-
-  if (node.kind === 'agent') {
-    const outputKey = getConfigString(node.config, 'output_key');
-    return outputKey ? `Writes to ${outputKey}` : 'Writes a message into workflow context';
-  }
-
-  return 'Custom workflow node';
-}
+import {
+  DEFAULT_SURFACE_HEIGHT,
+  NODE_COLUMN_GAP,
+  NODE_HEIGHT,
+  NODE_ROW_GAP,
+  NODE_WIDTH,
+  SURFACE_PADDING,
+} from './workflowDesigner/constants';
+import { getDesignerElements } from './workflowDesigner/dom';
+import {
+  renderEdgeListMarkup,
+  renderNodeMarkup,
+  renderQuickAddMenuMarkup,
+  renderSelectedTemplateMarkup,
+  renderTemplateFieldsMarkup,
+} from './workflowDesigner/markup';
+import type {
+  WorkflowDefinition,
+  WorkflowNode,
+  WorkflowNodeTemplate,
+  WorkflowNodeTemplateField,
+  WorkflowToolDefinition,
+  WorkflowTriggerDefinition,
+} from './workflowDesigner/types';
+import {
+  clamp,
+  cloneValue,
+  createId,
+  formatCount,
+  formatKindLabel,
+  getConfigString,
+  getNodeStatusLabel,
+  getNodeSubtitle,
+  getNodeTitle,
+  getTemplateFieldValue,
+  getToolName,
+  getTriggerType,
+  isNodeDisabled,
+  normalizeDefinition,
+  parseJsonScript,
+} from './workflowDesigner/utils';
 
 function initWorkflowDesigner(): void {
   const root = document.querySelector<HTMLElement>('[data-workflow-designer]');
@@ -277,88 +46,31 @@ function initWorkflowDesigner(): void {
     return;
   }
 
-  const definitionInput = root.querySelector<HTMLInputElement | HTMLTextAreaElement>('#id_definition');
-  const canvas = root.querySelector<HTMLElement>('[data-workflow-canvas]');
-  const canvasEmpty = root.querySelector<HTMLElement>('[data-canvas-empty]');
-  const surface = root.querySelector<HTMLElement>('[data-workflow-surface]');
-  const board = root.querySelector<HTMLElement>('[data-workflow-board]');
-  const edgesSvg = root.querySelector<SVGSVGElement>('[data-workflow-edges]');
-  const nodeCount = root.querySelector<HTMLElement>('[data-node-count]');
-  const edgeCount = root.querySelector<HTMLElement>('[data-edge-count]');
-  const edgeCountLabel = root.querySelector<HTMLElement>('[data-edge-count-label]');
-  const selectedNodeSummary = root.querySelector<HTMLElement>('[data-selected-node-summary]');
-  const nodePalette = root.querySelector<HTMLElement>('[data-node-palette]');
-  const nodeEmpty = root.querySelector<HTMLElement>('[data-node-empty]');
-  const nodeFields = root.querySelector<HTMLElement>('[data-node-fields]');
-  const nodeLabel = root.querySelector<HTMLInputElement>('[data-field="label"]');
-  const nodeKind = root.querySelector<HTMLSelectElement>('[data-field="kind"]');
-  const selectedTemplate = root.querySelector<HTMLElement>('[data-selected-template]');
-  const nodeTemplateFields = root.querySelector<HTMLElement>('[data-node-template-fields]');
-  const nodeConfig = root.querySelector<HTMLTextAreaElement>('[data-field="config"]');
-  const advancedPanel = root.querySelector<HTMLDetailsElement>('[data-advanced-panel]');
-  const deleteNodeButton = root.querySelector<HTMLButtonElement>('[data-delete-node]');
-  const edgeList = root.querySelector<HTMLElement>('[data-edge-list]');
-  const edgeEmpty = root.querySelector<HTMLElement>('[data-edge-empty]');
-
-  if (
-    !definitionInput ||
-    !canvas ||
-    !canvasEmpty ||
-    !surface ||
-    !board ||
-    !edgesSvg ||
-    !nodeCount ||
-    !edgeCount ||
-    !edgeCountLabel ||
-    !selectedNodeSummary ||
-    !nodePalette ||
-    !nodeEmpty ||
-    !nodeFields ||
-    !nodeLabel ||
-    !nodeKind ||
-    !selectedTemplate ||
-    !nodeTemplateFields ||
-    !nodeConfig ||
-    !advancedPanel ||
-    !deleteNodeButton ||
-    !edgeList ||
-    !edgeEmpty
-  ) {
+  const resolvedElements = getDesignerElements(root);
+  if (!resolvedElements) {
     return;
   }
+  const elements = resolvedElements;
 
-  const elements: DesignerElements = {
-    advancedPanel,
-    board,
-    canvas,
-    canvasEmpty,
-    definitionInput,
-    deleteNodeButton,
-    edgeCount,
-    edgeCountLabel,
-    edgeEmpty,
-    edgeList,
-    edgesSvg,
-    nodeCount,
-    nodeConfig,
-    nodeEmpty,
-    nodeFields,
-    nodeKind,
-    nodeLabel,
-    nodePalette,
-    nodeTemplateFields,
-    selectedNodeSummary,
-    selectedTemplate,
-    surface,
-  };
-
-  const definition = normalizeDefinition(parseJsonScript<WorkflowDefinition>('workflow-definition-data', { nodes: [], edges: [] }));
+  const definition = normalizeDefinition(
+    parseJsonScript<WorkflowDefinition>('workflow-definition-data', { nodes: [], edges: [] }),
+  );
   const nodeTemplates = parseJsonScript<WorkflowNodeTemplate[]>('workflow-node-templates-data', []);
-  const triggerDefinitions = parseJsonScript<WorkflowTriggerDefinition[]>('workflow-trigger-definitions-data', []);
-  const toolDefinitions = parseJsonScript<WorkflowToolDefinition[]>('workflow-tool-definitions-data', []);
+  const triggerDefinitions = parseJsonScript<WorkflowTriggerDefinition[]>(
+    'workflow-trigger-definitions-data',
+    [],
+  );
+  const toolDefinitions = parseJsonScript<WorkflowToolDefinition[]>(
+    'workflow-tool-definitions-data',
+    [],
+  );
   const templateMap = new Map(nodeTemplates.map((template) => [template.kind, template]));
-  const triggerDefinitionMap = new Map(triggerDefinitions.map((triggerDefinition) => [triggerDefinition.name, triggerDefinition]));
-  const toolDefinitionMap = new Map(toolDefinitions.map((toolDefinition) => [toolDefinition.name, toolDefinition]));
+  const triggerDefinitionMap = new Map(
+    triggerDefinitions.map((triggerDefinition) => [triggerDefinition.name, triggerDefinition]),
+  );
+  const toolDefinitionMap = new Map(
+    toolDefinitions.map((toolDefinition) => [toolDefinition.name, toolDefinition]),
+  );
 
   let selectedNodeId: string | null = definition.nodes[0]?.id ?? null;
   let dragState:
@@ -398,7 +110,9 @@ function initWorkflowDesigner(): void {
     return templateMap.get(node.kind);
   }
 
-  function getTriggerDefinition(node: WorkflowNode | undefined): WorkflowTriggerDefinition | undefined {
+  function getTriggerDefinition(
+    node: WorkflowNode | undefined,
+  ): WorkflowTriggerDefinition | undefined {
     if (!node || node.kind !== 'trigger') {
       return undefined;
     }
@@ -415,8 +129,14 @@ function initWorkflowDesigner(): void {
   }
 
   function updateSurfaceSize(): void {
-    const maxX = definition.nodes.reduce((value, node) => Math.max(value, node.position.x + NODE_WIDTH), 0);
-    const maxY = definition.nodes.reduce((value, node) => Math.max(value, node.position.y + NODE_HEIGHT), 0);
+    const maxX = definition.nodes.reduce(
+      (value, node) => Math.max(value, node.position.x + NODE_WIDTH),
+      0,
+    );
+    const maxY = definition.nodes.reduce(
+      (value, node) => Math.max(value, node.position.y + NODE_HEIGHT),
+      0,
+    );
     const width = Math.max(elements.board.clientWidth, maxX + SURFACE_PADDING);
     const height = Math.max(DEFAULT_SURFACE_HEIGHT, maxY + SURFACE_PADDING);
 
@@ -443,134 +163,10 @@ function initWorkflowDesigner(): void {
     elements.nodeConfig.value = JSON.stringify(selectedNode?.config ?? {}, null, 2);
   }
 
-  function getFieldValue(node: WorkflowNode, field: WorkflowNodeTemplateField): string {
-    if (node.kind === 'trigger' && field.key === 'type') {
-      return getTriggerType(node.config);
-    }
-    if (node.kind === 'tool' && field.key === 'tool_name') {
-      return getToolName(node.config);
-    }
-
-    return getConfigString(node.config, field.key, field.type === 'textarea');
-  }
-
-  function renderSelectedTemplate(node: WorkflowNode | undefined, template: WorkflowNodeTemplate | undefined): void {
-    if (!node) {
-      elements.selectedTemplate.innerHTML = '';
-      return;
-    }
-
-    const icon = template?.icon ?? 'mdi-vector-square';
-    const title = template?.label ?? formatKindLabel(node.kind);
-    const description =
-      template?.description ??
-      'Custom node. Use the advanced runtime JSON editor to configure fields that are not mapped into the inspector.';
-
-    elements.selectedTemplate.innerHTML = `
-      <div class="workflow-selected-template-card workflow-selected-template-card--compact${template ? '' : ' is-custom'}">
-        <span class="workflow-selected-template-icon">
-          <i class="mdi ${escapeHtml(icon)}"></i>
-        </span>
-        <div class="workflow-selected-template-copy">
-          <div class="workflow-selected-template-title">${escapeHtml(title)}</div>
-          <div class="workflow-selected-template-description">${escapeHtml(description)}</div>
-        </div>
-      </div>
-    `;
-  }
-
-  function renderFieldMarkup(fields: WorkflowNodeTemplateField[], node: WorkflowNode): string {
-    const nodeTargetOptions = definition.nodes
-      .filter((candidate) => candidate.id !== node.id)
-      .map(
-        (candidate) =>
-          `<option value="${escapeHtml(candidate.id)}">${escapeHtml(getNodeTitle(candidate))}</option>`,
-      )
-      .join('');
-
-    return fields
-      .map((field) => {
-        const fieldValue = getFieldValue(node, field);
-        const currentValue = escapeHtml(fieldValue);
-        const helpText = field.help_text
-          ? `<div class="form-hint">${escapeHtml(field.help_text)}</div>`
-          : '';
-
-        if (field.type === 'textarea') {
-          return `
-            <div>
-              <label class="form-label" for="workflow-config-${escapeHtml(field.key)}">${escapeHtml(field.label)}</label>
-              <textarea
-                id="workflow-config-${escapeHtml(field.key)}"
-                class="form-control"
-                rows="${field.rows ?? 4}"
-                placeholder="${escapeHtml(field.placeholder ?? '')}"
-                data-config-field="${escapeHtml(field.key)}"
-              >${currentValue}</textarea>
-              ${helpText}
-            </div>
-          `;
-        }
-
-        if (field.type === 'select') {
-          const options = (field.options ?? [])
-            .map((option) => {
-              const selected = option.value === fieldValue ? ' selected' : '';
-              return `<option value="${escapeHtml(option.value)}"${selected}>${escapeHtml(option.label)}</option>`;
-            })
-            .join('');
-
-          return `
-            <div>
-              <label class="form-label" for="workflow-config-${escapeHtml(field.key)}">${escapeHtml(field.label)}</label>
-              <select
-                id="workflow-config-${escapeHtml(field.key)}"
-                class="form-select"
-                data-config-field="${escapeHtml(field.key)}"
-              >
-                ${options}
-              </select>
-              ${helpText}
-            </div>
-          `;
-        }
-
-        if (field.type === 'node_target') {
-          return `
-            <div>
-              <label class="form-label" for="workflow-config-${escapeHtml(field.key)}">${escapeHtml(field.label)}</label>
-              <select
-                id="workflow-config-${escapeHtml(field.key)}"
-                class="form-select"
-                data-config-field="${escapeHtml(field.key)}"
-              >
-                <option value="">Choose a connected node</option>
-                ${nodeTargetOptions}
-              </select>
-              ${helpText}
-            </div>
-          `;
-        }
-
-        return `
-          <div>
-            <label class="form-label" for="workflow-config-${escapeHtml(field.key)}">${escapeHtml(field.label)}</label>
-            <input
-              id="workflow-config-${escapeHtml(field.key)}"
-              class="form-control"
-              type="text"
-              value="${currentValue}"
-              placeholder="${escapeHtml(field.placeholder ?? '')}"
-              data-config-field="${escapeHtml(field.key)}"
-            >
-            ${helpText}
-          </div>
-        `;
-      })
-      .join('');
-  }
-
-  function syncRenderedFieldValues(fields: WorkflowNodeTemplateField[], node: WorkflowNode): void {
+  function syncRenderedFieldValues(
+    fields: WorkflowNodeTemplateField[],
+    node: WorkflowNode,
+  ): void {
     fields.forEach((field) => {
       if (field.type !== 'node_target') {
         return;
@@ -580,12 +176,15 @@ function initWorkflowDesigner(): void {
         `[data-config-field="${field.key}"]`,
       );
       if (targetSelect) {
-        targetSelect.value = getFieldValue(node, field);
+        targetSelect.value = getTemplateFieldValue(node, field);
       }
     });
   }
 
-  function renderTemplateFields(node: WorkflowNode | undefined, template: WorkflowNodeTemplate | undefined): void {
+  function renderTemplateFields(
+    node: WorkflowNode | undefined,
+    template: WorkflowNodeTemplate | undefined,
+  ): void {
     if (!node || !template) {
       elements.nodeTemplateFields.innerHTML = '';
       return;
@@ -593,36 +192,19 @@ function initWorkflowDesigner(): void {
 
     const toolDefinition = getToolDefinition(node);
     const triggerDefinition = getTriggerDefinition(node);
-    const specializedDefinition = node.kind === 'tool' ? toolDefinition : node.kind === 'trigger' ? triggerDefinition : undefined;
-    const specializedSection = (node.kind === 'tool' || node.kind === 'trigger')
-      ? specializedDefinition
-        ? `
-          <div class="workflow-selected-template-card workflow-tool-definition-card mt-3">
-            <span class="workflow-selected-template-icon">
-              <i class="mdi ${escapeHtml(specializedDefinition.icon ?? 'mdi-tools')}"></i>
-            </span>
-            <div class="workflow-selected-template-copy">
-              <div class="workflow-selected-template-title">${escapeHtml(specializedDefinition.label)}</div>
-              <div class="workflow-selected-template-description">${escapeHtml(specializedDefinition.description)}</div>
-            </div>
-          </div>
-          <div class="stack-sm mt-3">
-            ${renderFieldMarkup(specializedDefinition.fields, node)}
-          </div>
-        `
-        : `
-          <div class="workflow-empty-copy mt-3">
-            Choose a ${node.kind === 'tool' ? 'tool' : 'trigger'} definition to configure its fields.
-          </div>
-        `
-      : '';
+    const specializedDefinition =
+      node.kind === 'tool'
+        ? toolDefinition
+        : node.kind === 'trigger'
+          ? triggerDefinition
+          : undefined;
 
-    elements.nodeTemplateFields.innerHTML = `
-      <div class="stack-sm">
-        ${renderFieldMarkup(template.fields, node)}
-      </div>
-      ${specializedSection}
-    `;
+    elements.nodeTemplateFields.innerHTML = renderTemplateFieldsMarkup({
+      node,
+      nodes: definition.nodes,
+      specializedDefinition,
+      template,
+    });
 
     syncRenderedFieldValues(template.fields, node);
     if (specializedDefinition) {
@@ -649,7 +231,7 @@ function initWorkflowDesigner(): void {
 
     elements.nodeLabel.value = selectedNode.label;
     elements.nodeKind.value = selectedNode.kind;
-    renderSelectedTemplate(selectedNode, template);
+    elements.selectedTemplate.innerHTML = renderSelectedTemplateMarkup(selectedNode, template);
     renderTemplateFields(selectedNode, template);
     elements.advancedPanel.open = !template;
     syncAdvancedConfigEditor();
@@ -660,39 +242,6 @@ function initWorkflowDesigner(): void {
       .filter((template) => !(template.kind === 'trigger' && definition.nodes.length > 0))
       .filter((template) => !(template.kind === getNode(sourceId)?.kind && template.kind === 'trigger'))
       .slice(0, 5);
-  }
-
-  function renderQuickAddMenu(sourceId: string): string {
-    const items = getQuickAddTemplates(sourceId)
-      .map(
-        (template) => `
-          <button
-            type="button"
-            class="workflow-node-quick-add-item"
-            data-quick-add-kind="${escapeHtml(template.kind)}"
-            data-quick-add-source="${escapeHtml(sourceId)}"
-          >
-            <span class="workflow-node-quick-add-item-icon">
-              <i class="mdi ${escapeHtml(template.icon ?? 'mdi-vector-square')}"></i>
-            </span>
-            <span class="workflow-node-quick-add-item-copy">
-              <span class="workflow-node-quick-add-item-title">${escapeHtml(template.label)}</span>
-              <span class="workflow-node-quick-add-item-description">${escapeHtml(template.description)}</span>
-            </span>
-          </button>
-        `,
-      )
-      .join('');
-
-    return `
-      <div class="workflow-node-quick-add-menu" data-quick-add-menu="${escapeHtml(sourceId)}">
-        <div class="workflow-node-quick-add-header">
-          <i class="mdi mdi-magnify"></i>
-          <span>Add next step</span>
-        </div>
-        <div class="workflow-node-quick-add-list">${items}</div>
-      </div>
-    `;
   }
 
   function addEdgeBetween(source: string, target: string): boolean {
@@ -792,35 +341,10 @@ function initWorkflowDesigner(): void {
 
   function renderEdgeList(): void {
     elements.edgeEmpty.classList.toggle('d-none', definition.edges.length > 0);
-
-    elements.edgeList.innerHTML = definition.edges
-      .map((edge) => {
-        const source = getNode(edge.source);
-        const target = getNode(edge.target);
-        const sourceLabel = source ? getNodeTitle(source) : edge.source;
-        const targetLabel = target ? getNodeTitle(target) : edge.target;
-        return `
-          <div class="workflow-edge-item">
-            <div class="workflow-edge-copy">
-              <span class="workflow-edge-terminal">
-                <span class="workflow-edge-terminal-label">Source</span>
-                <strong class="workflow-edge-terminal-value">${escapeHtml(sourceLabel)}</strong>
-              </span>
-              <span class="workflow-edge-arrow" aria-hidden="true">
-                <i class="mdi mdi-arrow-right"></i>
-              </span>
-              <span class="workflow-edge-terminal">
-                <span class="workflow-edge-terminal-label">Target</span>
-                <strong class="workflow-edge-terminal-value">${escapeHtml(targetLabel)}</strong>
-              </span>
-            </div>
-            <button type="button" class="btn btn-outline-danger btn-sm" data-remove-edge="${escapeHtml(edge.id)}">
-              Remove
-            </button>
-          </div>
-        `;
-      })
-      .join('');
+    elements.edgeList.innerHTML = renderEdgeListMarkup({
+      edges: definition.edges,
+      getNodeById: getNode,
+    });
   }
 
   function renderNodes(): void {
@@ -831,74 +355,36 @@ function initWorkflowDesigner(): void {
       const subtitle = getNodeSubtitle(node, triggerDefinitionMap, toolDefinitionMap);
       const statusLabel = getNodeStatusLabel(node, runningNodeId === node.id);
       const isSelected = node.id === selectedNodeId;
+      const isDisabled = isNodeDisabled(node);
+      const isRunning = runningNodeId === node.id;
+      const showQuickAddMenu = quickAddSourceId === node.id;
       const nodeElement = document.createElement('article');
+
       nodeElement.className = [
         'workflow-node',
         `workflow-node--${node.kind}`,
         isSelected ? 'is-selected' : '',
-        isNodeDisabled(node) ? 'is-disabled' : '',
-        runningNodeId === node.id ? 'is-running' : '',
+        isDisabled ? 'is-disabled' : '',
+        isRunning ? 'is-running' : '',
       ]
         .filter(Boolean)
         .join(' ');
       nodeElement.dataset.nodeId = node.id;
       nodeElement.style.left = `${node.position.x}px`;
       nodeElement.style.top = `${node.position.y}px`;
-      nodeElement.innerHTML = `
-        <span class="workflow-node-port workflow-node-port--input" data-port-input="${escapeHtml(node.id)}" aria-label="Connect into ${escapeHtml(getNodeTitle(node))}"></span>
-        <span class="workflow-node-port workflow-node-port--output" data-port-output="${escapeHtml(node.id)}" aria-label="Connect from ${escapeHtml(getNodeTitle(node))}"></span>
-        ${
-          isSelected
-            ? `
-              <div class="workflow-node-toolbar" data-node-toolbar="${escapeHtml(node.id)}">
-                <button type="button" class="workflow-node-toolbar-button" data-node-action="run" data-node-action-id="${escapeHtml(node.id)}" aria-label="Run node">
-                  <i class="mdi mdi-play"></i>
-                </button>
-                <button type="button" class="workflow-node-toolbar-button" data-node-action="toggle-disabled" data-node-action-id="${escapeHtml(node.id)}" aria-label="Toggle node state">
-                  <i class="mdi ${isNodeDisabled(node) ? 'mdi-power-plug-off-outline' : 'mdi-power'}"></i>
-                </button>
-                <button type="button" class="workflow-node-toolbar-button" data-node-action="delete" data-node-action-id="${escapeHtml(node.id)}" aria-label="Delete node">
-                  <i class="mdi mdi-trash-can-outline"></i>
-                </button>
-                <button type="button" class="workflow-node-toolbar-button" data-node-action="more" data-node-action-id="${escapeHtml(node.id)}" aria-label="More options">
-                  <i class="mdi mdi-dots-horizontal"></i>
-                </button>
-              </div>
-            `
-            : ''
-        }
-        <div class="workflow-node-body" data-node-body="${escapeHtml(node.id)}">
-          <div class="workflow-node-accent" aria-hidden="true"></div>
-          <div class="workflow-node-header">
-            <span class="workflow-node-meta">
-              <span class="workflow-node-icon">
-                <i class="mdi ${escapeHtml(template?.icon ?? 'mdi-vector-square')}"></i>
-              </span>
-              <span class="workflow-node-copy">
-                <strong class="workflow-node-title">${escapeHtml(getNodeTitle(node))}</strong>
-                <span class="workflow-node-subtitle">${escapeHtml(subtitle)}</span>
-              </span>
-            </span>
-            <span class="workflow-node-status">
-              <span class="workflow-node-status-dot" aria-hidden="true"></span>
-              ${escapeHtml(statusLabel)}
-            </span>
-          </div>
-          <div class="workflow-node-footer">
-            <span class="workflow-node-kind">${escapeHtml(formatKindLabel(node.kind))}</span>
-            ${
-              isSelected
-                ? `
-                  <button type="button" class="workflow-node-add-next" data-quick-add-toggle="${escapeHtml(node.id)}" aria-label="Add next node">
-                    <i class="mdi mdi-plus"></i>
-                  </button>
-                `
-                : ''
-            }
-          </div>
-        </div>
-        ${quickAddSourceId === node.id ? renderQuickAddMenu(node.id) : ''}
-      `;
+      nodeElement.innerHTML = renderNodeMarkup({
+        isDisabled,
+        isRunning,
+        isSelected,
+        node,
+        quickAddMenuMarkup: showQuickAddMenu
+          ? renderQuickAddMenuMarkup(node.id, getQuickAddTemplates(node.id))
+          : '',
+        showQuickAddMenu,
+        statusLabel,
+        subtitle,
+        template,
+      });
       elements.canvas.appendChild(nodeElement);
     });
   }
@@ -936,7 +422,9 @@ function initWorkflowDesigner(): void {
     });
 
     if (connectionDraft) {
-      const sourceElement = elements.canvas.querySelector<HTMLElement>(`[data-node-id="${connectionDraft.sourceId}"]`);
+      const sourceElement = elements.canvas.querySelector<HTMLElement>(
+        `[data-node-id="${connectionDraft.sourceId}"]`,
+      );
       if (!sourceElement) {
         return;
       }
