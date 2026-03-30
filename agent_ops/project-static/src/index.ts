@@ -1,4 +1,5 @@
 import { initMessages } from './messages';
+import { initWorkflowDesigner } from './workflowDesigner';
 
 const LEGACY_UI_STORAGE_KEYS = ['app-ui-object-depth', 'app-ui-dmlldw==', 'app-ui-secret'] as const;
 
@@ -15,6 +16,7 @@ function purgeLegacyUiStorage(): void {
 function initUi(): void {
   purgeLegacyUiStorage();
   initMessages();
+  initWorkflowDesigner();
 }
 
 if (document.readyState === 'loading') {

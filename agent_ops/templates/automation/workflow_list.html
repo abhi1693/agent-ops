@@ -1,0 +1,13 @@
+{% extends "generic/object_list.html" %}
+
+{% block title %}Workflows{% endblock %}
+
+{% block control-buttons %}
+  {% if can_add %}
+    <a href="{% url 'workflow_add' %}" class="btn btn-primary">
+      <i class="mdi mdi-plus"></i>
+      <span class="ms-1">Add workflow</span>
+    </a>
+  {% endif %}
+{% endblock %}
+

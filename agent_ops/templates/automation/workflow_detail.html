@@ -1,0 +1,224 @@
+{% extends "generic/object.html" %}
+
+{% block control-buttons %}
+  {% if can_design %}
+    <a href="{{ workflow_designer_url }}" class="btn btn-primary">
+      <i class="mdi mdi-graph-outline"></i>
+      <span class="ms-1">Open designer</span>
+    </a>
+  {% endif %}
+  {% if can_edit %}
+    <a href="{% url 'workflow_edit' object.pk %}" class="btn btn-outline-secondary">
+      <i class="mdi mdi-pencil"></i>
+      <span class="ms-1">Edit</span>
+    </a>
+  {% endif %}
+  {% if can_delete %}
+    <a href="{% url 'workflow_delete' object.pk %}" class="btn btn-outline-danger">
+      <i class="mdi mdi-trash-can-outline"></i>
+      <span class="ms-1">Delete</span>
+    </a>
+  {% endif %}
+{% endblock %}
+
+{% block main %}
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title mb-0">Summary</h3>
+    </div>
+    <div class="card-body stack-sm">
+      <div class="object-data-grid">
+        <div class="stat-card">
+          <div class="text-secondary stat-label">Status</div>
+          <div class="stat-value fs-2">
+            {% if object.enabled %}Enabled{% else %}Disabled{% endif %}
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="text-secondary stat-label">Nodes</div>
+          <div class="stat-value">{{ object.node_count }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="text-secondary stat-label">Edges</div>
+          <div class="stat-value">{{ object.edge_count }}</div>
+        </div>
+      </div>
+
+      {% if object.description %}
+        <div>
+          <div class="text-secondary mb-1">Description</div>
+          <p class="mb-0">{{ object.description }}</p>
+        </div>
+      {% endif %}
+
+      <div>
+        <div class="text-secondary mb-1">Workflow shape</div>
+        <p class="mb-0">
+          This workflow stores its node graph directly in the database, supports built-in runtime primitives, and can be manually executed from this page.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header d-flex align-items-center justify-content-between gap-2">
+      <h3 class="card-title mb-0">Latest run</h3>
+      {% if latest_run %}
+        <span class="badge {{ latest_run.object.badge_class }}">{{ latest_run.object.get_status_display }}</span>
+      {% endif %}
+    </div>
+    <div class="card-body stack-sm">
+      {% if latest_run %}
+        <div class="object-data-grid">
+          <div class="stat-card">
+            <div class="text-secondary stat-label">Run</div>
+            <div class="stat-value">#{{ latest_run.object.pk }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="text-secondary stat-label">Trigger</div>
+            <div class="stat-value">{{ latest_run.object.trigger_mode }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="text-secondary stat-label">Steps</div>
+            <div class="stat-value">{{ latest_run.object.step_count }}</div>
+          </div>
+        </div>
+
+        {% if latest_run.object.error %}
+          <div class="alert alert-danger mb-0" role="alert">
+            {{ latest_run.object.error }}
+          </div>
+        {% endif %}
+
+        {% if latest_run.output_json %}
+          <div>
+            <div class="text-secondary mb-1">Output</div>
+            <pre class="workflow-json-preview">{{ latest_run.output_json }}</pre>
+          </div>
+        {% endif %}
+
+        {% if latest_run.steps_json %}
+          <div>
+            <div class="text-secondary mb-1">Trace</div>
+            <pre class="workflow-json-preview">{{ latest_run.steps_json }}</pre>
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="empty-state">No runs have been executed yet.</div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title mb-0">Nodes</h3>
+    </div>
+    <div class="card-body">
+      {% if workflow_nodes %}
+        <dl class="object-data-list">
+          {% for node in workflow_nodes %}
+            <div>
+              <dt>{{ node.label|default:node.kind }}</dt>
+              <dd>{{ node.kind }} · {{ node.id }}</dd>
+            </div>
+          {% endfor %}
+        </dl>
+      {% else %}
+        <div class="empty-state">No nodes configured yet.</div>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}
+
+{% block side %}
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title mb-0">Manual run</h3>
+    </div>
+    <div class="card-body stack-sm">
+      {% if can_execute %}
+        <form action="" method="post" class="stack-sm">
+          {% csrf_token %}
+          <div>
+            <label class="form-label" for="{{ run_form.input_data.id_for_label }}">Input payload</label>
+            {{ run_form.input_data }}
+            {% if run_form.input_data.help_text %}
+              <div class="form-hint">{{ run_form.input_data.help_text }}</div>
+            {% endif %}
+            {% for error in run_form.input_data.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+          </div>
+          {% for error in run_form.non_field_errors %}
+            <div class="alert alert-danger mb-0" role="alert">{{ error }}</div>
+          {% endfor %}
+          <button type="submit" class="btn btn-primary">
+            <i class="mdi mdi-play-circle-outline"></i>
+            <span class="ms-1">Run workflow</span>
+          </button>
+        </form>
+      {% else %}
+        <div class="empty-state">You do not have permission to execute this workflow.</div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title mb-0">Scope</h3>
+    </div>
+    <div class="card-body">
+      <dl class="object-data-list">
+        <div>
+          <dt>Organization</dt>
+          <dd>{{ object.organization|default:"-" }}</dd>
+        </div>
+        <div>
+          <dt>Workspace</dt>
+          <dd>{{ object.workspace|default:"-" }}</dd>
+        </div>
+        <div>
+          <dt>Environment</dt>
+          <dd>{{ object.environment|default:"-" }}</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title mb-0">Connections</h3>
+    </div>
+    <div class="card-body">
+      {% if workflow_edges %}
+        <ol class="object-list">
+          {% for edge in workflow_edges %}
+            <li>{{ edge.source }} → {{ edge.target }}</li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <div class="empty-state">No edges configured yet.</div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title mb-0">Recent runs</h3>
+    </div>
+    <div class="card-body">
+      {% if recent_runs %}
+        <ol class="object-list">
+          {% for run in recent_runs %}
+            <li class="d-flex align-items-center justify-content-between gap-2">
+              <span>#{{ run.object.pk }} · {{ run.object.trigger_mode }}</span>
+              <span class="badge {{ run.object.badge_class }}">{{ run.object.get_status_display }}</span>
+            </li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <div class="empty-state">No runs recorded yet.</div>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}
