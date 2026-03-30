@@ -157,12 +157,33 @@ function formatKindLabel(kind: string): string {
     .join(' ');
 }
 
-function getConfigString(config: Record<string, unknown> | undefined, key: string): string {
-  const value = config?.[key];
+function stringifyConfigValue(value: unknown, pretty = false): string {
   if (value === undefined || value === null) {
     return '';
   }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, pretty ? 2 : 0);
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
   return String(value);
+}
+
+function getConfigString(
+  config: Record<string, unknown> | undefined,
+  key: string,
+  prettyJson = false,
+): string {
+  const value = config?.[key];
+  return stringifyConfigValue(value, prettyJson);
 }
 
 function getTriggerType(config: Record<string, unknown> | undefined): string {
@@ -330,15 +351,15 @@ function initWorkflowDesigner(): void {
     elements.nodeConfig.value = JSON.stringify(selectedNode?.config ?? {}, null, 2);
   }
 
-  function getFieldValue(node: WorkflowNode, fieldKey: string): string {
-    if (node.kind === 'trigger' && fieldKey === 'type') {
+  function getFieldValue(node: WorkflowNode, field: WorkflowNodeTemplateField): string {
+    if (node.kind === 'trigger' && field.key === 'type') {
       return getTriggerType(node.config);
     }
-    if (node.kind === 'tool' && fieldKey === 'tool_name') {
+    if (node.kind === 'tool' && field.key === 'tool_name') {
       return getToolName(node.config);
     }
 
-    return getConfigString(node.config, fieldKey);
+    return getConfigString(node.config, field.key, field.type === 'textarea');
   }
 
   function renderSelectedTemplate(node: WorkflowNode | undefined, template: WorkflowNodeTemplate | undefined): void {
@@ -377,7 +398,8 @@ function initWorkflowDesigner(): void {
 
     return fields
       .map((field) => {
-        const currentValue = escapeHtml(getFieldValue(node, field.key));
+        const fieldValue = getFieldValue(node, field);
+        const currentValue = escapeHtml(fieldValue);
         const helpText = field.help_text
           ? `<div class="form-hint">${escapeHtml(field.help_text)}</div>`
           : '';
@@ -401,7 +423,7 @@ function initWorkflowDesigner(): void {
         if (field.type === 'select') {
           const options = (field.options ?? [])
             .map((option) => {
-              const selected = option.value === getFieldValue(node, field.key) ? ' selected' : '';
+              const selected = option.value === fieldValue ? ' selected' : '';
               return `<option value="${escapeHtml(option.value)}"${selected}>${escapeHtml(option.label)}</option>`;
             })
             .join('');
@@ -466,7 +488,7 @@ function initWorkflowDesigner(): void {
         `[data-config-field="${field.key}"]`,
       );
       if (targetSelect) {
-        targetSelect.value = getFieldValue(node, field.key);
+        targetSelect.value = getFieldValue(node, field);
       }
     });
   }
@@ -686,8 +708,15 @@ function initWorkflowDesigner(): void {
 
     const previousKind = selectedNode.kind;
     const previousTemplate = getNodeTemplate(selectedNode);
+    const authSecretGroupId = getConfigString(selectedNode.config, 'auth_secret_group_id');
     selectedNode.kind = nextTemplate.kind;
     selectedNode.config = cloneValue(nextTemplate.config ?? {});
+    if (authSecretGroupId && (nextTemplate.kind === 'tool' || nextTemplate.kind === 'trigger')) {
+      selectedNode.config = {
+        ...(selectedNode.config ?? {}),
+        auth_secret_group_id: authSecretGroupId,
+      };
+    }
     if (
       !selectedNode.label ||
       selectedNode.label === previousTemplate?.label ||
@@ -748,7 +777,9 @@ function initWorkflowDesigner(): void {
 
     if (selectedNode.kind === 'trigger' && fieldKey === 'type') {
       const triggerDefinition = triggerDefinitionMap.get(value);
+      const authSecretGroupId = getConfigString(selectedNode.config, 'auth_secret_group_id');
       selectedNode.config = {
+        ...(authSecretGroupId ? { auth_secret_group_id: authSecretGroupId } : {}),
         ...(triggerDefinition?.config ?? {}),
         type: value || 'manual',
       };
@@ -758,7 +789,9 @@ function initWorkflowDesigner(): void {
 
     if (selectedNode.kind === 'tool' && fieldKey === 'tool_name') {
       const toolDefinition = toolDefinitionMap.get(value);
+      const authSecretGroupId = getConfigString(selectedNode.config, 'auth_secret_group_id');
       selectedNode.config = {
+        ...(authSecretGroupId ? { auth_secret_group_id: authSecretGroupId } : {}),
         ...(toolDefinition?.config ?? {}),
         tool_name: value || 'passthrough',
       };

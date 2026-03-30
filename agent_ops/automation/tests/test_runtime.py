@@ -1,4 +1,5 @@
 import os
+import subprocess
 from json import loads
 from unittest.mock import patch
 
@@ -6,19 +7,22 @@ from django.test import TestCase
 
 from automation.models import Workflow
 from automation.runtime import execute_workflow
-from integrations.models import Secret
+from integrations.models import Secret, SecretGroup, SecretGroupAssignment
 from tenancy.models import Environment, Organization, Workspace
 
 
 class _FakeJsonResponse:
-    def __init__(self, payload, *, status=200, content_type="application/json"):
+    def __init__(self, payload, *, status=200, content_type="application/json", headers=None, raw_body=None):
         self._payload = payload
         self._status = status
-        self.headers = {"Content-Type": content_type}
+        self._raw_body = raw_body
+        self.headers = {"Content-Type": content_type, **(headers or {})}
 
     def read(self):
         import json
 
+        if self._raw_body is not None:
+            return self._raw_body
         return json.dumps(self._payload).encode("utf-8")
 
     def getcode(self):
@@ -208,10 +212,10 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.output_data["response"], "Resolved [redacted secret]")
         self.assertEqual(run.step_results[1]["result"]["tool_name"], "secret")
 
-    def test_execute_workflow_fetches_pagerduty_incidents(self):
+    def test_execute_workflow_resolves_tool_auth_from_node_secret_group(self):
         workflow = Workflow.objects.create(
             environment=self.environment,
-            name="PagerDuty workflow",
+            name="Grouped Prometheus runtime",
             definition={
                 "nodes": [
                     {
@@ -223,14 +227,14 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "tool-1",
                         "kind": "tool",
-                        "label": "PagerDuty incidents",
+                        "label": "Prometheus query",
                         "config": {
-                            "tool_name": "pagerduty_list_incidents",
-                            "api_key_name": "PAGERDUTY_API_KEY",
-                            "api_key_provider": "environment-variable",
-                            "incident_key": "{{ trigger.payload.incident_key }}",
-                            "output_key": "pagerduty.incidents",
-                            "limit": 10,
+                            "tool_name": "prometheus_query",
+                            "auth_secret_group_id": "",
+                            "base_url": "https://prometheus.example.com",
+                            "bearer_token_name": "api_token",
+                            "query": "up{job='{{ trigger.payload.job }}'}",
+                            "output_key": "prometheus.query",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -239,7 +243,7 @@ class WorkflowRuntimeTests(TestCase):
                         "kind": "response",
                         "label": "Done",
                         "config": {
-                            "value_path": "pagerduty.incidents",
+                            "value_path": "prometheus.query",
                         },
                         "position": {"x": 608, "y": 40},
                     },
@@ -250,172 +254,30 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        Secret.objects.create(
+        secret = Secret.objects.create(
             environment=self.environment,
             provider="environment-variable",
-            name="PAGERDUTY_API_KEY",
-            parameters={"variable": "PAGERDUTY_API_KEY"},
+            name="PROMETHEUS_API_TOKEN",
+            parameters={"variable": "PROMETHEUS_API_TOKEN"},
         )
+        secret_group = SecretGroup.objects.create(
+            environment=self.environment,
+            name="Prometheus auth",
+        )
+        SecretGroupAssignment.objects.create(
+            secret_group=secret_group,
+            secret=secret,
+            key="api_token",
+            order=10,
+        )
+        workflow.definition["nodes"][1]["config"]["auth_secret_group_id"] = str(secret_group.pk)
+        workflow.save(update_fields=("definition",))
 
         def fake_urlopen(request, timeout=20):
             self.assertEqual(timeout, 20)
-            self.assertIn("/incidents?", request.full_url)
-            self.assertIn("incident_key=INC-42", request.full_url)
-            self.assertIn("limit=10", request.full_url)
-            self.assertIn("statuses%5B%5D=triggered", request.full_url)
-            self.assertEqual(request.headers["Authorization"], "Token token=pd-secret")
-            return _FakeJsonResponse(
-                {
-                    "incidents": [
-                        {"id": "PD1", "title": "API down"},
-                        {"id": "PD2", "title": "Queue backed up"},
-                    ]
-                }
-            )
-
-        with patch.dict(os.environ, {"PAGERDUTY_API_KEY": "pd-secret"}, clear=False):
-            with patch("automation.tools.urlopen", side_effect=fake_urlopen):
-                run = execute_workflow(workflow, input_data={"incident_key": "INC-42"})
-
-        self.assertEqual(run.status, "succeeded")
-        self.assertEqual(run.output_data["response"]["count"], 2)
-        self.assertEqual(run.context_data["pagerduty"]["incidents"]["incidents"][0]["id"], "PD1")
-
-    def test_execute_workflow_searches_datadog_logs(self):
-        workflow = Workflow.objects.create(
-            environment=self.environment,
-            name="Datadog workflow",
-            definition={
-                "nodes": [
-                    {
-                        "id": "trigger-1",
-                        "kind": "trigger",
-                        "label": "Manual",
-                        "position": {"x": 32, "y": 40},
-                    },
-                    {
-                        "id": "tool-1",
-                        "kind": "tool",
-                        "label": "Datadog logs",
-                        "config": {
-                            "tool_name": "datadog_search_logs",
-                            "api_key_name": "DATADOG_API_KEY",
-                            "api_key_provider": "environment-variable",
-                            "app_key_name": "DATADOG_APP_KEY",
-                            "app_key_provider": "environment-variable",
-                            "query": "service:api status:error {{ trigger.payload.ticket_id }}",
-                            "window_minutes": 30,
-                            "limit": 5,
-                            "output_key": "datadog.logs",
-                        },
-                        "position": {"x": 320, "y": 40},
-                    },
-                    {
-                        "id": "response-1",
-                        "kind": "response",
-                        "label": "Done",
-                        "config": {
-                            "value_path": "datadog.logs",
-                        },
-                        "position": {"x": 608, "y": 40},
-                    },
-                ],
-                "edges": [
-                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
-                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
-                ],
-            },
-        )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="DATADOG_API_KEY",
-            parameters={"variable": "DATADOG_API_KEY"},
-        )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="DATADOG_APP_KEY",
-            parameters={"variable": "DATADOG_APP_KEY"},
-        )
-
-        def fake_urlopen(request, timeout=20):
-            self.assertEqual(request.full_url, "https://api.datadoghq.com/api/v2/logs/events/search")
-            self.assertEqual(request.headers["Dd-api-key"], "dd-api-secret")
-            self.assertEqual(request.headers["Dd-application-key"], "dd-app-secret")
-            body = loads(request.data.decode("utf-8"))
-            self.assertEqual(body["filter"]["query"], "service:api status:error T-42")
-            self.assertEqual(body["page"]["limit"], 5)
-            return _FakeJsonResponse({"data": [{"id": "log-1"}, {"id": "log-2"}]})
-
-        with patch.dict(
-            os.environ,
-            {"DATADOG_API_KEY": "dd-api-secret", "DATADOG_APP_KEY": "dd-app-secret"},
-            clear=False,
-        ):
-            with patch("automation.tools.urlopen", side_effect=fake_urlopen):
-                run = execute_workflow(workflow, input_data={"ticket_id": "T-42"})
-
-        self.assertEqual(run.status, "succeeded")
-        self.assertEqual(run.output_data["response"]["count"], 2)
-        self.assertEqual(run.context_data["datadog"]["logs"]["query"], "service:api status:error T-42")
-
-    def test_execute_workflow_queries_grafana_prometheus(self):
-        workflow = Workflow.objects.create(
-            environment=self.environment,
-            name="Grafana workflow",
-            definition={
-                "nodes": [
-                    {
-                        "id": "trigger-1",
-                        "kind": "trigger",
-                        "label": "Manual",
-                        "position": {"x": 32, "y": 40},
-                    },
-                    {
-                        "id": "tool-1",
-                        "kind": "tool",
-                        "label": "Grafana query",
-                        "config": {
-                            "tool_name": "grafana_query_prometheus",
-                            "api_key_name": "GRAFANA_API_KEY",
-                            "api_key_provider": "environment-variable",
-                            "base_url": "https://grafana.example.com",
-                            "datasource_uid": "prom-main",
-                            "query": "up{job='api'}",
-                            "time": "1711798200",
-                            "output_key": "grafana.query",
-                        },
-                        "position": {"x": 320, "y": 40},
-                    },
-                    {
-                        "id": "response-1",
-                        "kind": "response",
-                        "label": "Done",
-                        "config": {
-                            "value_path": "grafana.query",
-                        },
-                        "position": {"x": 608, "y": 40},
-                    },
-                ],
-                "edges": [
-                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
-                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
-                ],
-            },
-        )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="GRAFANA_API_KEY",
-            parameters={"variable": "GRAFANA_API_KEY"},
-        )
-
-        def fake_urlopen(request, timeout=20):
-            self.assertIn("/api/datasources/proxy/uid/prom-main/api/v1/query?", request.full_url)
+            self.assertEqual(request.headers["Authorization"], "Bearer prom-secret")
+            self.assertIn("/api/v1/query?", request.full_url)
             self.assertIn("query=up%7Bjob%3D%27api%27%7D", request.full_url)
-            self.assertIn("time=1711798200", request.full_url)
-            self.assertEqual(request.headers["Authorization"], "Bearer grafana-secret")
             return _FakeJsonResponse(
                 {
                     "status": "success",
@@ -426,13 +288,346 @@ class WorkflowRuntimeTests(TestCase):
                 }
             )
 
-        with patch.dict(os.environ, {"GRAFANA_API_KEY": "grafana-secret"}, clear=False):
-            with patch("automation.tools.urlopen", side_effect=fake_urlopen):
+        with patch.dict(os.environ, {"PROMETHEUS_API_TOKEN": "prom-secret"}, clear=False):
+            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+                run = execute_workflow(workflow, input_data={"job": "api"})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"]["status"], "success")
+        self.assertEqual(run.step_results[1]["result"]["tool_name"], "prometheus_query")
+
+    def test_execute_workflow_runs_local_kubectl_binary(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="kubectl workflow",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "label": "kubectl",
+                        "config": {
+                            "tool_name": "kubectl",
+                            "output_key": "kubectl.result",
+                            "command": "kubectl get pods -o json",
+                            "output_format": "json",
+                            "context_name": "prod-cluster",
+                            "namespace": "payments",
+                            "timeout_seconds": 15,
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "kubectl.result",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        expected_stdout = '{"items":[{"metadata":{"name":"api-0"}}]}\n'
+
+        def fake_run(argv, check, capture_output, text, timeout):
+            self.assertEqual(
+                argv,
+                [
+                    "/usr/local/bin/kubectl",
+                    "--context",
+                    "prod-cluster",
+                    "--namespace",
+                    "payments",
+                    "get",
+                    "pods",
+                    "-o",
+                    "json",
+                ],
+            )
+            self.assertFalse(check)
+            self.assertTrue(capture_output)
+            self.assertTrue(text)
+            self.assertEqual(timeout, 15)
+            return subprocess.CompletedProcess(argv, 0, stdout=expected_stdout, stderr="")
+
+        with patch("automation.tools.kubectl.shutil.which", return_value="/usr/local/bin/kubectl"):
+            with patch("automation.tools.kubectl.subprocess.run", side_effect=fake_run):
                 run = execute_workflow(workflow)
 
         self.assertEqual(run.status, "succeeded")
-        self.assertEqual(run.step_results[1]["result"]["result_count"], 1)
-        self.assertEqual(run.context_data["grafana"]["query"]["status"], "success")
+        self.assertEqual(run.output_data["response"]["output_format"], "json")
+        self.assertEqual(run.output_data["response"]["data"]["items"][0]["metadata"]["name"], "api-0")
+        self.assertEqual(run.step_results[1]["result"]["tool_name"], "kubectl")
+        self.assertEqual(run.step_results[1]["result"]["item_count"], 1)
+
+    def test_execute_workflow_calls_mcp_server_tool(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="MCP workflow",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "label": "MCP server",
+                        "config": {
+                            "tool_name": "mcp_server",
+                            "server_url": "https://mcp.example.com/mcp",
+                            "remote_tool_name": "weather_current",
+                            "arguments_json": '{"location": "{{ trigger.payload.location }}", "units": "imperial"}',
+                            "auth_token_name": "MCP_API_TOKEN",
+                            "auth_token_provider": "environment-variable",
+                            "headers_json": '{"X-Tenant": "ops"}',
+                            "output_key": "mcp.result",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "mcp.result",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
+                ],
+            },
+        )
+        Secret.objects.create(
+            environment=self.environment,
+            provider="environment-variable",
+            name="MCP_API_TOKEN",
+            parameters={"variable": "MCP_API_TOKEN"},
+        )
+
+        def fake_urlopen(request, timeout=20):
+            body = loads(request.data.decode("utf-8")) if request.data else None
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.full_url, "https://mcp.example.com/mcp")
+            self.assertEqual(request.headers["Accept"], "application/json, text/event-stream")
+
+            if request.get_method() == "POST" and body["method"] == "initialize":
+                self.assertEqual(body["params"]["protocolVersion"], "2025-11-25")
+                self.assertEqual(body["params"]["clientInfo"]["name"], "agent-ops-workflow")
+                self.assertEqual(request.headers["Authorization"], "Bearer mcp-secret")
+                self.assertEqual(request.headers["X-tenant"], "ops")
+                return _FakeJsonResponse(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "result": {
+                            "protocolVersion": "2025-11-25",
+                            "capabilities": {"tools": {}},
+                            "serverInfo": {"name": "weather-server", "version": "1.0.0"},
+                        },
+                    },
+                    headers={"MCP-Session-Id": "session-123"},
+                )
+
+            if request.get_method() == "POST" and body["method"] == "notifications/initialized":
+                self.assertEqual(request.headers["Mcp-protocol-version"], "2025-11-25")
+                self.assertEqual(request.headers["Mcp-session-id"], "session-123")
+                return _FakeJsonResponse(None, status=202, raw_body=b"")
+
+            if request.get_method() == "POST" and body["method"] == "tools/call":
+                self.assertEqual(request.headers["Mcp-protocol-version"], "2025-11-25")
+                self.assertEqual(request.headers["Mcp-session-id"], "session-123")
+                self.assertEqual(body["params"]["name"], "weather_current")
+                self.assertEqual(
+                    body["params"]["arguments"],
+                    {"location": "San Francisco", "units": "imperial"},
+                )
+                return _FakeJsonResponse(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "result": {
+                            "content": [{"type": "text", "text": "72F and sunny"}],
+                            "structuredContent": {"temperature_f": 72, "conditions": "sunny"},
+                        },
+                    }
+                )
+
+            if request.get_method() == "DELETE":
+                self.assertEqual(request.headers["Mcp-protocol-version"], "2025-11-25")
+                self.assertEqual(request.headers["Mcp-session-id"], "session-123")
+                return _FakeJsonResponse(None, status=204, raw_body=b"")
+
+            self.fail(f"Unexpected MCP request: {request.get_method()} {body}")
+
+        with patch.dict(os.environ, {"MCP_API_TOKEN": "mcp-secret"}, clear=False):
+            with patch("automation.tools.mcp_server.urlopen", side_effect=fake_urlopen):
+                run = execute_workflow(workflow, input_data={"location": "San Francisco"})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.step_results[1]["result"]["tool_name"], "mcp_server")
+        self.assertEqual(run.step_results[1]["result"]["remote_tool_name"], "weather_current")
+        self.assertEqual(run.output_data["response"]["text"], "72F and sunny")
+        self.assertEqual(run.output_data["response"]["structured_content"]["temperature_f"], 72)
+        self.assertFalse(run.output_data["response"]["is_error"])
+
+    def test_execute_workflow_calls_mcp_server_tool_from_sse_response(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="MCP SSE workflow",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "label": "MCP server",
+                        "config": {
+                            "tool_name": "mcp_server",
+                            "server_url": "https://mcp.example.com/mcp",
+                            "remote_tool_name": "health_check",
+                            "arguments_json": "{}",
+                            "output_key": "mcp.result",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "mcp.result",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        sse_payload = (
+            'data: {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info"}}\n'
+            "\n"
+            'data: {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"ok"}],'
+            '"structuredContent":{"ok":true}}}\n'
+            "\n"
+        ).encode("utf-8")
+
+        def fake_urlopen(request, timeout=20):
+            body = loads(request.data.decode("utf-8")) if request.data else None
+            self.assertEqual(timeout, 30)
+
+            if request.get_method() == "POST" and body["method"] == "initialize":
+                return _FakeJsonResponse(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "result": {
+                            "protocolVersion": "2025-11-25",
+                            "capabilities": {"tools": {}},
+                            "serverInfo": {"name": "health-server", "version": "1.0.0"},
+                        },
+                    },
+                    headers={"MCP-Session-Id": "session-sse"},
+                )
+
+            if request.get_method() == "POST" and body["method"] == "notifications/initialized":
+                return _FakeJsonResponse(None, status=202, raw_body=b"")
+
+            if request.get_method() == "POST" and body["method"] == "tools/call":
+                return _FakeJsonResponse(
+                    None,
+                    content_type="text/event-stream",
+                    raw_body=sse_payload,
+                )
+
+            if request.get_method() == "DELETE":
+                return _FakeJsonResponse(None, status=204, raw_body=b"")
+
+            self.fail(f"Unexpected MCP request: {request.get_method()} {body}")
+
+        with patch("automation.tools.mcp_server.urlopen", side_effect=fake_urlopen):
+            run = execute_workflow(workflow)
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"]["text"], "ok")
+        self.assertTrue(run.output_data["response"]["structured_content"]["ok"])
+
+    def test_execute_workflow_rejects_rendered_external_url_with_embedded_credentials(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Invalid rendered URL workflow",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "label": "Prometheus query",
+                        "config": {
+                            "tool_name": "prometheus_query",
+                            "base_url": "https://{{ trigger.payload.base_url }}",
+                            "query": "up",
+                            "output_key": "prometheus.query",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "prometheus.query",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(
+            workflow,
+            input_data={"base_url": "operator:secret@prometheus.example.com"},
+        )
+
+        self.assertEqual(run.status, "failed")
+        self.assertIn("cannot render a URL with embedded credentials", run.error)
 
     def test_execute_workflow_queries_prometheus_directly(self):
         workflow = Workflow.objects.create(
@@ -501,7 +696,7 @@ class WorkflowRuntimeTests(TestCase):
             )
 
         with patch.dict(os.environ, {"PROMETHEUS_API_TOKEN": "prom-secret"}, clear=False):
-            with patch("automation.tools.urlopen", side_effect=fake_urlopen):
+            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
                 run = execute_workflow(workflow, input_data={"job": "api"})
 
         self.assertEqual(run.status, "succeeded")
@@ -582,7 +777,7 @@ class WorkflowRuntimeTests(TestCase):
             )
 
         with patch.dict(os.environ, {"ELASTICSEARCH_API_KEY": "elastic-secret"}, clear=False):
-            with patch("automation.tools.urlopen", side_effect=fake_urlopen):
+            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
                 run = execute_workflow(workflow, input_data={"service": "payments-api"})
 
         self.assertEqual(run.status, "succeeded")
@@ -673,84 +868,10 @@ class WorkflowRuntimeTests(TestCase):
             )
 
         with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "llm-secret"}, clear=False):
-            with patch("automation.tools.urlopen", side_effect=fake_urlopen):
+            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
                 run = execute_workflow(workflow, input_data={"incident_id": "INC-77"})
 
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.step_results[1]["result"]["tool_name"], "openai_compatible_chat")
         self.assertEqual(run.output_data["response"]["text"], "{\"summary\":\"Investigate the failing deployment.\"}")
         self.assertEqual(run.context_data["llm"]["response"]["usage"]["total_tokens"], 46)
-
-    def test_execute_workflow_sends_slack_message(self):
-        workflow = Workflow.objects.create(
-            environment=self.environment,
-            name="Slack workflow",
-            definition={
-                "nodes": [
-                    {
-                        "id": "trigger-1",
-                        "kind": "trigger",
-                        "label": "Manual",
-                        "position": {"x": 32, "y": 40},
-                    },
-                    {
-                        "id": "tool-1",
-                        "kind": "tool",
-                        "label": "Slack message",
-                        "config": {
-                            "tool_name": "slack_send_message",
-                            "bot_token_name": "SLACK_BOT_TOKEN",
-                            "bot_token_provider": "environment-variable",
-                            "channel": "#ops-alerts",
-                            "text": "Incident {{ trigger.payload.incident_id }} needs attention",
-                            "thread_ts": "1711798200.100200",
-                            "output_key": "slack.delivery",
-                        },
-                        "position": {"x": 320, "y": 40},
-                    },
-                    {
-                        "id": "response-1",
-                        "kind": "response",
-                        "label": "Done",
-                        "config": {
-                            "value_path": "slack.delivery",
-                        },
-                        "position": {"x": 608, "y": 40},
-                    },
-                ],
-                "edges": [
-                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
-                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
-                ],
-            },
-        )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="SLACK_BOT_TOKEN",
-            parameters={"variable": "SLACK_BOT_TOKEN"},
-        )
-
-        def fake_urlopen(request, timeout=20):
-            self.assertEqual(request.full_url, "https://slack.com/api/chat.postMessage")
-            self.assertEqual(request.headers["Authorization"], "Bearer slack-secret")
-            body = loads(request.data.decode("utf-8"))
-            self.assertEqual(body["channel"], "#ops-alerts")
-            self.assertEqual(body["text"], "Incident INC-77 needs attention")
-            self.assertEqual(body["thread_ts"], "1711798200.100200")
-            return _FakeJsonResponse(
-                {
-                    "ok": True,
-                    "channel": "C12345",
-                    "ts": "1711798300.000100",
-                    "message": {"text": body["text"]},
-                }
-            )
-
-        with patch.dict(os.environ, {"SLACK_BOT_TOKEN": "slack-secret"}, clear=False):
-            with patch("automation.tools.urlopen", side_effect=fake_urlopen):
-                run = execute_workflow(workflow, input_data={"incident_id": "INC-77"})
-
-        self.assertEqual(run.status, "succeeded")
-        self.assertEqual(run.output_data["response"]["channel"], "C12345")
-        self.assertEqual(run.context_data["slack"]["delivery"]["ts"], "1711798300.000100")

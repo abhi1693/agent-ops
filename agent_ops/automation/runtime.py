@@ -8,6 +8,7 @@ from django.db import transaction
 from django.template import Context, Engine
 from django.utils import timezone
 
+from automation.auth import resolve_workflow_secret
 from automation.models.runs import WorkflowRun
 from automation.primitives import validate_workflow_runtime_definition
 from automation.tools import (
@@ -16,7 +17,6 @@ from automation.tools import (
     normalize_workflow_tool_config,
 )
 from automation.triggers import normalize_workflow_trigger_config
-from integrations.models import Secret
 
 
 _TEMPLATE_ENGINE = Engine(debug=False)
@@ -130,32 +130,20 @@ def _redact_value(
     return value
 
 
-def _resolve_scoped_secret(workflow, *, name: str, provider: str | None = None) -> Secret:
-    scope_candidates = []
-    if workflow.environment_id:
-        scope_candidates.append({"environment": workflow.environment})
-    if workflow.workspace_id:
-        scope_candidates.append({"workspace": workflow.workspace, "environment__isnull": True})
-    if workflow.organization_id:
-        scope_candidates.append(
-            {
-                "organization": workflow.organization,
-                "workspace__isnull": True,
-                "environment__isnull": True,
-            }
-        )
-
-    for scope_filter in scope_candidates:
-        queryset = Secret.objects.filter(enabled=True, name=name, **scope_filter).order_by("name")
-        if provider:
-            queryset = queryset.filter(provider=provider)
-        secret = queryset.first()
-        if secret is not None:
-            return secret
-
-    if provider:
-        raise ValidationError({"definition": f'No enabled secret named "{name}" with provider "{provider}" is available.'})
-    raise ValidationError({"definition": f'No enabled secret named "{name}" is available in this workflow scope.'})
+def _resolve_scoped_secret(
+    workflow,
+    *,
+    name: str,
+    provider: str | None = None,
+    secret_group_id: str | int | None = None,
+):
+    return resolve_workflow_secret(
+        workflow,
+        name=name,
+        provider=provider,
+        secret_group_id=secret_group_id,
+        error_field="definition",
+    )
 
 
 def _evaluate_condition(operator: str, left_value: Any, right_value: Any) -> bool:

@@ -9,6 +9,7 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
+from automation.auth import list_workflow_secret_group_options
 from automation import filtersets, tables
 from automation.forms import WorkflowDesignerForm, WorkflowForm, WorkflowRunForm
 from automation.models import Workflow, WorkflowRun
@@ -47,6 +48,21 @@ def _build_run_display(run: WorkflowRun):
         "context_json": _pretty_json(run.context_data),
         "steps_json": _pretty_json(run.step_results),
     }
+
+
+def _hydrate_workflow_node_templates(*, secret_group_options):
+    hydrated_templates = []
+    for template in WORKFLOW_NODE_TEMPLATES:
+        hydrated_template = dict(template)
+        hydrated_fields = []
+        for field in template.get("fields", ()):
+            hydrated_field = dict(field)
+            if hydrated_field.get("key") == "auth_secret_group_id":
+                hydrated_field["options"] = list(secret_group_options)
+            hydrated_fields.append(hydrated_field)
+        hydrated_template["fields"] = hydrated_fields
+        hydrated_templates.append(hydrated_template)
+    return hydrated_templates
 
 
 class WorkflowListView(RestrictedObjectListMixin, ObjectListView):
@@ -151,11 +167,14 @@ class WorkflowDesignerView(RestrictedObjectEditMixin, ObjectEditView):
         context = super().get_context_data(request, form)
         normalized_definition = normalize_workflow_definition_triggers(self.object.definition)
         normalized_definition = normalize_workflow_definition_tools(normalized_definition)
+        secret_group_options = list_workflow_secret_group_options(self.object)
         context.update(
             {
                 "workflow_definition": normalized_definition,
                 "workflow_nodes": normalized_definition.get("nodes", []),
-                "workflow_node_templates": WORKFLOW_NODE_TEMPLATES,
+                "workflow_node_templates": _hydrate_workflow_node_templates(
+                    secret_group_options=secret_group_options,
+                ),
                 "workflow_trigger_definitions": WORKFLOW_TRIGGER_DEFINITIONS,
                 "workflow_tool_definitions": WORKFLOW_TOOL_DEFINITIONS,
                 "workflow_list_url": reverse("workflow_list"),

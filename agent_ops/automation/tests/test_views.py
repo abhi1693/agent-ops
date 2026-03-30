@@ -9,7 +9,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from automation.models import Workflow, WorkflowRun
-from integrations.models import Secret
+from integrations.models import Secret, SecretGroup, SecretGroupAssignment
 from tenancy.models import Environment, Organization, Workspace
 from users.models import Membership, ObjectPermission, User
 
@@ -182,6 +182,20 @@ class WorkflowViewTests(TestCase):
         self.assertContains(response, '<option value="trigger-1">New task</option>', html=True)
         self.assertContains(response, '<option value="agent-1">Triage agent</option>', html=True)
         self.assertContains(response, "Add at least two nodes before creating a connection.")
+
+    def test_workflow_designer_includes_secret_group_options_for_auth_nodes(self):
+        SecretGroup.objects.create(
+            environment=self.environment,
+            name="Shared node auth",
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("workflow_designer", args=[self.workflow.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Auth secret group")
+        self.assertContains(response, "No secret group")
+        self.assertContains(response, "Shared node auth")
 
     def test_workflow_designer_updates_definition(self):
         self.client.force_login(self.staff_user)
@@ -465,6 +479,78 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(payload["output_data"]["response"], "push:acme/platform")
         run = WorkflowRun.objects.get(pk=payload["run_id"])
         self.assertEqual(run.context_data["trigger"]["meta"]["event"], "push")
+
+    def test_workflow_webhook_trigger_resolves_grouped_secret_for_signature_validation(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="GitHub webhook grouped secret",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "label": "GitHub",
+                        "config": {
+                            "type": "github_webhook",
+                            "auth_secret_group_id": "",
+                            "signature_secret_name": "webhook_secret",
+                            "events": "push",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.meta.event }}:{{ trigger.payload.repository.full_name }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+        )
+        secret = Secret.objects.create(
+            environment=self.environment,
+            provider="environment-variable",
+            name="GITHUB_WEBHOOK_SECRET",
+            parameters={"variable": "GITHUB_WEBHOOK_SECRET"},
+        )
+        secret_group = SecretGroup.objects.create(
+            environment=self.environment,
+            name="GitHub auth",
+        )
+        SecretGroupAssignment.objects.create(
+            secret_group=secret_group,
+            secret=secret,
+            key="webhook_secret",
+            order=10,
+        )
+        workflow.definition["nodes"][0]["config"]["auth_secret_group_id"] = str(secret_group.pk)
+        workflow.save(update_fields=("definition",))
+        body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
+
+        with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "github-secret"}, clear=False):
+            signature = "sha256=" + hmac.new(
+                b"github-secret",
+                body,
+                hashlib.sha256,
+            ).hexdigest()
+            response = self.client.post(
+                reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                data=body,
+                content_type="application/json",
+                HTTP_X_HUB_SIGNATURE_256=signature,
+                HTTP_X_GITHUB_EVENT="push",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "succeeded")
+        self.assertEqual(payload["output_data"]["response"], "push:acme/platform")
 
     def test_workflow_webhook_trigger_rejects_invalid_github_signature(self):
         workflow = Workflow.objects.create(

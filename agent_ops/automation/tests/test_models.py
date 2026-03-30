@@ -291,6 +291,103 @@ class WorkflowModelTests(TestCase):
 
         workflow.full_clean()
 
+    def test_workflow_rejects_mcp_tool_secret_headers_in_manual_headers_json(self):
+        workflow = Workflow(
+            environment=self.environment,
+            name="Invalid MCP headers workflow",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "label": "MCP server",
+                        "config": {
+                            "tool_name": "mcp_server",
+                            "server_url": "https://mcp.example.com/mcp",
+                            "remote_tool_name": "weather_current",
+                            "headers_json": {
+                                "Authorization": "Bearer hardcoded-secret",
+                            },
+                            "output_key": "mcp.result",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "mcp.result",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            workflow.full_clean()
+
+        self.assertIn("Secrets must come from stored Secret objects", str(context.exception))
+
+    def test_workflow_rejects_external_tool_urls_with_embedded_credentials(self):
+        workflow = Workflow(
+            environment=self.environment,
+            name="Invalid OpenAI URL workflow",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "label": "LLM chat",
+                        "config": {
+                            "tool_name": "openai_compatible_chat",
+                            "base_url": "https://user:password@llm.example.com/v1",
+                            "api_key_name": "OPENAI_API_KEY",
+                            "model": "gpt-4.1-mini",
+                            "user_prompt": "hello",
+                            "output_key": "llm.response",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "llm.response",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            workflow.full_clean()
+
+        self.assertIn("cannot include embedded credentials", str(context.exception))
+
     def test_workflow_database_constraint_prevents_duplicates_without_full_clean(self):
         Workflow.objects.create(
             organization=self.organization,

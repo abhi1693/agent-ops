@@ -55,6 +55,7 @@ WORKFLOW_NODE_TEMPLATES = (
         "icon": "mdi-play-circle-outline",
         "config": {
             "type": "manual",
+            "auth_secret_group_id": "",
         },
         "fields": (
             {
@@ -66,6 +67,13 @@ WORKFLOW_NODE_TEMPLATES = (
                     for trigger_definition in WORKFLOW_TRIGGER_DEFINITIONS
                 ),
                 "help_text": "Choose how this workflow starts. The inspector below will switch to that trigger's settings.",
+            },
+            {
+                "key": "auth_secret_group_id",
+                "label": "Auth secret group",
+                "type": "select",
+                "options": (),
+                "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name.",
             },
         ),
     },
@@ -98,6 +106,7 @@ WORKFLOW_NODE_TEMPLATES = (
         "icon": "mdi-tools",
         "config": {
             "tool_name": "passthrough",
+            "auth_secret_group_id": "",
         },
         "fields": (
             {
@@ -109,6 +118,13 @@ WORKFLOW_NODE_TEMPLATES = (
                     for tool_definition in WORKFLOW_TOOL_DEFINITIONS
                 ),
                 "help_text": "Choose a tool definition. The inspector below will switch to that tool's settings.",
+            },
+            {
+                "key": "auth_secret_group_id",
+                "label": "Auth secret group",
+                "type": "select",
+                "options": (),
+                "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name.",
             },
         ),
     },
