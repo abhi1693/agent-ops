@@ -23,6 +23,39 @@ export type WorkflowNodeTemplate = {
   label: string;
 };
 
+export type WorkflowNodeKind = 'trigger' | 'agent' | 'tool' | 'condition' | 'response';
+
+export type WorkflowNodeCategoryId =
+  | 'entry_point'
+  | 'processing'
+  | 'control_flow'
+  | 'outcome';
+
+export type WorkflowNodeCategory = {
+  description: string;
+  id: WorkflowNodeCategoryId;
+  label: string;
+};
+
+export type WorkflowNodeDefinition = {
+  category: WorkflowNodeCategoryId;
+  config?: Record<string, unknown>;
+  description: string;
+  fields: WorkflowNodeTemplateField[];
+  icon?: string;
+  kind: WorkflowNodeKind | string;
+  label: string;
+  type: string;
+  typeVersion: number;
+};
+
+export type WorkflowPaletteSection = {
+  definitions: WorkflowNodeDefinition[];
+  description: string;
+  id: WorkflowNodeCategoryId;
+  label: string;
+};
+
 export type WorkflowTriggerDefinition = {
   category?: string;
   config?: Record<string, unknown>;
@@ -43,7 +76,7 @@ export type WorkflowToolDefinition = {
   name: string;
 };
 
-export type WorkflowNode = {
+export type WorkflowPersistedNode = {
   config?: Record<string, unknown>;
   id: string;
   kind: string;
@@ -52,22 +85,40 @@ export type WorkflowNode = {
     x: number;
     y: number;
   };
+  type?: string;
+  typeVersion?: number;
 };
 
-export type WorkflowEdge = {
+export type WorkflowNode = WorkflowPersistedNode & {
+  type: string;
+  typeVersion: number;
+};
+
+export type WorkflowPersistedEdge = {
   id: string;
+  label?: string;
   source: string;
+  sourcePort?: string;
   target: string;
+  targetPort?: string;
 };
 
-export type WorkflowDefinition = {
-  edges: WorkflowEdge[];
-  nodes: WorkflowNode[];
+export type WorkflowEdge = WorkflowPersistedEdge;
+
+export type WorkflowPersistedDefinition = {
+  edges: WorkflowPersistedEdge[];
+  nodes: WorkflowPersistedNode[];
   viewport?: {
     x?: number;
     y?: number;
     zoom?: number;
   };
+};
+
+export type WorkflowDefinition = {
+  edges: WorkflowEdge[];
+  nodes: WorkflowNode[];
+  viewport?: WorkflowPersistedDefinition['viewport'];
 };
 
 export type WorkflowSpecializedDefinition =

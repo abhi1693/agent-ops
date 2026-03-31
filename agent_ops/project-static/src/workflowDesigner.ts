@@ -10,15 +10,26 @@ import { getDesignerElements } from './workflowDesigner/dom';
 import {
   renderEdgeListMarkup,
   renderNodeMarkup,
+  renderNodePaletteMarkup,
   renderQuickAddMenuMarkup,
   renderSelectedTemplateMarkup,
   renderTemplateFieldsMarkup,
 } from './workflowDesigner/markup';
+import {
+  buildNodeRegistry,
+  getAvailablePaletteSections,
+  getNodeDefinition,
+} from './workflowDesigner/registry/nodeRegistry';
+import {
+  normalizeWorkflowDefinition,
+  serializeWorkflowDefinition,
+} from './workflowDesigner/schema/workflowSchema';
 import type {
-  WorkflowDefinition,
   WorkflowNode,
+  WorkflowNodeDefinition,
   WorkflowNodeTemplate,
   WorkflowNodeTemplateField,
+  WorkflowPersistedDefinition,
   WorkflowToolDefinition,
   WorkflowTriggerDefinition,
 } from './workflowDesigner/types';
@@ -36,7 +47,6 @@ import {
   getToolName,
   getTriggerType,
   isNodeDisabled,
-  normalizeDefinition,
   parseJsonScript,
 } from './workflowDesigner/utils';
 
@@ -52,10 +62,11 @@ function initWorkflowDesigner(): void {
   }
   const elements = resolvedElements;
 
-  const definition = normalizeDefinition(
-    parseJsonScript<WorkflowDefinition>('workflow-definition-data', { nodes: [], edges: [] }),
+  const definition = normalizeWorkflowDefinition(
+    parseJsonScript<WorkflowPersistedDefinition>('workflow-definition-data', { nodes: [], edges: [] }),
   );
   const nodeTemplates = parseJsonScript<WorkflowNodeTemplate[]>('workflow-node-templates-data', []);
+  const nodeRegistry = buildNodeRegistry(nodeTemplates);
   const triggerDefinitions = parseJsonScript<WorkflowTriggerDefinition[]>(
     'workflow-trigger-definitions-data',
     [],
@@ -64,7 +75,6 @@ function initWorkflowDesigner(): void {
     'workflow-tool-definitions-data',
     [],
   );
-  const templateMap = new Map(nodeTemplates.map((template) => [template.kind, template]));
   const triggerDefinitionMap = new Map(
     triggerDefinitions.map((triggerDefinition) => [triggerDefinition.name, triggerDefinition]),
   );
@@ -91,7 +101,7 @@ function initWorkflowDesigner(): void {
     | null = null;
 
   function syncDefinition(): void {
-    elements.definitionInput.value = JSON.stringify(definition);
+    elements.definitionInput.value = JSON.stringify(serializeWorkflowDefinition(definition));
   }
 
   function getNode(nodeId: string | null): WorkflowNode | undefined {
@@ -102,12 +112,8 @@ function initWorkflowDesigner(): void {
     return definition.nodes.find((node) => node.id === nodeId);
   }
 
-  function getNodeTemplate(node: WorkflowNode | undefined): WorkflowNodeTemplate | undefined {
-    if (!node) {
-      return undefined;
-    }
-
-    return templateMap.get(node.kind);
+  function getNodeTemplate(node: WorkflowNode | undefined): WorkflowNodeDefinition | undefined {
+    return getNodeDefinition(nodeRegistry, node);
   }
 
   function getTriggerDefinition(
@@ -152,6 +158,12 @@ function initWorkflowDesigner(): void {
     elements.selectedNodeSummary.textContent = selectedNode ? getNodeTitle(selectedNode) : 'None';
   }
 
+  function renderNodePalette(): void {
+    elements.nodePalette.innerHTML = renderNodePaletteMarkup(
+      getAvailablePaletteSections(nodeRegistry, definition),
+    );
+  }
+
   function renderCanvasState(): void {
     const isEmpty = definition.nodes.length === 0;
     elements.canvasEmpty.classList.toggle('d-none', !isEmpty);
@@ -183,7 +195,7 @@ function initWorkflowDesigner(): void {
 
   function renderTemplateFields(
     node: WorkflowNode | undefined,
-    template: WorkflowNodeTemplate | undefined,
+    template: WorkflowNodeDefinition | undefined,
   ): void {
     if (!node || !template) {
       elements.nodeTemplateFields.innerHTML = '';
@@ -230,18 +242,32 @@ function initWorkflowDesigner(): void {
     }
 
     elements.nodeLabel.value = selectedNode.label;
-    elements.nodeKind.value = selectedNode.kind;
+    elements.nodeKind.value = selectedNode.type;
     elements.selectedTemplate.innerHTML = renderSelectedTemplateMarkup(selectedNode, template);
     renderTemplateFields(selectedNode, template);
     elements.advancedPanel.open = !template;
     syncAdvancedConfigEditor();
   }
 
-  function getQuickAddTemplates(sourceId: string): WorkflowNodeTemplate[] {
-    return nodeTemplates
-      .filter((template) => !(template.kind === 'trigger' && definition.nodes.length > 0))
-      .filter((template) => !(template.kind === getNode(sourceId)?.kind && template.kind === 'trigger'))
+  function getQuickAddTemplates(_sourceId: string): WorkflowNodeDefinition[] {
+    return nodeRegistry.definitions
+      .filter((definitionItem) => !(definitionItem.kind === 'trigger' && definition.nodes.length > 0))
       .slice(0, 5);
+  }
+
+  function createNodeFromDefinition(
+    definitionItem: WorkflowNodeDefinition,
+    position: { x: number; y: number },
+  ): WorkflowNode {
+    return {
+      config: cloneValue(definitionItem.config ?? {}),
+      id: createId('node'),
+      kind: definitionItem.kind,
+      label: definitionItem.label,
+      position,
+      type: definitionItem.type,
+      typeVersion: definitionItem.typeVersion,
+    };
   }
 
   function addEdgeBetween(source: string, target: string): boolean {
@@ -263,23 +289,17 @@ function initWorkflowDesigner(): void {
   }
 
   function addConnectedNodeFromKind(sourceId: string, kind: string): void {
-    const template = templateMap.get(kind);
+    const template = nodeRegistry.definitionMap.get(kind);
     const sourceNode = getNode(sourceId);
     if (!template || !sourceNode) {
       return;
     }
 
     const siblingCount = definition.edges.filter((edge) => edge.source === sourceId).length;
-    const node: WorkflowNode = {
-      config: cloneValue(template.config ?? {}),
-      id: createId('node'),
-      kind: template.kind,
-      label: template.label,
-      position: {
+    const node = createNodeFromDefinition(template, {
         x: sourceNode.position.x + NODE_COLUMN_GAP,
         y: sourceNode.position.y + siblingCount * NODE_ROW_GAP * 0.8,
-      },
-    };
+      });
 
     definition.nodes.push(node);
     addEdgeBetween(sourceId, node.id);
@@ -448,6 +468,7 @@ function initWorkflowDesigner(): void {
   function render(): void {
     updateSurfaceSize();
     syncDefinition();
+    renderNodePalette();
     renderNodes();
     renderEdges();
     renderCanvasState();
@@ -462,22 +483,20 @@ function initWorkflowDesigner(): void {
   }
 
   function addNodeFromKind(kind: string): void {
-    const template = templateMap.get(kind);
+    const template = nodeRegistry.definitionMap.get(kind);
     if (!template) {
       return;
     }
 
+    if (template.kind === 'trigger' && definition.nodes.some((node) => node.kind === 'trigger')) {
+      return;
+    }
+
     const index = definition.nodes.length;
-    const node: WorkflowNode = {
-      config: cloneValue(template.config ?? {}),
-      id: createId('node'),
-      kind: template.kind,
-      label: template.label,
-      position: {
+    const node = createNodeFromDefinition(template, {
         x: 40 + (index % 3) * NODE_COLUMN_GAP,
         y: 40 + Math.floor(index / 3) * NODE_ROW_GAP,
-      },
-    };
+      });
 
     definition.nodes.push(node);
     quickAddSourceId = null;
@@ -487,14 +506,23 @@ function initWorkflowDesigner(): void {
 
   function updateSelectedNodeKind(kind: string): void {
     const selectedNode = getNode(selectedNodeId);
-    const nextTemplate = templateMap.get(kind);
+    const nextTemplate = nodeRegistry.definitionMap.get(kind);
     if (!selectedNode || !nextTemplate) {
+      return;
+    }
+
+    if (
+      nextTemplate.kind === 'trigger' &&
+      definition.nodes.some((node) => node.id !== selectedNode.id && node.kind === 'trigger')
+    ) {
       return;
     }
 
     const previousKind = selectedNode.kind;
     const previousTemplate = getNodeTemplate(selectedNode);
     const authSecretGroupId = getConfigString(selectedNode.config, 'auth_secret_group_id');
+    selectedNode.type = nextTemplate.type;
+    selectedNode.typeVersion = nextTemplate.typeVersion;
     selectedNode.kind = nextTemplate.kind;
     selectedNode.config = cloneValue(nextTemplate.config ?? {});
     if (authSecretGroupId && (nextTemplate.kind === 'tool' || nextTemplate.kind === 'trigger')) {

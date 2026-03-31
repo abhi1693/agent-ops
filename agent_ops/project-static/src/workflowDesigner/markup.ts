@@ -1,8 +1,9 @@
 import type {
   WorkflowEdge,
+  WorkflowNodeDefinition,
   WorkflowNode,
-  WorkflowNodeTemplate,
   WorkflowNodeTemplateField,
+  WorkflowPaletteSection,
   WorkflowSpecializedDefinition,
 } from './types';
 import {
@@ -14,7 +15,7 @@ import {
 
 export function renderSelectedTemplateMarkup(
   node: WorkflowNode | undefined,
-  template: WorkflowNodeTemplate | undefined,
+  template: WorkflowNodeDefinition | undefined,
 ): string {
   if (!node) {
     return '';
@@ -138,7 +139,7 @@ export function renderTemplateFieldsMarkup(params: {
   node: WorkflowNode;
   nodes: WorkflowNode[];
   specializedDefinition?: WorkflowSpecializedDefinition;
-  template: WorkflowNodeTemplate;
+  template: WorkflowNodeDefinition;
 }): string {
   const { node, nodes, specializedDefinition, template } = params;
   const specializedSection =
@@ -175,7 +176,7 @@ export function renderTemplateFieldsMarkup(params: {
 
 export function renderQuickAddMenuMarkup(
   sourceId: string,
-  templates: WorkflowNodeTemplate[],
+  templates: WorkflowNodeDefinition[],
 ): string {
   const items = templates
     .map(
@@ -183,7 +184,7 @@ export function renderQuickAddMenuMarkup(
         <button
           type="button"
           class="workflow-node-quick-add-item"
-          data-quick-add-kind="${escapeHtml(template.kind)}"
+          data-quick-add-kind="${escapeHtml(template.type)}"
           data-quick-add-source="${escapeHtml(sourceId)}"
         >
           <span class="workflow-node-quick-add-item-icon">
@@ -218,7 +219,7 @@ export function renderNodeMarkup(params: {
   showQuickAddMenu: boolean;
   statusLabel: string;
   subtitle: string;
-  template?: WorkflowNodeTemplate;
+  template?: WorkflowNodeDefinition;
 }): string {
   const {
     isDisabled,
@@ -287,6 +288,38 @@ export function renderNodeMarkup(params: {
     </div>
     ${showQuickAddMenu ? quickAddMenuMarkup : ''}
   `;
+}
+
+export function renderNodePaletteMarkup(sections: WorkflowPaletteSection[]): string {
+  return sections
+    .map(
+      (section) => `
+        <div class="workflow-block-group">
+          <div class="workflow-block-group-heading">
+            <div class="workflow-block-group-title">${escapeHtml(section.label)}</div>
+            <div class="workflow-block-group-copy">${escapeHtml(section.description)}</div>
+          </div>
+          <div class="workflow-block-grid">
+            ${section.definitions
+              .map(
+                (definition) => `
+                  <button type="button" class="workflow-template-card" data-add-node="${escapeHtml(definition.type)}">
+                    <span class="workflow-template-icon">
+                      <i class="mdi ${escapeHtml(definition.icon ?? 'mdi-vector-square')}"></i>
+                    </span>
+                    <span class="workflow-template-copy">
+                      <span class="workflow-template-title">${escapeHtml(definition.label)}</span>
+                      <span class="workflow-template-description">${escapeHtml(definition.description)}</span>
+                    </span>
+                  </button>
+                `,
+              )
+              .join('')}
+          </div>
+        </div>
+      `,
+    )
+    .join('');
 }
 
 export function renderEdgeListMarkup(params: {

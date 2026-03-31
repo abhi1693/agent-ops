@@ -86,98 +86,11 @@
           <div class="workflow-panel-eyebrow">Builder blocks</div>
           <h3 class="workflow-editor-panel-title">Add node</h3>
         </div>
-        <div class="workflow-editor-panel-body stack-sm" data-node-palette>
-            <div class="workflow-panel-copy">
-              Choose the next block and place it on the canvas.
-            </div>
-
-            <div class="workflow-block-group">
-              <div class="workflow-block-group-heading">
-                <div class="workflow-block-group-title">Entry point</div>
-                <div class="workflow-block-group-copy">Choose how execution begins.</div>
-              </div>
-              <div class="workflow-block-grid">
-                {% for template in workflow_node_templates %}
-                  {% if template.kind == "trigger" %}
-                    <button type="button" class="workflow-template-card" data-add-node="{{ template.kind }}">
-                      <span class="workflow-template-icon">
-                        <i class="mdi {{ template.icon }}"></i>
-                      </span>
-                      <span class="workflow-template-copy">
-                        <span class="workflow-template-title">{{ template.label }}</span>
-                        <span class="workflow-template-description">{{ template.description }}</span>
-                      </span>
-                    </button>
-                  {% endif %}
-                {% endfor %}
-              </div>
-            </div>
-
-            <div class="workflow-block-group">
-              <div class="workflow-block-group-heading">
-                <div class="workflow-block-group-title">Processing</div>
-                <div class="workflow-block-group-copy">Transform context or call external systems.</div>
-              </div>
-              <div class="workflow-block-grid">
-                {% for template in workflow_node_templates %}
-                  {% if template.kind == "agent" or template.kind == "tool" %}
-                    <button type="button" class="workflow-template-card" data-add-node="{{ template.kind }}">
-                      <span class="workflow-template-icon">
-                        <i class="mdi {{ template.icon }}"></i>
-                      </span>
-                      <span class="workflow-template-copy">
-                        <span class="workflow-template-title">{{ template.label }}</span>
-                        <span class="workflow-template-description">{{ template.description }}</span>
-                      </span>
-                    </button>
-                  {% endif %}
-                {% endfor %}
-              </div>
-            </div>
-
-            <div class="workflow-block-group">
-              <div class="workflow-block-group-heading">
-                <div class="workflow-block-group-title">Control flow</div>
-                <div class="workflow-block-group-copy">Route execution through branches.</div>
-              </div>
-              <div class="workflow-block-grid">
-                {% for template in workflow_node_templates %}
-                  {% if template.kind == "condition" %}
-                    <button type="button" class="workflow-template-card" data-add-node="{{ template.kind }}">
-                      <span class="workflow-template-icon">
-                        <i class="mdi {{ template.icon }}"></i>
-                      </span>
-                      <span class="workflow-template-copy">
-                        <span class="workflow-template-title">{{ template.label }}</span>
-                        <span class="workflow-template-description">{{ template.description }}</span>
-                      </span>
-                    </button>
-                  {% endif %}
-                {% endfor %}
-              </div>
-            </div>
-
-            <div class="workflow-block-group">
-              <div class="workflow-block-group-heading">
-                <div class="workflow-block-group-title">Outcome</div>
-                <div class="workflow-block-group-copy">Close the workflow with a final response.</div>
-              </div>
-              <div class="workflow-block-grid">
-                {% for template in workflow_node_templates %}
-                  {% if template.kind == "response" %}
-                    <button type="button" class="workflow-template-card" data-add-node="{{ template.kind }}">
-                      <span class="workflow-template-icon">
-                        <i class="mdi {{ template.icon }}"></i>
-                      </span>
-                      <span class="workflow-template-copy">
-                        <span class="workflow-template-title">{{ template.label }}</span>
-                        <span class="workflow-template-description">{{ template.description }}</span>
-                      </span>
-                    </button>
-                  {% endif %}
-                {% endfor %}
-              </div>
-            </div>
+        <div class="workflow-editor-panel-body stack-sm">
+          <div class="workflow-panel-copy">
+            Choose the next block and place it on the canvas.
+          </div>
+          <div class="stack-sm" data-node-palette></div>
         </div>
       </aside>
 
@@ -228,6 +141,9 @@
               </div>
               <div class="workflow-canvas" data-workflow-canvas></div>
             </div>
+          </div>
+          <div class="form-hint mt-2">
+            Add at least two nodes before creating a connection.
           </div>
         </div>
       </section>
@@ -301,6 +217,15 @@
         <div class="workflow-edge-list" data-edge-list></div>
       </div>
     </details>
+
+    <div class="d-none" aria-hidden="true">
+      <select data-node-target-options-fallback>
+        <option value="">Choose a connected node</option>
+        {% for node in workflow_nodes %}
+          <option value="{{ node.id }}">{{ node.label|default:node.kind }}</option>
+        {% endfor %}
+      </select>
+    </div>
 
     <div class="object-edit-actions mt-4">
       <a href="{{ workflow_detail_url }}" class="btn btn-outline-secondary">Back</a>

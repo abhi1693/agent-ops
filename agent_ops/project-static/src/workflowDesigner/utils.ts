@@ -1,5 +1,4 @@
 import type {
-  WorkflowDefinition,
   WorkflowNode,
   WorkflowNodeTemplateField,
   WorkflowToolDefinition,
@@ -24,19 +23,6 @@ export function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-export function normalizeDefinition(value: unknown): WorkflowDefinition {
-  if (!value || typeof value !== 'object') {
-    return { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
-  }
-
-  const maybeDefinition = value as Partial<WorkflowDefinition>;
-  return {
-    nodes: Array.isArray(maybeDefinition.nodes) ? maybeDefinition.nodes : [],
-    edges: Array.isArray(maybeDefinition.edges) ? maybeDefinition.edges : [],
-    viewport: maybeDefinition.viewport ?? { x: 0, y: 0, zoom: 1 },
-  };
-}
-
 export function createId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -55,7 +41,7 @@ export function escapeHtml(value: string): string {
 }
 
 export function getNodeTitle(node: WorkflowNode): string {
-  return node.label || node.kind;
+  return node.label || node.kind || node.type;
 }
 
 export function formatKindLabel(kind: string): string {
