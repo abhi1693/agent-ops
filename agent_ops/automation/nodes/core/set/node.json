@@ -1,0 +1,39 @@
+{
+  "node": "n8n-nodes-base.set",
+  "nodeVersion": "1.0.0",
+  "details": "Write a static value into workflow context, following n8n's Set node pattern.",
+  "categories": ["Core Nodes"],
+  "subcategories": {
+    "Core Nodes": ["Helpers"]
+  },
+  "resources": {
+    "primaryDocumentation": [
+      {
+        "url": "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.set/"
+      }
+    ]
+  },
+  "agentOps": {
+    "kind": "tool",
+    "displayName": "Set",
+    "icon": "mdi-form-textbox",
+    "config": {
+      "output_key": "tool.output"
+    },
+    "fields": [
+      {
+        "key": "output_key",
+        "label": "Save result as",
+        "type": "text",
+        "placeholder": "tool.output"
+      },
+      {
+        "key": "value",
+        "label": "Value",
+        "type": "text",
+        "placeholder": "static-value",
+        "helpText": "Use advanced runtime JSON for structured values."
+      }
+    ]
+  }
+}

@@ -122,19 +122,18 @@ def _validate_workflow_nodes(nodes):
             raise ValidationError({"definition": f'Node "{node_id}" config must be a JSON object.'})
 
         node_type = node.get("type")
-        if node_type is not None and (not isinstance(node_type, str) or not node_type.strip()):
-            raise ValidationError({"definition": f'Node "{node_id}" type must be a non-empty string when provided.'})
+        if not isinstance(node_type, str) or not node_type.strip():
+            raise ValidationError({"definition": f'Node "{node_id}" must define a non-empty string type.'})
 
         resolved_template = get_workflow_node_template(
             kind=kind,
             node_type=node_type,
-            config=config if isinstance(config, dict) else None,
         )
         if resolved_template is None:
             raise ValidationError(
                 {
                     "definition": (
-                        f'Node "{node_id}" kind "{kind}" does not resolve to a supported node type.'
+                        f'Node "{node_id}" type "{node_type}" is not a supported node type.'
                     )
                 }
             )

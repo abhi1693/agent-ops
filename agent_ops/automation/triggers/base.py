@@ -1,13 +1,116 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Iterable, Literal
 
 from django.core.exceptions import ValidationError
 
 
 WorkflowTriggerValidator = Callable[[dict[str, Any], str], None]
 WorkflowTriggerWebhookHandler = Callable[["WorkflowTriggerRequestContext"], tuple[dict[str, Any], dict[str, Any]]]
+WorkflowTriggerFieldType = Literal["text", "textarea", "select", "node_target"]
+
+
+@dataclass(frozen=True)
+class WorkflowTriggerFieldOption:
+    value: str
+    label: str
+
+    def serialize(self) -> dict[str, str]:
+        return {
+            "value": self.value,
+            "label": self.label,
+        }
+
+
+@dataclass(frozen=True)
+class WorkflowTriggerFieldDefinition:
+    key: str
+    label: str
+    type: WorkflowTriggerFieldType
+    options: tuple[WorkflowTriggerFieldOption, ...] = ()
+    placeholder: str | None = None
+    help_text: str | None = None
+    rows: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.type != "select" and self.options:
+            raise ValueError(f'Field "{self.key}" can only define options for select fields.')
+        if self.type != "textarea" and self.rows is not None:
+            raise ValueError(f'Field "{self.key}" can only define rows for textarea fields.')
+        if self.rows is not None and self.rows < 1:
+            raise ValueError(f'Field "{self.key}" rows must be greater than zero.')
+
+    def serialize(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "key": self.key,
+            "label": self.label,
+            "type": self.type,
+        }
+        if self.options:
+            payload["options"] = [option.serialize() for option in self.options]
+        if self.placeholder is not None:
+            payload["placeholder"] = self.placeholder
+        if self.help_text is not None:
+            payload["help_text"] = self.help_text
+        if self.rows is not None:
+            payload["rows"] = self.rows
+        return payload
+
+
+def trigger_field_option(value: str, label: str | None = None) -> WorkflowTriggerFieldOption:
+    rendered_value = str(value)
+    return WorkflowTriggerFieldOption(value=rendered_value, label=label or rendered_value)
+
+
+def trigger_text_field(
+    key: str,
+    label: str,
+    *,
+    placeholder: str | None = None,
+    help_text: str | None = None,
+) -> WorkflowTriggerFieldDefinition:
+    return WorkflowTriggerFieldDefinition(
+        key=key,
+        label=label,
+        type="text",
+        placeholder=placeholder,
+        help_text=help_text,
+    )
+
+
+def trigger_textarea_field(
+    key: str,
+    label: str,
+    *,
+    rows: int,
+    placeholder: str | None = None,
+    help_text: str | None = None,
+) -> WorkflowTriggerFieldDefinition:
+    return WorkflowTriggerFieldDefinition(
+        key=key,
+        label=label,
+        type="textarea",
+        rows=rows,
+        placeholder=placeholder,
+        help_text=help_text,
+    )
+
+
+def trigger_select_field(
+    key: str,
+    label: str,
+    *,
+    options: Iterable[WorkflowTriggerFieldOption],
+    help_text: str | None = None,
+) -> WorkflowTriggerFieldDefinition:
+    return WorkflowTriggerFieldDefinition(
+        key=key,
+        label=label,
+        type="select",
+        options=tuple(options),
+        help_text=help_text,
+    )
 
 
 @dataclass(frozen=True)
@@ -18,7 +121,7 @@ class WorkflowTriggerDefinition:
     icon: str = "mdi-play-circle-outline"
     category: str = "Built-in"
     config: dict[str, Any] = field(default_factory=dict)
-    fields: tuple[dict[str, Any], ...] = ()
+    fields: tuple[WorkflowTriggerFieldDefinition, ...] = ()
     validator: WorkflowTriggerValidator | None = None
     webhook_handler: WorkflowTriggerWebhookHandler | None = None
 
@@ -30,7 +133,7 @@ class WorkflowTriggerDefinition:
             "icon": self.icon,
             "category": self.category,
             "config": dict(self.config),
-            "fields": [dict(field) for field in self.fields],
+            "fields": [field.serialize() for field in self.fields],
         }
 
 

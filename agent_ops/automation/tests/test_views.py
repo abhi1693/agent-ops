@@ -14,18 +14,42 @@ from tenancy.models import Environment, Organization, Workspace
 from users.models import Membership, ObjectPermission, User
 
 
+class _FakeJsonResponse:
+    def __init__(self, payload, *, status=200, content_type="application/json", headers=None, raw_body=None):
+        self._payload = payload
+        self._status = status
+        self._raw_body = raw_body
+        self.headers = {"Content-Type": content_type, **(headers or {})}
+
+    def read(self):
+        if self._raw_body is not None:
+            return self._raw_body
+        return json.dumps(self._payload).encode("utf-8")
+
+    def getcode(self):
+        return self._status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
 def _definition(label):
     return {
         "nodes": [
             {
                 "id": "trigger-1",
                 "kind": "trigger",
+                "type": "n8n-nodes-base.manualTrigger",
                 "label": label,
                 "position": {"x": 48, "y": 56},
             },
             {
                 "id": "agent-1",
                 "kind": "agent",
+                "type": "agent",
                 "label": "Triage agent",
                 "position": {"x": 336, "y": 56},
             },
@@ -177,16 +201,22 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Workflow canvas")
         self.assertContains(response, "Add node")
-        self.assertContains(response, '<optgroup label="Core">')
-        self.assertContains(response, '<optgroup label="OpenAI-compatible">')
+        self.assertContains(response, '<optgroup label="Built-ins">')
+        self.assertContains(response, '<optgroup label="AgentOps utilities">')
         self.assertContains(response, '<optgroup label="GitHub">')
         self.assertContains(response, '<optgroup label="Observability">')
-        self.assertContains(response, '<option value="trigger.manual">Manual</option>', html=True)
-        self.assertContains(response, '<option value="agent.openai">OpenAI-compatible</option>', html=True)
+        self.assertContains(response, '<option value="n8n-nodes-base.manualTrigger">Manual Trigger</option>', html=True)
+        self.assertContains(response, '<option value="n8n-nodes-base.scheduleTrigger">Schedule Trigger</option>', html=True)
+        self.assertContains(response, '<option value="agent">Agent</option>', html=True)
+        self.assertContains(response, '<option value="n8n-nodes-base.set">Set</option>', html=True)
+        self.assertContains(response, '<option value="n8n-nodes-base.if">If</option>', html=True)
+        self.assertContains(response, '<option value="n8n-nodes-base.switch">Switch</option>', html=True)
+        self.assertContains(response, '<option value="response">Response</option>', html=True)
+        self.assertContains(response, '<option value="n8n-nodes-base.stopAndError">Stop and Error</option>', html=True)
         self.assertContains(response, '<option value="trigger.github">GitHub</option>', html=True)
         self.assertContains(response, '<option value="tool.observability">Observability</option>', html=True)
         self.assertContains(response, '<option value="tool.template">Render template</option>', html=True)
-        self.assertContains(response, '&quot;type&quot;: &quot;trigger.manual&quot;')
+        self.assertContains(response, '&quot;type&quot;: &quot;n8n-nodes-base.manualTrigger&quot;')
         self.assertContains(response, '<option value="trigger-1">New task</option>', html=True)
         self.assertContains(response, '<option value="agent-1">Triage agent</option>', html=True)
         self.assertContains(response, "Add at least two nodes before creating a connection.")
@@ -213,24 +243,35 @@ class WorkflowViewTests(TestCase):
                     "id": "trigger-1",
                     "kind": "trigger",
                     "label": "New task",
+                    "type": "n8n-nodes-base.manualTrigger",
                     "position": {"x": 32, "y": 40},
                 },
                 {
                     "id": "agent-1",
                     "kind": "agent",
                     "label": "Planner",
+                    "type": "agent",
+                    "config": {
+                        "template": "Plan work for {{ trigger.payload.ticket_id }}",
+                        "output_key": "plan",
+                    },
                     "position": {"x": 320, "y": 80},
                 },
                 {
-                    "id": "tool-1",
-                    "kind": "tool",
-                    "label": "CRM lookup",
+                    "id": "response-1",
+                    "kind": "response",
+                    "label": "Return plan",
+                    "type": "response",
+                    "config": {
+                        "template": "Planned {{ plan }}",
+                        "status": "succeeded",
+                    },
                     "position": {"x": 608, "y": 80},
                 },
             ],
             "edges": [
                 {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
-                {"id": "edge-2", "source": "agent-1", "target": "tool-1"},
+                {"id": "edge-2", "source": "agent-1", "target": "response-1"},
             ],
         }
 
@@ -245,7 +286,10 @@ class WorkflowViewTests(TestCase):
         self.workflow.refresh_from_db()
         self.assertEqual(self.workflow.node_count, 3)
         self.assertEqual(self.workflow.edge_count, 2)
+        self.assertEqual(self.workflow.definition["nodes"][0]["type"], "n8n-nodes-base.manualTrigger")
+        self.assertEqual(self.workflow.definition["nodes"][1]["type"], "agent")
         self.assertEqual(self.workflow.definition["nodes"][1]["label"], "Planner")
+        self.assertEqual(self.workflow.definition["nodes"][2]["type"], "response")
 
     def test_workflow_detail_post_executes_runtime_and_persists_run(self):
         self.workflow.definition = {
@@ -253,25 +297,27 @@ class WorkflowViewTests(TestCase):
                 {
                     "id": "trigger-1",
                     "kind": "trigger",
+                    "type": "n8n-nodes-base.manualTrigger",
                     "label": "Manual",
                     "position": {"x": 32, "y": 40},
                 },
                 {
                     "id": "agent-1",
                     "kind": "agent",
+                    "type": "agent",
                     "label": "Draft",
                     "config": {
                         "template": "Review {{ trigger.payload.ticket_id }}",
-                        "output_key": "draft",
                     },
                     "position": {"x": 320, "y": 40},
                 },
                 {
                     "id": "response-1",
                     "kind": "response",
+                    "type": "response",
                     "label": "Done",
                     "config": {
-                        "template": "Completed {{ draft }}",
+                        "template": "Completed {{ llm.response.text }}",
                     },
                     "position": {"x": 608, "y": 40},
                 },
@@ -282,14 +328,43 @@ class WorkflowViewTests(TestCase):
             ],
         }
         self.workflow.save(update_fields=("definition",))
+        Secret.objects.create(
+            environment=self.environment,
+            provider="environment-variable",
+            name="OPENAI_API_KEY",
+            parameters={"variable": "OPENAI_API_KEY"},
+        )
         self.client.force_login(self.staff_user)
 
-        response = self.client.post(
-            reverse("workflow_detail", args=[self.workflow.pk]),
-            {
-                "input_data": json.dumps({"ticket_id": "T-42"}),
-            },
-        )
+        def fake_urlopen(request, timeout=20):
+            self.assertEqual(timeout, 20)
+            body = json.loads(request.data.decode("utf-8"))
+            self.assertEqual(body["messages"][0]["content"], "Review T-42")
+            return _FakeJsonResponse(
+                {
+                    "id": "chatcmpl-views-1",
+                    "model": "gpt-4.1-mini",
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {
+                                "role": "assistant",
+                                "content": "Review T-42",
+                            },
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+                }
+            )
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai"}, clear=False):
+            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+                response = self.client.post(
+                    reverse("workflow_detail", args=[self.workflow.pk]),
+                    {
+                        "input_data": json.dumps({"ticket_id": "T-42"}),
+                    },
+                )
 
         self.assertRedirects(response, reverse("workflow_detail", args=[self.workflow.pk]))
         run = WorkflowRun.objects.get(workflow=self.workflow)
@@ -341,6 +416,7 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "template": "{{ trigger.meta.source }}:{{ trigger.payload.receiver }}",
@@ -397,6 +473,7 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "template": "{{ trigger.meta.source }}:{{ trigger.payload.rule.name }}",
@@ -452,6 +529,7 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "template": "{{ trigger.meta.event }}:{{ trigger.payload.repository.full_name }}",
@@ -517,6 +595,7 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "template": "{{ trigger.meta.event }}:{{ trigger.payload.repository.full_name }}",
@@ -590,6 +669,7 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "position": {"x": 320, "y": 40},
                     },

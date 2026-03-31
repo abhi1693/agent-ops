@@ -1,0 +1,16 @@
+{
+  "name": "agent-ops-builtins",
+  "version": "0.1.0",
+  "description": "n8n-style built-in workflow nodes for the Django automation runtime",
+  "agentOps": {
+    "nodesApiVersion": 1,
+    "nodes": [
+      "core.manual_trigger.node",
+      "core.schedule_trigger.node",
+      "core.set.node",
+      "core.if.node",
+      "core.switch.node",
+      "core.stop_and_error.node"
+    ]
+  }
+}

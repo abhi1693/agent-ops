@@ -81,6 +81,10 @@ class WorkflowDesignerForm(forms.ModelForm):
             self.initial["definition"] = normalize_workflow_definition_nodes(self.instance.definition)
         apply_standard_widget_classes(self)
 
+    def clean_definition(self):
+        definition = self.cleaned_data["definition"]
+        return normalize_workflow_definition_nodes(definition)
+
 
 class WorkflowRunForm(forms.Form):
     input_data = forms.JSONField(

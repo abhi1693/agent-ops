@@ -69,12 +69,12 @@ def _group_workflow_node_templates_by_app(*, node_templates):
     app_index = {}
 
     for template in node_templates:
-        app_id = template.get("app_id") or "core"
+        app_id = template.get("app_id") or "builtins"
         app_group = app_index.get(app_id)
         if app_group is None:
             app_group = {
                 "id": app_id,
-                "label": template.get("app_label") or "Core",
+                "label": template.get("app_label") or "Built-ins",
                 "description": template.get("app_description") or "",
                 "icon": template.get("app_icon") or "mdi-vector-square",
                 "templates": [],

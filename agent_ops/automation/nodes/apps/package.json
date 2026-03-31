@@ -1,0 +1,17 @@
+{
+  "name": "agent-ops-app-nodes",
+  "version": "0.1.0",
+  "description": "App-scoped workflow nodes for the Django automation runtime",
+  "agentOps": {
+    "nodesApiVersion": 1,
+    "nodes": [
+      "utilities.template",
+      "utilities.secret",
+      "github.webhook",
+      "observability.trigger",
+      "observability.tool",
+      "infrastructure.kubectl",
+      "integrations.mcp_server"
+    ]
+  }
+}

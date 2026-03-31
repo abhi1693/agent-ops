@@ -26,7 +26,7 @@ export function renderSelectedTemplateMarkup(
   const title = template?.label ?? formatKindLabel(node.kind);
   const description =
     template?.description ??
-    'Custom node. Use the advanced runtime JSON editor to configure fields that are not mapped into the inspector.';
+    'Unsupported node type. Replace it with a supported template before saving this workflow.';
 
   return `
     <div class="workflow-selected-template-card workflow-selected-template-card--compact${template ? '' : ' is-custom'}">

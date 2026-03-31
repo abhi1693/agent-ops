@@ -1,0 +1,112 @@
+{
+  "node": "tool.mcp_server",
+  "details": "Connect to remote servers and external runtime capabilities.",
+  "agentOps": {
+    "kind": "tool",
+    "displayName": "MCP server",
+    "icon": "mdi-connection",
+    "appId": "integrations",
+    "appLabel": "Integrations",
+    "appDescription": "Connect to remote servers and external runtime capabilities.",
+    "appIcon": "mdi-connection",
+    "config": {
+      "output_key": "mcp.result",
+      "protocol_version": "2025-11-25",
+      "arguments_json": {},
+      "timeout_seconds": 30,
+      "auth_header_name": "Authorization",
+      "auth_header_template": "Bearer {token}",
+      "tool_name": "mcp_server",
+      "auth_secret_group_id": ""
+    },
+    "fields": [
+      {
+        "key": "auth_secret_group_id",
+        "label": "Auth secret group",
+        "type": "select",
+        "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
+      },
+      {
+        "key": "output_key",
+        "label": "Save result as",
+        "type": "text",
+        "placeholder": "mcp.result"
+      },
+      {
+        "key": "server_url",
+        "label": "MCP endpoint URL",
+        "type": "text",
+        "placeholder": "https://mcp.example.com/mcp"
+      },
+      {
+        "key": "remote_tool_name",
+        "label": "Server tool name",
+        "type": "text",
+        "placeholder": "weather_current"
+      },
+      {
+        "key": "arguments_json",
+        "label": "Tool arguments JSON",
+        "type": "textarea",
+        "rows": 8,
+        "placeholder": "{\"location\": \"San Francisco\", \"units\": \"imperial\"}",
+        "help_text": "Optional. Rendered JSON object passed as the MCP tool arguments."
+      },
+      {
+        "key": "auth_token_name",
+        "label": "Auth token secret name",
+        "type": "text",
+        "placeholder": "MCP_API_TOKEN",
+        "help_text": "Optional. Resolve a secret and inject it into the configured auth header."
+      },
+      {
+        "key": "auth_token_provider",
+        "label": "Auth token provider",
+        "type": "text",
+        "placeholder": "environment-variable",
+        "help_text": "Optional. Leave blank to search all enabled providers in scope."
+      },
+      {
+        "key": "auth_header_name",
+        "label": "Auth header name",
+        "type": "text",
+        "placeholder": "Authorization",
+        "help_text": "Optional. Defaults to `Authorization` when a stored Secret object is configured for auth."
+      },
+      {
+        "key": "auth_header_template",
+        "label": "Auth header template",
+        "type": "text",
+        "placeholder": "Bearer {token}",
+        "help_text": "Optional. Use `{token}` where the resolved secret should be inserted. Leave blank to send the raw token."
+      },
+      {
+        "key": "headers_json",
+        "label": "Extra headers JSON",
+        "type": "textarea",
+        "rows": 5,
+        "placeholder": "{\"X-Tenant\": \"ops\"}",
+        "help_text": "Optional non-secret headers merged into every request. Auth and session headers are managed separately from stored Secret objects."
+      },
+      {
+        "key": "protocol_version",
+        "label": "Protocol version",
+        "type": "text",
+        "placeholder": "2025-11-25"
+      },
+      {
+        "key": "timeout_seconds",
+        "label": "Timeout seconds",
+        "type": "text",
+        "placeholder": "30"
+      }
+    ],
+    "routes": [
+      {
+        "resource": "server",
+        "operation": "call",
+        "toolName": "mcp_server"
+      }
+    ]
+  }
+}

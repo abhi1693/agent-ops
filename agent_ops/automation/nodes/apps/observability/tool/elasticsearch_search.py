@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django.core.exceptions import ValidationError
 
-from .base import (
+from automation.tools.base import (
     WorkflowToolDefinition,
     WorkflowToolExecutionContext,
     _http_json_request,

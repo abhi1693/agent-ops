@@ -1,0 +1,38 @@
+{
+  "node": "tool.template",
+  "details": "AgentOps helper node that renders a template and saves the result.",
+  "agentOps": {
+    "kind": "tool",
+    "displayName": "Render template",
+    "icon": "mdi-text-box-edit-outline",
+    "appId": "utilities",
+    "appLabel": "AgentOps utilities",
+    "appDescription": "AgentOps-specific helper nodes that are intentionally separate from the n8n-style built-in set.",
+    "appIcon": "mdi-tools",
+    "config": {
+      "output_key": "tool.output"
+    },
+    "fields": [
+      {
+        "key": "output_key",
+        "label": "Save result as",
+        "type": "text",
+        "placeholder": "tool.output"
+      },
+      {
+        "key": "template",
+        "label": "Template",
+        "type": "textarea",
+        "rows": 4,
+        "placeholder": "Service: {{ workflow.scope_label }}"
+      }
+    ],
+    "routes": [
+      {
+        "resource": "template",
+        "operation": "render",
+        "toolName": "template"
+      }
+    ]
+  }
+}

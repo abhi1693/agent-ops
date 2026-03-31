@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from django.core.exceptions import ValidationError
 
-from automation.app_nodes import get_workflow_app_node_metadata, validate_workflow_app_node
-from automation.tools import (
-    WORKFLOW_TOOL_DEFINITIONS,
-    normalize_workflow_tool_config,
+from automation.nodes import (
+    WORKFLOW_BUILTIN_NODE_TEMPLATES,
+    validate_workflow_builtin_node,
 )
-from automation.triggers import (
-    WORKFLOW_TRIGGER_DEFINITIONS,
-    normalize_workflow_trigger_config,
+from automation.app_nodes import (
+    WORKFLOW_APP_NODE_DEFINITIONS,
+    get_workflow_app_node_metadata,
+    validate_workflow_app_node,
 )
+from automation.tools import normalize_workflow_tool_config, validate_workflow_tool_config
+from automation.triggers import normalize_workflow_trigger_config, validate_workflow_trigger_config
 
 
 WORKFLOW_NODE_KINDS = (
@@ -24,6 +26,22 @@ WORKFLOW_NODE_KINDS = (
 SUPPORTED_WORKFLOW_NODE_KINDS = frozenset(kind["value"] for kind in WORKFLOW_NODE_KINDS)
 SUPPORTED_CONDITION_OPERATORS = frozenset({"equals", "not_equals", "contains", "exists", "truthy"})
 SUPPORTED_RESPONSE_STATUSES = frozenset({"succeeded", "failed"})
+SUPPORTED_AGENT_API_TYPES = frozenset({"openai"})
+
+_OPENAI_COMPATIBLE_AGENT_ROUTE = {
+    "resource": "chat",
+    "operation": "complete",
+    "tool_name": "openai_compatible_chat",
+}
+_DEFAULT_AGENT_API_TYPE = "openai"
+_AGENT_DEFAULTS_BY_API_TYPE = {
+    "openai": {
+        "api_key_name": "OPENAI_API_KEY",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4.1-mini",
+        "output_key": "llm.response",
+    }
+}
 
 WORKFLOW_RUNTIME_EXAMPLES = (
     {
@@ -33,8 +51,8 @@ WORKFLOW_RUNTIME_EXAMPLES = (
     },
     {
         "label": "Agent",
-        "description": "Render a deterministic message and store it in context.",
-        "example": '{\n  "template": "Review ticket {{ trigger.payload.ticket_id }}",\n  "output_key": "draft"\n}',
+        "description": "Call an LLM with an OpenAI-style chat API and store the result in context.",
+        "example": '{\n  "api_type": "openai",\n  "model": "gpt-4.1-mini",\n  "template": "Review ticket {{ trigger.payload.ticket_id }}",\n  "system_prompt": "You are a ticket triage assistant.",\n  "output_key": "llm.response"\n}',
     },
     {
         "label": "Tool",
@@ -54,182 +72,143 @@ WORKFLOW_RUNTIME_EXAMPLES = (
 )
 
 
-_WORKFLOW_SHARED_AUTH_SECRET_GROUP_FIELD = {
-    "key": "auth_secret_group_id",
-    "label": "Auth secret group",
-    "type": "select",
-    "options": (),
-    "help_text": (
-        "Optional. If set, this node resolves authentication secrets from the selected secret "
-        "group by assignment key or grouped secret name."
-    ),
-}
-
-
 def _copy_template_fields(*fields):
     return tuple(dict(field) for field in fields)
 
 
-def _get_tool_definition(name: str) -> dict | None:
-    for tool_definition in WORKFLOW_TOOL_DEFINITIONS:
-        if tool_definition["name"] == name:
-            return tool_definition
-    return None
+_WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP = {
+    template["type"]: template
+    for template in WORKFLOW_BUILTIN_NODE_TEMPLATES
+}
 
+_BUILTIN_NODE_APP_DESCRIPTION = (
+    "Core workflow nodes, runtime primitives, and n8n-style built-in blocks available in the designer."
+)
 
-def _get_trigger_definition(name: str) -> dict | None:
-    for trigger_definition in WORKFLOW_TRIGGER_DEFINITIONS:
-        if trigger_definition["name"] == name:
-            return trigger_definition
-    return None
-
-
-def _select_options(*pairs: tuple[str, str]) -> tuple[dict[str, str], ...]:
-    return tuple({"value": value, "label": label} for value, label in pairs)
-
-
-def _copy_definition_fields(definition: dict | None, *, exclude_keys: tuple[str, ...] = ()) -> tuple[dict, ...]:
-    if definition is None:
-        return ()
-    return tuple(
-        dict(field)
-        for field in definition.get("fields", ())
-        if field.get("key") not in exclude_keys
-    )
-
-
-def _decorate_field(
-    field: dict,
-    *,
-    visible_when: dict[str, tuple[str, ...]] | None = None,
-    options_by_field: dict[str, dict[str, tuple[dict[str, str], ...]]] | None = None,
-    **overrides,
-) -> dict:
-    decorated_field = {
-        **dict(field),
-        **overrides,
-    }
-    if visible_when:
-        decorated_field["visible_when"] = {
-            key: list(values)
-            for key, values in visible_when.items()
-        }
-    if options_by_field:
-        decorated_field["options_by_field"] = {
-            field_key: {
-                value: [dict(option) for option in options]
-                for value, options in options_map.items()
-            }
-            for field_key, options_map in options_by_field.items()
-        }
-    return decorated_field
-
-
-def _build_agent_node_templates():
-    return (
-        {
-            "kind": "agent",
-            "type": "agent",
-            "label": "Agent",
-            "description": "Render a deterministic agent message into workflow context.",
-            "icon": "mdi-robot-outline",
-            "config": {},
-            "fields": (
-                {
-                    "key": "template",
-                    "label": "Instruction template",
-                    "type": "textarea",
-                    "rows": 5,
-                    "placeholder": "Review {{ trigger.payload.ticket_id }} and summarize next steps.",
-                },
-                {
-                    "key": "output_key",
-                    "label": "Save result as",
-                    "type": "text",
-                    "placeholder": "agent.summary",
-                },
-            ),
-        },
-    )
-
-
-_WORKFLOW_FLOW_NODE_TEMPLATES = (
-    *_build_agent_node_templates(),
-    {
-        "kind": "condition",
-        "type": "condition",
-        "label": "Condition",
-        "description": "Branch to one of two connected targets.",
-        "icon": "mdi-source-branch",
+_WORKFLOW_INTERNAL_NODE_TEMPLATE_MAP = {
+    "agent": {
+        "kind": "agent",
+        "type": "agent",
+        "label": "Agent",
+        "description": "Call an LLM with an OpenAI-style chat API and store the result in workflow context.",
+        "icon": "mdi-robot-outline",
         "config": {
-            "operator": "equals",
+            "api_type": _DEFAULT_AGENT_API_TYPE,
+            **_AGENT_DEFAULTS_BY_API_TYPE[_DEFAULT_AGENT_API_TYPE],
         },
-        "fields": (
+        "fields": _copy_template_fields(
             {
-                "key": "path",
-                "label": "Context path",
-                "type": "text",
-                "placeholder": "trigger.payload.priority",
-            },
-            {
-                "key": "operator",
-                "label": "Operator",
+                "key": "api_type",
+                "label": "API type",
                 "type": "select",
                 "options": (
-                    {"value": "equals", "label": "Equals"},
-                    {"value": "not_equals", "label": "Does not equal"},
-                    {"value": "contains", "label": "Contains"},
-                    {"value": "exists", "label": "Exists"},
-                    {"value": "truthy", "label": "Is truthy"},
+                    {"value": "openai", "label": "OpenAI"},
                 ),
             },
             {
-                "key": "right_value",
-                "label": "Compare against",
+                "key": "template",
+                "label": "Template",
+                "type": "textarea",
+                "rows": 6,
+                "placeholder": "Summarize incident {{ trigger.payload.incident_id }} and propose next steps.",
+                "help_text": "Rendered as the user prompt sent to the model.",
+            },
+            {
+                "key": "output_key",
+                "label": "Save result as",
                 "type": "text",
-                "placeholder": "high",
-                "help_text": "Not used for exists or truthy operators.",
+                "placeholder": "draft",
             },
             {
-                "key": "true_target",
-                "label": "If true, go to",
-                "type": "node_target",
+                "key": "auth_secret_group_id",
+                "label": "Auth secret group",
+                "type": "select",
+                "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name.",
             },
             {
-                "key": "false_target",
-                "label": "If false, go to",
-                "type": "node_target",
+                "key": "base_url",
+                "label": "API base URL",
+                "type": "text",
+                "placeholder": "https://api.openai.com/v1",
+                "help_text": "Override the default endpoint when you need a different OpenAI-compatible API base URL.",
+            },
+            {
+                "key": "api_key_name",
+                "label": "API key secret name",
+                "type": "text",
+                "placeholder": "OPENAI_API_KEY",
+            },
+            {
+                "key": "api_key_provider",
+                "label": "API key provider",
+                "type": "text",
+                "placeholder": "environment-variable",
+                "help_text": "Optional. Leave blank to search all enabled providers in scope.",
+            },
+            {
+                "key": "model",
+                "label": "Model",
+                "type": "text",
+                "placeholder": "gpt-4.1-mini",
+            },
+            {
+                "key": "system_prompt",
+                "label": "System prompt",
+                "type": "textarea",
+                "rows": 4,
+                "placeholder": "You are an incident response assistant.",
+            },
+            {
+                "key": "temperature",
+                "label": "Temperature",
+                "type": "text",
+                "placeholder": "0.2",
+            },
+            {
+                "key": "max_tokens",
+                "label": "Max tokens",
+                "type": "text",
+                "placeholder": "800",
+            },
+            {
+                "key": "extra_body_json",
+                "label": "Extra body JSON",
+                "type": "textarea",
+                "rows": 5,
+                "placeholder": '{"response_format": {"type": "json_object"}}',
+                "help_text": "Optional provider-specific fields merged into the request body after prompts and model.",
             },
         ),
+        "app_id": "builtins",
+        "app_label": "Built-ins",
+        "app_description": _BUILTIN_NODE_APP_DESCRIPTION,
+        "app_icon": "mdi-toy-brick-outline",
     },
-    {
+    "response": {
         "kind": "response",
         "type": "response",
         "label": "Response",
-        "description": "Finish the run with a response payload and status.",
+        "description": "Finish the workflow and persist a terminal response payload.",
         "icon": "mdi-flag-checkered",
-        "config": {
-            "status": "succeeded",
-        },
-        "fields": (
+        "config": {"status": "succeeded"},
+        "fields": _copy_template_fields(
             {
                 "key": "template",
-                "label": "Response template",
+                "label": "Template",
                 "type": "textarea",
                 "rows": 4,
-                "placeholder": "Completed {{ agent.summary }}",
-                "help_text": "Used unless value_path is provided.",
+                "placeholder": "Completed {{ draft }}",
             },
             {
                 "key": "value_path",
                 "label": "Value path",
                 "type": "text",
-                "placeholder": "agent.summary",
-                "help_text": "Return an existing context value instead of rendering a template.",
+                "placeholder": "draft",
+                "help_text": "Optional. When set, the response is read directly from context instead of rendering the template.",
             },
             {
                 "key": "status",
-                "label": "Run status",
+                "label": "Status",
                 "type": "select",
                 "options": (
                     {"value": "succeeded", "label": "Succeeded"},
@@ -237,370 +216,94 @@ _WORKFLOW_FLOW_NODE_TEMPLATES = (
                 ),
             },
         ),
+        "app_id": "builtins",
+        "app_label": "Built-ins",
+        "app_description": _BUILTIN_NODE_APP_DESCRIPTION,
+        "app_icon": "mdi-toy-brick-outline",
     },
-)
-
-def _build_trigger_node_templates():
-    templates = []
-
-    for trigger_definition in WORKFLOW_TRIGGER_DEFINITIONS:
-        fields = [_WORKFLOW_SHARED_AUTH_SECRET_GROUP_FIELD, *_copy_template_fields(*trigger_definition.get("fields", ()))]
-        config = {
-            **(trigger_definition.get("config") or {}),
-            "type": trigger_definition["name"],
-            "auth_secret_group_id": "",
-        }
-        templates.append(
-            {
-                "kind": "trigger",
-                "type": f'trigger.{trigger_definition["name"]}',
-                "label": trigger_definition["label"],
-                "description": trigger_definition["description"],
-                "icon": trigger_definition.get("icon", "mdi-play-circle-outline"),
-                "config": config,
-                "fields": tuple(fields),
-            }
-        )
-
-    return tuple(templates)
-
-
-def _build_tool_node_templates():
-    templates = []
-
-    for tool_definition in WORKFLOW_TOOL_DEFINITIONS:
-        if tool_definition["name"] == "openai_compatible_chat":
-            continue
-        fields = [_WORKFLOW_SHARED_AUTH_SECRET_GROUP_FIELD, *_copy_template_fields(*tool_definition.get("fields", ()))]
-        config = {
-            **(tool_definition.get("config") or {}),
-            "tool_name": tool_definition["name"],
-            "auth_secret_group_id": "",
-        }
-        templates.append(
-            {
-                "kind": "tool",
-                "type": f'tool.{tool_definition["name"]}',
-                "label": tool_definition["label"],
-                "description": tool_definition["description"],
-                "icon": tool_definition.get("icon", "mdi-tools"),
-                "config": config,
-                "fields": tuple(fields),
-            }
-        )
-
-    return tuple(templates)
-
-
-_TRIGGER_NODE_TEMPLATES = _build_trigger_node_templates()
-_TOOL_NODE_TEMPLATES = _build_tool_node_templates()
-
-_WORKFLOW_FLOW_NODE_TEMPLATE_MAP = {
-    template["type"]: template
-    for template in _WORKFLOW_FLOW_NODE_TEMPLATES
-}
-_TRIGGER_NODE_TEMPLATE_MAP = {
-    template["type"]: template
-    for template in _TRIGGER_NODE_TEMPLATES
-}
-_TOOL_NODE_TEMPLATE_MAP = {
-    template["type"]: template
-    for template in _TOOL_NODE_TEMPLATES
 }
 
 
-def _build_openai_agent_node_template():
-    openai_definition = _get_tool_definition("openai_compatible_chat")
-    openai_fields = _copy_definition_fields(openai_definition)
+def _copy_node_template(template: dict) -> dict:
     return {
-        "kind": "agent",
-        "type": "agent.openai",
-        "label": "OpenAI-compatible",
-        "description": "LLM agent node with OpenAI-style resource and operation routing.",
-        "icon": "mdi-robot-happy-outline",
-        "config": {
-            "resource": "chat",
-            "operation": "complete",
-            "output_key": "llm.response",
-        },
-        "fields": (
-            _WORKFLOW_SHARED_AUTH_SECRET_GROUP_FIELD,
-            {
-                "key": "resource",
-                "label": "Resource",
-                "type": "select",
-                "options": _select_options(("chat", "Chat")),
-            },
-            {
-                "key": "operation",
-                "label": "Operation",
-                "type": "select",
-                "options": _select_options(("complete", "Complete")),
-            },
-            *openai_fields,
-        ),
+        **dict(template),
+        "config": dict(template.get("config") or {}),
+        "fields": _copy_template_fields(*(template.get("fields") or ())),
     }
 
 
-def _build_github_trigger_node_template():
-    github_definition = _get_trigger_definition("github_webhook")
-    github_fields = _copy_definition_fields(github_definition)
-    return {
-        "kind": "trigger",
-        "type": "trigger.github",
-        "label": "GitHub",
-        "description": "GitHub trigger node with selector-driven resource and operation routing.",
-        "icon": "mdi-github",
-        "config": {
-            "resource": "webhook",
-            "operation": "receive",
-        },
-        "fields": (
-            _WORKFLOW_SHARED_AUTH_SECRET_GROUP_FIELD,
-            {
-                "key": "resource",
-                "label": "Resource",
-                "type": "select",
-                "options": _select_options(("webhook", "Webhook")),
-            },
-            {
-                "key": "operation",
-                "label": "Operation",
-                "type": "select",
-                "options": _select_options(("receive", "Receive")),
-            },
-            *github_fields,
-        ),
-    }
+_WORKFLOW_APP_NODE_TEMPLATE_MAP = {
+    definition.template_definition.type: _copy_node_template(
+        definition.template_definition.serialize()
+    )
+    for definition in WORKFLOW_APP_NODE_DEFINITIONS
+}
 
 
-def _build_observability_trigger_node_template():
-    alertmanager_definition = _get_trigger_definition("alertmanager_webhook")
-    alertmanager_fields = _copy_definition_fields(alertmanager_definition)
-    return {
-        "kind": "trigger",
-        "type": "trigger.observability",
-        "label": "Observability trigger",
-        "description": "Observability webhook trigger for alert streams such as Alertmanager and Kibana.",
-        "icon": "mdi-bell-ring-outline",
-        "config": {
-            "resource": "alertmanager",
-            "operation": "webhook",
-        },
-        "fields": (
-            _WORKFLOW_SHARED_AUTH_SECRET_GROUP_FIELD,
-            {
-                "key": "resource",
-                "label": "Resource",
-                "type": "select",
-                "options": _select_options(
-                    ("alertmanager", "Alertmanager"),
-                    ("kibana", "Kibana"),
-                ),
-            },
-            {
-                "key": "operation",
-                "label": "Operation",
-                "type": "select",
-                "options": _select_options(("webhook", "Webhook")),
-            },
-            *alertmanager_fields,
-        ),
-    }
-
-
-def _build_observability_tool_node_template():
-    prometheus_definition = _get_tool_definition("prometheus_query")
-    elasticsearch_definition = _get_tool_definition("elasticsearch_search")
-    prometheus_fields = {
-        field["key"]: field
-        for field in _copy_definition_fields(
-            prometheus_definition,
-            exclude_keys=("output_key", "base_url"),
-        )
-    }
-    elasticsearch_fields = {
-        field["key"]: field
-        for field in _copy_definition_fields(
-            elasticsearch_definition,
-            exclude_keys=("output_key", "base_url"),
-        )
-    }
-
-    return {
-        "kind": "tool",
-        "type": "tool.observability",
-        "label": "Observability",
-        "description": "Observability action node for Prometheus and Elasticsearch operations.",
-        "icon": "mdi-chart-areaspline",
-        "config": {
-            "resource": "prometheus",
-            "operation": "query",
-            "output_key": "observability.result",
-        },
-        "fields": (
-            _WORKFLOW_SHARED_AUTH_SECRET_GROUP_FIELD,
-            {
-                "key": "resource",
-                "label": "Resource",
-                "type": "select",
-                "options": _select_options(
-                    ("prometheus", "Prometheus"),
-                    ("elasticsearch", "Elasticsearch"),
-                ),
-            },
-            {
-                "key": "operation",
-                "label": "Operation",
-                "type": "select",
-                "options": _select_options(
-                    ("query", "Query"),
-                    ("search", "Search"),
-                ),
-                "options_by_field": {
-                    "resource": {
-                        "prometheus": list(_select_options(("query", "Query"))),
-                        "elasticsearch": list(_select_options(("search", "Search"))),
-                    }
-                },
-            },
-            {
-                "key": "output_key",
-                "label": "Save result as",
-                "type": "text",
-                "placeholder": "observability.result",
-            },
-            {
-                "key": "base_url",
-                "label": "Service base URL",
-                "type": "text",
-                "placeholder": "https://prometheus.example.com",
-            },
-            _decorate_field(
-                prometheus_fields["bearer_token_name"],
-                visible_when={"resource": ("prometheus",)},
-            ),
-            _decorate_field(
-                prometheus_fields["bearer_token_provider"],
-                visible_when={"resource": ("prometheus",)},
-            ),
-            _decorate_field(
-                prometheus_fields["query"],
-                visible_when={"resource": ("prometheus",)},
-            ),
-            _decorate_field(
-                prometheus_fields["time"],
-                visible_when={"resource": ("prometheus",)},
-            ),
-            _decorate_field(
-                elasticsearch_fields["index"],
-                visible_when={"resource": ("elasticsearch",)},
-            ),
-            _decorate_field(
-                elasticsearch_fields["auth_token_name"],
-                visible_when={"resource": ("elasticsearch",)},
-            ),
-            _decorate_field(
-                elasticsearch_fields["auth_token_provider"],
-                visible_when={"resource": ("elasticsearch",)},
-            ),
-            _decorate_field(
-                elasticsearch_fields["auth_scheme"],
-                visible_when={"resource": ("elasticsearch",)},
-            ),
-            _decorate_field(
-                elasticsearch_fields["query_json"],
-                visible_when={"resource": ("elasticsearch",)},
-            ),
-        ),
-    }
-
-
-_OPENAI_AGENT_NODE_TEMPLATE = _build_openai_agent_node_template()
-_GITHUB_TRIGGER_NODE_TEMPLATE = _build_github_trigger_node_template()
-_OBSERVABILITY_TRIGGER_NODE_TEMPLATE = _build_observability_trigger_node_template()
-_OBSERVABILITY_TOOL_NODE_TEMPLATE = _build_observability_tool_node_template()
-
-
-def _attach_app_metadata(template: dict, *, app_id: str, app_label: str, app_description: str, app_icon: str) -> dict:
+def _attach_route_metadata(template: dict) -> dict:
+    hydrated_template = _copy_node_template(template)
     route_metadata = get_workflow_app_node_metadata(
-        node_type=template.get("type"),
-        config=template.get("config"),
+        node_type=hydrated_template.get("type"),
+        config=hydrated_template.get("config"),
     )
     return {
-        **template,
-        "app_id": app_id,
-        "app_label": app_label,
-        "app_description": app_description,
-        "app_icon": app_icon,
+        **hydrated_template,
         **route_metadata,
     }
 
 
-_WORKFLOW_NODE_APP_DEFINITIONS = (
-    {
-        "id": "core",
-        "label": "Core",
-        "description": "Workflow-native blocks for entry points, control flow, context transforms, and responses.",
-        "icon": "mdi-source-branch",
-        "templates": (
-            _TRIGGER_NODE_TEMPLATE_MAP["trigger.manual"],
-            _WORKFLOW_FLOW_NODE_TEMPLATE_MAP["agent"],
-            _WORKFLOW_FLOW_NODE_TEMPLATE_MAP["condition"],
-            _WORKFLOW_FLOW_NODE_TEMPLATE_MAP["response"],
-            _TOOL_NODE_TEMPLATE_MAP["tool.passthrough"],
-            _TOOL_NODE_TEMPLATE_MAP["tool.set"],
-            _TOOL_NODE_TEMPLATE_MAP["tool.template"],
-            _TOOL_NODE_TEMPLATE_MAP["tool.secret"],
-        ),
-    },
-    {
-        "id": "openai",
-        "label": "OpenAI-compatible",
-        "description": "LLM-powered agent nodes backed by chat completions.",
-        "icon": "mdi-robot-happy-outline",
-        "templates": (
-            _OPENAI_AGENT_NODE_TEMPLATE,
-        ),
-    },
-    {
-        "id": "github",
-        "label": "GitHub",
-        "description": "Receive webhook events from GitHub workflows and repositories.",
-        "icon": "mdi-github",
-        "templates": (
-            _GITHUB_TRIGGER_NODE_TEMPLATE,
-        ),
-    },
-    {
-        "id": "observability",
-        "label": "Observability",
-        "description": "Ingest alerts and query monitoring systems such as Prometheus and Elasticsearch.",
-        "icon": "mdi-chart-areaspline",
-        "templates": (
-            _OBSERVABILITY_TRIGGER_NODE_TEMPLATE,
-            _OBSERVABILITY_TOOL_NODE_TEMPLATE,
-        ),
-    },
-    {
-        "id": "infrastructure",
-        "label": "Infrastructure",
-        "description": "Operate infrastructure workflows against the local app host environment.",
-        "icon": "mdi-kubernetes",
-        "templates": (
-            _TOOL_NODE_TEMPLATE_MAP["tool.kubectl"],
-        ),
-    },
-    {
-        "id": "integrations",
-        "label": "Integrations",
-        "description": "Connect to remote servers and external runtime capabilities.",
-        "icon": "mdi-connection",
-        "templates": (
-            _TOOL_NODE_TEMPLATE_MAP["tool.mcp_server"],
-        ),
-    },
-)
+_BUILTIN_NODE_APP_DEFINITION = {
+    "id": "builtins",
+    "label": "Built-ins",
+    "description": _BUILTIN_NODE_APP_DESCRIPTION,
+    "icon": "mdi-toy-brick-outline",
+    "templates": (
+        _WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP["n8n-nodes-base.manualTrigger"],
+        _WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP["n8n-nodes-base.scheduleTrigger"],
+        _WORKFLOW_INTERNAL_NODE_TEMPLATE_MAP["agent"],
+        _WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP["n8n-nodes-base.set"],
+        _WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP["n8n-nodes-base.if"],
+        _WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP["n8n-nodes-base.switch"],
+        _WORKFLOW_INTERNAL_NODE_TEMPLATE_MAP["response"],
+        _WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP["n8n-nodes-base.stopAndError"],
+    ),
+}
+
+
+def _build_workflow_app_group_definitions():
+    app_groups: list[dict] = []
+    groups_by_id: dict[str, dict] = {}
+
+    for app_node_definition in WORKFLOW_APP_NODE_DEFINITIONS:
+        template_definition = app_node_definition.template_definition
+        template = _WORKFLOW_APP_NODE_TEMPLATE_MAP.get(template_definition.type)
+        if template is None:
+            raise KeyError(f'Missing workflow app node template for "{template_definition.type}".')
+
+        app_group = groups_by_id.get(template_definition.app_id)
+        if app_group is None:
+            app_group = {
+                "id": template_definition.app_id,
+                "label": template_definition.app_label,
+                "description": template_definition.app_description,
+                "icon": template_definition.app_icon,
+                "templates": [],
+            }
+            groups_by_id[template_definition.app_id] = app_group
+            app_groups.append(app_group)
+
+        app_group["templates"].append(_attach_route_metadata(template))
+
+    return tuple(
+        {
+            **app_group,
+            "templates": tuple(app_group["templates"]),
+        }
+        for app_group in app_groups
+    )
+
+
+_WORKFLOW_APP_GROUP_DEFINITIONS = _build_workflow_app_group_definitions()
 
 WORKFLOW_NODE_APPS = tuple(
     {
@@ -610,18 +313,12 @@ WORKFLOW_NODE_APPS = tuple(
         "icon": app_definition["icon"],
         "node_types": [template["type"] for template in app_definition["templates"]],
     }
-    for app_definition in _WORKFLOW_NODE_APP_DEFINITIONS
+    for app_definition in (_BUILTIN_NODE_APP_DEFINITION, *_WORKFLOW_APP_GROUP_DEFINITIONS)
 )
 
 WORKFLOW_NODE_TEMPLATES = tuple(
-    _attach_app_metadata(
-        template,
-        app_id=app_definition["id"],
-        app_label=app_definition["label"],
-        app_description=app_definition["description"],
-        app_icon=app_definition["icon"],
-    )
-    for app_definition in _WORKFLOW_NODE_APP_DEFINITIONS
+    template
+    for app_definition in (_BUILTIN_NODE_APP_DEFINITION, *_WORKFLOW_APP_GROUP_DEFINITIONS)
     for template in app_definition["templates"]
 )
 
@@ -630,18 +327,43 @@ WORKFLOW_NODE_TEMPLATE_MAP = {
     for template in WORKFLOW_NODE_TEMPLATES
 }
 
-_TRIGGER_TEMPLATE_TYPE_BY_TRIGGER_TYPE = {
-    "manual": "trigger.manual",
-}
+def normalize_workflow_agent_config(
+    config: dict | None,
+) -> dict:
+    normalized = dict(config or {})
+    auth_secret_group_id = normalized.get("auth_secret_group_id")
 
-_TOOL_TEMPLATE_TYPE_BY_TOOL_NAME = {
-    "passthrough": "tool.passthrough",
-    "set": "tool.set",
-    "template": "tool.template",
-    "secret": "tool.secret",
-    "kubectl": "tool.kubectl",
-    "mcp_server": "tool.mcp_server",
-}
+    if auth_secret_group_id in ("", None):
+        normalized.pop("auth_secret_group_id", None)
+    elif not isinstance(auth_secret_group_id, str):
+        normalized["auth_secret_group_id"] = str(auth_secret_group_id)
+
+    configured_api_type = normalized.get("api_type")
+    if isinstance(configured_api_type, str) and configured_api_type.strip():
+        normalized_api_type = configured_api_type.strip()
+    else:
+        normalized_api_type = _DEFAULT_AGENT_API_TYPE
+
+    normalized["api_type"] = normalized_api_type
+    for key, value in _AGENT_DEFAULTS_BY_API_TYPE.get(normalized_api_type, {}).items():
+        if normalized.get(key) in ("", None):
+            normalized[key] = value
+
+    return normalized
+
+
+def build_workflow_agent_tool_config(*, node: dict, config: dict) -> dict:
+    normalized = normalize_workflow_agent_config(config)
+    prompt_template = normalized.get("template")
+    if isinstance(prompt_template, str) and prompt_template.strip():
+        rendered_prompt_template = prompt_template.strip()
+    else:
+        rendered_prompt_template = (node.get("label") or node["id"]).strip()
+    return {
+        **normalized,
+        "user_prompt": rendered_prompt_template,
+        **_OPENAI_COMPATIBLE_AGENT_ROUTE,
+    }
 
 
 def resolve_workflow_node_template_type(
@@ -650,22 +372,11 @@ def resolve_workflow_node_template_type(
     node_type: str | None = None,
     config: dict | None = None,
 ) -> str | None:
+    del kind, config
     if isinstance(node_type, str) and node_type.strip():
         normalized_type = node_type.strip()
-        return normalized_type if normalized_type in WORKFLOW_NODE_TEMPLATE_MAP else None
-
-    if kind == "trigger":
-        trigger_type = normalize_workflow_trigger_config(config).get("type", "manual")
-        candidate = _TRIGGER_TEMPLATE_TYPE_BY_TRIGGER_TYPE.get(trigger_type)
-        return candidate if candidate in WORKFLOW_NODE_TEMPLATE_MAP else None
-
-    if kind == "tool":
-        tool_name = normalize_workflow_tool_config(config).get("tool_name", "passthrough")
-        candidate = _TOOL_TEMPLATE_TYPE_BY_TOOL_NAME.get(tool_name)
-        return candidate if candidate in WORKFLOW_NODE_TEMPLATE_MAP else None
-
-    if isinstance(kind, str) and kind in WORKFLOW_NODE_TEMPLATE_MAP:
-        return kind
+        if normalized_type in WORKFLOW_NODE_TEMPLATE_MAP:
+            return normalized_type
 
     return None
 
@@ -699,6 +410,9 @@ def normalize_workflow_definition_nodes(definition: dict | None) -> dict:
             existing_config = {}
         else:
             existing_config = dict(existing_config)
+
+        if normalized_node.get("kind") == "agent":
+            existing_config = normalize_workflow_agent_config(existing_config)
 
         node_template = get_workflow_node_template(
             kind=normalized_node.get("kind"),
@@ -785,12 +499,52 @@ def _validate_runtime_node(*, node: dict, node_ids: set[str], outgoing_targets: 
     if not isinstance(config, dict):
         _raise_definition_error(f'Node "{node_id}" config must be a JSON object.')
 
+    if validate_workflow_builtin_node(
+        node=node,
+        outgoing_targets=outgoing_targets,
+        node_ids=node_ids,
+    ) is not None:
+        return
+
     if validate_workflow_app_node(node=node, outgoing_targets=outgoing_targets) is not None:
         return
 
+    node_template = get_workflow_node_template(
+        kind=kind,
+        node_type=node.get("type"),
+        config=config,
+    )
+    if node_template is None:
+        node_type = node.get("type")
+        if not isinstance(node_type, str) or not node_type.strip():
+            _raise_definition_error(f'Node "{node_id}" must define a supported type.')
+        _raise_definition_error(f'Node "{node_id}" type "{node_type}" is not supported.')
+
+    if kind == "trigger":
+        validate_workflow_trigger_config(config, node_id=node_id)
+        return
+
+    if kind == "tool":
+        validate_workflow_tool_config(config, node_id=node_id)
+        return
+
     if kind == "agent":
-        _validate_optional_string(config, "template", node_id=node_id)
-        _validate_optional_string(config, "output_key", node_id=node_id)
+        normalized_agent_config = normalize_workflow_agent_config(config)
+        agent_api_type = normalized_agent_config.get("api_type", _DEFAULT_AGENT_API_TYPE)
+        if agent_api_type not in SUPPORTED_AGENT_API_TYPES:
+            _raise_definition_error(
+                (
+                    f'Node "{node_id}" config.api_type must be one of: '
+                    f'{", ".join(sorted(SUPPORTED_AGENT_API_TYPES))}.'
+                )
+            )
+        validate_workflow_tool_config(
+            build_workflow_agent_tool_config(
+                node=node,
+                config=normalized_agent_config,
+            ),
+            node_id=node_id,
+        )
         if len(outgoing_targets) > 1:
             _raise_definition_error(f'Node "{node_id}" can only connect to a single next node.')
         return

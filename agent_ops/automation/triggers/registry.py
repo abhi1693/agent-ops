@@ -4,14 +4,16 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 
-from .alertmanager_webhook import TRIGGER_DEFINITION as ALERTMANAGER_WEBHOOK_TRIGGER
 from .base import (
     WorkflowTriggerRequestContext,
     normalize_workflow_trigger_config,
     _raise_definition_error,
 )
-from .github_webhook import TRIGGER_DEFINITION as GITHUB_WEBHOOK_TRIGGER
-from .kibana_webhook import TRIGGER_DEFINITION as KIBANA_WEBHOOK_TRIGGER
+from automation.nodes.apps.github.webhook.node import TRIGGER_DEFINITION as GITHUB_WEBHOOK_TRIGGER
+from automation.nodes.apps.observability.trigger.node import (
+    ALERTMANAGER_WEBHOOK_TRIGGER_DEFINITION as ALERTMANAGER_WEBHOOK_TRIGGER,
+    KIBANA_WEBHOOK_TRIGGER_DEFINITION as KIBANA_WEBHOOK_TRIGGER,
+)
 from .manual import TRIGGER_DEFINITION as MANUAL_TRIGGER
 
 

@@ -82,7 +82,7 @@ export type WorkflowPersistedNode = {
     x: number;
     y: number;
   };
-  type?: string;
+  type: string;
   typeVersion?: number;
 };
 

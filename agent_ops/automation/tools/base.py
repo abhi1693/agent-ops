@@ -224,14 +224,7 @@ def _tool_result(tool_name: str, **extra: Any) -> dict[str, Any]:
 
 def normalize_workflow_tool_config(config: dict[str, Any] | None) -> dict[str, Any]:
     normalized = dict(config or {})
-    tool_name = normalized.get("tool_name")
-    legacy_operation = normalized.get("operation")
     auth_secret_group_id = normalized.get("auth_secret_group_id")
-
-    if tool_name in ("", None) and isinstance(legacy_operation, str) and legacy_operation.strip():
-        normalized["tool_name"] = legacy_operation.strip()
-    elif tool_name in ("", None):
-        normalized["tool_name"] = "passthrough"
 
     if auth_secret_group_id in ("", None):
         normalized.pop("auth_secret_group_id", None)

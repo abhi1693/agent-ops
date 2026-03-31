@@ -18,9 +18,9 @@ function normalizeNode(value: unknown): WorkflowNode | null {
       ? (node.position as Partial<{ x: number; y: number }>)
       : {};
   const kind = typeof node.kind === 'string' && node.kind.trim() ? node.kind.trim() : '';
-  const type = typeof node.type === 'string' && node.type.trim() ? node.type.trim() : kind;
+  const type = typeof node.type === 'string' && node.type.trim() ? node.type.trim() : '';
 
-  if (!kind || typeof node.id !== 'string' || !node.id.trim()) {
+  if (!kind || !type || typeof node.id !== 'string' || !node.id.trim()) {
     return null;
   }
 
@@ -100,13 +100,11 @@ function serializeWorkflowNode(node: WorkflowNode): WorkflowPersistedNode {
       x: node.position.x,
       y: node.position.y,
     },
+    type: node.type,
   };
 
   if (node.config && Object.keys(node.config).length > 0) {
     payload.config = node.config;
-  }
-  if (node.type && node.type !== node.kind) {
-    payload.type = node.type;
   }
   if (node.typeVersion > 1) {
     payload.typeVersion = node.typeVersion;

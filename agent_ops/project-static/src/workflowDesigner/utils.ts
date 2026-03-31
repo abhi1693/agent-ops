@@ -141,13 +141,10 @@ export function getNodeSubtitle(
   }
 
   if (node.kind === 'agent') {
-    const resource = getConfigString(node.config, 'resource');
-    const operation = getConfigString(node.config, 'operation');
-    if (resource && operation) {
-      return `${formatKindLabel(resource)} • ${formatKindLabel(operation)}`;
-    }
+    const apiType = getConfigString(node.config, 'api_type') || 'openai';
     const outputKey = getConfigString(node.config, 'output_key');
-    return outputKey ? `Writes to ${outputKey}` : 'Writes a message into workflow context';
+    const apiLabel = apiType === 'openai' ? 'OpenAI chat' : `${formatKindLabel(apiType)} chat`;
+    return outputKey ? `${apiLabel} • Writes to ${outputKey}` : apiLabel;
   }
 
   return 'Custom workflow node';

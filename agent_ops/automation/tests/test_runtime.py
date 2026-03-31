@@ -47,7 +47,7 @@ class WorkflowRuntimeTests(TestCase):
             name="production",
         )
 
-    def test_execute_workflow_runs_built_in_primitives_end_to_end(self):
+    def test_execute_workflow_runs_agent_llm_step_end_to_end(self):
         workflow = Workflow.objects.create(
             environment=self.environment,
             name="Built-in runtime",
@@ -56,25 +56,27 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "agent-1",
                         "kind": "agent",
+                        "type": "agent",
                         "label": "Draft",
                         "config": {
                             "template": "Review {{ trigger.payload.ticket_id }}",
-                            "output_key": "draft",
                         },
                         "position": {"x": 320, "y": 40},
                     },
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
-                            "template": "Completed {{ draft }}",
+                            "template": "Completed {{ llm.response.text }}",
                         },
                         "position": {"x": 608, "y": 40},
                     },
@@ -85,16 +87,276 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-
-        run = execute_workflow(
-            workflow,
-            input_data={"ticket_id": "T-42"},
+        Secret.objects.create(
+            environment=self.environment,
+            provider="environment-variable",
+            name="OPENAI_API_KEY",
+            parameters={"variable": "OPENAI_API_KEY"},
         )
+
+        def fake_urlopen(request, timeout=20):
+            self.assertEqual(timeout, 20)
+            self.assertEqual(request.full_url, "https://api.openai.com/v1/chat/completions")
+            self.assertEqual(request.headers["Authorization"], "Bearer sk-test-openai")
+            body = loads(request.data.decode("utf-8"))
+            self.assertEqual(body["model"], "gpt-4.1-mini")
+            self.assertEqual(body["messages"][0]["role"], "user")
+            self.assertEqual(body["messages"][0]["content"], "Review T-42")
+            return _FakeJsonResponse(
+                {
+                    "id": "chatcmpl-001",
+                    "model": "gpt-4.1-mini",
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {
+                                "role": "assistant",
+                                "content": "Review T-42",
+                            },
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+                }
+            )
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai"}, clear=False):
+            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+                run = execute_workflow(
+                    workflow,
+                    input_data={"ticket_id": "T-42"},
+                )
 
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.output_data["response"], "Completed Review T-42")
-        self.assertEqual(run.context_data["draft"], "Review T-42")
+        self.assertEqual(run.context_data["llm"]["response"]["text"], "Review T-42")
         self.assertEqual(run.step_count, 3)
+
+    def test_execute_workflow_runs_n8n_style_builtins_end_to_end(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="n8n-style built-ins",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual Trigger",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "set-1",
+                        "kind": "tool",
+                        "type": "n8n-nodes-base.set",
+                        "label": "Set",
+                        "config": {
+                            "output_key": "context.value",
+                            "value": "hello",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "if-1",
+                        "kind": "condition",
+                        "type": "n8n-nodes-base.if",
+                        "label": "If",
+                        "config": {
+                            "path": "context.value",
+                            "operator": "equals",
+                            "right_value": "hello",
+                            "true_target": "response-hello",
+                            "false_target": "response-other",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                    {
+                        "id": "response-hello",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Matched",
+                        "config": {
+                            "value_path": "context.value",
+                        },
+                        "position": {"x": 896, "y": 0},
+                    },
+                    {
+                        "id": "response-other",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Fallback",
+                        "config": {
+                            "template": "miss",
+                        },
+                        "position": {"x": 896, "y": 120},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "set-1"},
+                    {"id": "edge-2", "source": "set-1", "target": "if-1"},
+                    {"id": "edge-3", "source": "if-1", "target": "response-hello"},
+                    {"id": "edge-4", "source": "if-1", "target": "response-other"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow)
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"], "hello")
+        self.assertEqual(run.context_data["context"]["value"], "hello")
+        self.assertEqual(run.step_count, 4)
+
+    def test_execute_workflow_runs_schedule_trigger_builtin(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="schedule trigger built-in",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.scheduleTrigger",
+                        "label": "Schedule Trigger",
+                        "config": {
+                            "mode": "interval",
+                            "interval_unit": "hours",
+                            "interval_value": "2",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.type }} every {{ trigger.payload.interval|default:'manual' }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow, input_data={"interval": "manual"})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.step_results[0]["result"]["schedule"]["interval_unit"], "hours")
+        self.assertEqual(run.step_results[0]["type"], "n8n-nodes-base.scheduleTrigger")
+
+    def test_execute_workflow_runs_switch_builtin(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="switch built-in",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual Trigger",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "switch-1",
+                        "kind": "condition",
+                        "type": "n8n-nodes-base.switch",
+                        "label": "Switch",
+                        "config": {
+                            "path": "trigger.payload.status",
+                            "case_1_value": "queued",
+                            "case_1_target": "response-queued",
+                            "case_2_value": "running",
+                            "case_2_target": "response-running",
+                            "fallback_target": "response-other",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-queued",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Queued",
+                        "config": {
+                            "template": "queued",
+                        },
+                        "position": {"x": 608, "y": 0},
+                    },
+                    {
+                        "id": "response-running",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Running",
+                        "config": {
+                            "template": "running",
+                        },
+                        "position": {"x": 608, "y": 80},
+                    },
+                    {
+                        "id": "response-other",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Other",
+                        "config": {
+                            "template": "other",
+                        },
+                        "position": {"x": 608, "y": 160},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "switch-1"},
+                    {"id": "edge-2", "source": "switch-1", "target": "response-queued"},
+                    {"id": "edge-3", "source": "switch-1", "target": "response-running"},
+                    {"id": "edge-4", "source": "switch-1", "target": "response-other"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow, input_data={"status": "running"})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"], "running")
+        self.assertEqual(run.step_results[1]["result"]["matched_case"], "case_2")
+
+    def test_execute_workflow_runs_stop_and_error_builtin(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="stop and error built-in",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual Trigger",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "stop-1",
+                        "kind": "response",
+                        "type": "n8n-nodes-base.stopAndError",
+                        "label": "Stop and Error",
+                        "config": {
+                            "error_type": "errorMessage",
+                            "error_message": "boom",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "stop-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow)
+
+        self.assertEqual(run.status, "failed")
+        self.assertEqual(run.output_data["response"]["message"], "boom")
+        self.assertEqual(run.step_results[1]["type"], "n8n-nodes-base.stopAndError")
 
     def test_execute_workflow_redacts_secret_values_from_persisted_run_data(self):
         workflow = Workflow.objects.create(
@@ -105,12 +367,14 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "tool-1",
                         "kind": "tool",
+                        "type": "tool.secret",
                         "label": "Resolve key",
                         "config": {
                             "tool_name": "secret",
@@ -123,6 +387,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "template": "Resolved {{ credentials.openai }}",
@@ -158,7 +423,7 @@ class WorkflowRuntimeTests(TestCase):
         )
         self.assertEqual(run.step_results[1]["result"]["tool_name"], "secret")
 
-    def test_execute_workflow_supports_legacy_tool_operation_configs(self):
+    def test_execute_workflow_rejects_legacy_tool_operation_configs(self):
         workflow = Workflow.objects.create(
             environment=self.environment,
             name="Legacy secret-backed runtime",
@@ -167,12 +432,14 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "tool-1",
                         "kind": "tool",
+                        "type": "tool.secret",
                         "label": "Resolve key",
                         "config": {
                             "operation": "secret",
@@ -185,6 +452,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "template": "Resolved {{ credentials.openai }}",
@@ -208,9 +476,90 @@ class WorkflowRuntimeTests(TestCase):
         with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-secret"}, clear=False):
             run = execute_workflow(workflow)
 
-        self.assertEqual(run.status, "succeeded")
-        self.assertEqual(run.output_data["response"], "Resolved [redacted secret]")
-        self.assertEqual(run.step_results[1]["result"]["tool_name"], "secret")
+        self.assertEqual(run.status, "failed")
+        self.assertEqual(
+            run.error,
+            'definition: Node "tool-1" config.resource and config.operation must match one of: secret/resolve.',
+        )
+        self.assertEqual(run.step_results, [])
+
+    def test_execute_workflow_rejects_unconfigured_tool_nodes(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Unconfigured tool runtime",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "label": "Unconfigured",
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "label": "Done",
+                        "config": {
+                            "template": "should not run",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow)
+
+        self.assertEqual(run.status, "failed")
+        self.assertEqual(run.error, 'definition: Node "tool-1" must define a supported type.')
+        self.assertEqual(run.step_results, [])
+
+    def test_execute_workflow_rejects_legacy_builtin_type_aliases(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Legacy builtin aliases",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "trigger.manual",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "template": "should not run",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow)
+
+        self.assertEqual(run.status, "failed")
+        self.assertEqual(run.error, 'definition: Node "trigger-1" type "trigger.manual" is not supported.')
+        self.assertEqual(run.step_results, [])
 
     def test_execute_workflow_resolves_tool_auth_from_node_secret_group(self):
         workflow = Workflow.objects.create(
@@ -221,6 +570,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
@@ -243,6 +593,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "value_path": "prometheus.query",
@@ -307,12 +658,14 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "tool-1",
                         "kind": "tool",
+                        "type": "tool.kubectl",
                         "label": "kubectl",
                         "config": {
                             "tool_name": "kubectl",
@@ -328,6 +681,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "value_path": "kubectl.result",
@@ -365,8 +719,8 @@ class WorkflowRuntimeTests(TestCase):
             self.assertEqual(timeout, 15)
             return subprocess.CompletedProcess(argv, 0, stdout=expected_stdout, stderr="")
 
-        with patch("automation.tools.kubectl.shutil.which", return_value="/usr/local/bin/kubectl"):
-            with patch("automation.tools.kubectl.subprocess.run", side_effect=fake_run):
+        with patch("automation.nodes.apps.infrastructure.kubectl.node.shutil.which", return_value="/usr/local/bin/kubectl"):
+            with patch("automation.nodes.apps.infrastructure.kubectl.node.subprocess.run", side_effect=fake_run):
                 run = execute_workflow(workflow)
 
         self.assertEqual(run.status, "succeeded")
@@ -384,12 +738,14 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "tool-1",
                         "kind": "tool",
+                        "type": "tool.mcp_server",
                         "label": "MCP server",
                         "config": {
                             "tool_name": "mcp_server",
@@ -406,6 +762,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "value_path": "mcp.result",
@@ -482,7 +839,7 @@ class WorkflowRuntimeTests(TestCase):
             self.fail(f"Unexpected MCP request: {request.get_method()} {body}")
 
         with patch.dict(os.environ, {"MCP_API_TOKEN": "mcp-secret"}, clear=False):
-            with patch("automation.tools.mcp_server.urlopen", side_effect=fake_urlopen):
+            with patch("automation.nodes.apps.integrations.mcp_server.node.urlopen", side_effect=fake_urlopen):
                 run = execute_workflow(workflow, input_data={"location": "San Francisco"})
 
         self.assertEqual(run.status, "succeeded")
@@ -501,12 +858,14 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "tool-1",
                         "kind": "tool",
+                        "type": "tool.mcp_server",
                         "label": "MCP server",
                         "config": {
                             "tool_name": "mcp_server",
@@ -520,6 +879,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "value_path": "mcp.result",
@@ -575,7 +935,7 @@ class WorkflowRuntimeTests(TestCase):
 
             self.fail(f"Unexpected MCP request: {request.get_method()} {body}")
 
-        with patch("automation.tools.mcp_server.urlopen", side_effect=fake_urlopen):
+        with patch("automation.nodes.apps.integrations.mcp_server.node.urlopen", side_effect=fake_urlopen):
             run = execute_workflow(workflow)
 
         self.assertEqual(run.status, "succeeded")
@@ -591,6 +951,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
@@ -611,6 +972,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "value_path": "prometheus.query",
@@ -642,6 +1004,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
@@ -665,6 +1028,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "value_path": "prometheus.query",
@@ -719,6 +1083,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
@@ -743,6 +1108,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "value_path": "elastic.search",
@@ -793,7 +1159,7 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.step_results[1]["result"]["hit_count"], 2)
         self.assertEqual(run.context_data["elastic"]["search"]["total"]["value"], 2)
 
-    def test_execute_workflow_calls_openai_compatible_chat(self):
+    def test_execute_workflow_calls_openai_compatible_chat_from_agent_node(self):
         workflow = Workflow.objects.create(
             environment=self.environment,
             name="LLM workflow",
@@ -802,23 +1168,22 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "agent-1",
                         "kind": "agent",
-                        "type": "agent.openai",
+                        "type": "agent",
                         "label": "OpenAI-compatible chat",
                         "config": {
-                            "resource": "chat",
-                            "operation": "complete",
                             "base_url": "https://llm.example.com/v1",
                             "api_key_name": "OPENAI_COMPATIBLE_API_KEY",
                             "api_key_provider": "environment-variable",
                             "model": "gpt-4.1-mini",
                             "system_prompt": "You are an incident triage assistant.",
-                            "user_prompt": "Summarize incident {{ trigger.payload.incident_id }}.",
+                            "template": "Summarize incident {{ trigger.payload.incident_id }}.",
                             "temperature": "0.2",
                             "max_tokens": "120",
                             "extra_body_json": "{\"response_format\": {\"type\": \"json_object\"}}",
@@ -829,6 +1194,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "value_path": "llm.response",
@@ -882,6 +1248,7 @@ class WorkflowRuntimeTests(TestCase):
                 run = execute_workflow(workflow, input_data={"incident_id": "INC-77"})
 
         self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.step_results[1]["result"]["api_type"], "openai")
         self.assertEqual(run.step_results[1]["result"]["tool_name"], "openai_compatible_chat")
         self.assertEqual(run.step_results[1]["result"]["resource"], "chat")
         self.assertEqual(run.step_results[1]["result"]["operation"], "complete")

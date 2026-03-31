@@ -1,0 +1,76 @@
+{
+  "node": "n8n-nodes-base.if",
+  "nodeVersion": "1.0.0",
+  "details": "Branch to one of two connected targets using a simple conditional check.",
+  "categories": ["Core Nodes"],
+  "subcategories": {
+    "Core Nodes": ["Flow"]
+  },
+  "resources": {
+    "primaryDocumentation": [
+      {
+        "url": "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.if/"
+      }
+    ]
+  },
+  "agentOps": {
+    "kind": "condition",
+    "displayName": "If",
+    "icon": "mdi-source-branch",
+    "config": {
+      "operator": "equals"
+    },
+    "fields": [
+      {
+        "key": "path",
+        "label": "Context path",
+        "type": "text",
+        "placeholder": "trigger.payload.priority"
+      },
+      {
+        "key": "operator",
+        "label": "Operator",
+        "type": "select",
+        "options": [
+          {
+            "value": "equals",
+            "label": "Equals"
+          },
+          {
+            "value": "not_equals",
+            "label": "Does not equal"
+          },
+          {
+            "value": "contains",
+            "label": "Contains"
+          },
+          {
+            "value": "exists",
+            "label": "Exists"
+          },
+          {
+            "value": "truthy",
+            "label": "Is truthy"
+          }
+        ]
+      },
+      {
+        "key": "right_value",
+        "label": "Compare against",
+        "type": "text",
+        "placeholder": "high",
+        "helpText": "Not used for exists or truthy operators."
+      },
+      {
+        "key": "true_target",
+        "label": "If true, go to",
+        "type": "node_target"
+      },
+      {
+        "key": "false_target",
+        "label": "If false, go to",
+        "type": "node_target"
+      }
+    ]
+  }
+}

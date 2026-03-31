@@ -1,0 +1,56 @@
+{
+  "node": "n8n-nodes-base.switch",
+  "nodeVersion": "1.0.0",
+  "details": "Route to one of multiple targets using simple value matching, modeled after n8n's Switch node.",
+  "categories": ["Core Nodes"],
+  "subcategories": {
+    "Core Nodes": ["Flow"]
+  },
+  "resources": {
+    "primaryDocumentation": [
+      {
+        "url": "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.switch/"
+      }
+    ]
+  },
+  "agentOps": {
+    "kind": "condition",
+    "displayName": "Switch",
+    "icon": "mdi-call-split",
+    "fields": [
+      {
+        "key": "path",
+        "label": "Context path",
+        "type": "text",
+        "placeholder": "trigger.payload.status"
+      },
+      {
+        "key": "case_1_value",
+        "label": "Case 1 value",
+        "type": "text",
+        "placeholder": "queued"
+      },
+      {
+        "key": "case_1_target",
+        "label": "Case 1 target",
+        "type": "node_target"
+      },
+      {
+        "key": "case_2_value",
+        "label": "Case 2 value",
+        "type": "text",
+        "placeholder": "running"
+      },
+      {
+        "key": "case_2_target",
+        "label": "Case 2 target",
+        "type": "node_target"
+      },
+      {
+        "key": "fallback_target",
+        "label": "Fallback target",
+        "type": "node_target"
+      }
+    ]
+  }
+}

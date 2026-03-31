@@ -7,14 +7,15 @@ from django.core.exceptions import ValidationError
 
 from automation.auth import resolve_workflow_secret
 
-from .base import (
+from automation.triggers.base import (
     WorkflowTriggerDefinition,
     WorkflowTriggerRequestContext,
     _coerce_csv_strings,
     _validate_optional_string,
     _validate_required_string,
+    trigger_text_field,
 )
-from .webhook_utils import get_request_meta, parse_json_body
+from automation.triggers.webhook_utils import get_request_meta, parse_json_body
 
 
 def _validate_github_webhook_trigger(config: dict[str, object], node_id: str) -> None:
@@ -82,26 +83,23 @@ TRIGGER_DEFINITION = WorkflowTriggerDefinition(
     icon="mdi-github",
     category="Webhook",
     fields=(
-        {
-            "key": "signature_secret_name",
-            "label": "Signature secret name",
-            "type": "text",
-            "placeholder": "GITHUB_WEBHOOK_SECRET",
-        },
-        {
-            "key": "signature_secret_provider",
-            "label": "Signature secret provider",
-            "type": "text",
-            "placeholder": "environment-variable",
-            "help_text": "Optional. Leave blank to search all enabled providers in scope.",
-        },
-        {
-            "key": "events",
-            "label": "Allowed events",
-            "type": "text",
-            "placeholder": "push,pull_request",
-            "help_text": "Optional comma-separated allow-list. Leave blank to accept all GitHub events.",
-        },
+        trigger_text_field(
+            "signature_secret_name",
+            "Signature secret name",
+            placeholder="GITHUB_WEBHOOK_SECRET",
+        ),
+        trigger_text_field(
+            "signature_secret_provider",
+            "Signature secret provider",
+            placeholder="environment-variable",
+            help_text="Optional. Leave blank to search all enabled providers in scope.",
+        ),
+        trigger_text_field(
+            "events",
+            "Allowed events",
+            placeholder="push,pull_request",
+            help_text="Optional comma-separated allow-list. Leave blank to accept all GitHub events.",
+        ),
     ),
     validator=_validate_github_webhook_trigger,
     webhook_handler=_handle_github_webhook,

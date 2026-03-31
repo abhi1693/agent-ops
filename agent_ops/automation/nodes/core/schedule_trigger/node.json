@@ -1,0 +1,78 @@
+{
+  "node": "n8n-nodes-base.scheduleTrigger",
+  "nodeVersion": "1.0.0",
+  "details": "Trigger the workflow on a basic interval or cron schedule, following n8n's schedule trigger pattern.",
+  "categories": ["Core Nodes"],
+  "subcategories": {
+    "Core Nodes": ["Trigger"]
+  },
+  "resources": {
+    "primaryDocumentation": [
+      {
+        "url": "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.scheduletrigger/"
+      }
+    ]
+  },
+  "agentOps": {
+    "kind": "trigger",
+    "displayName": "Schedule Trigger",
+    "icon": "mdi-clock-outline",
+    "config": {
+      "mode": "interval",
+      "interval_unit": "minutes",
+      "interval_value": "5",
+      "cron_expression": ""
+    },
+    "fields": [
+      {
+        "key": "mode",
+        "label": "Mode",
+        "type": "select",
+        "helpText": "Use interval for simple schedules or cron for a raw expression.",
+        "options": [
+          {
+            "value": "interval",
+            "label": "Interval"
+          },
+          {
+            "value": "cron",
+            "label": "Cron"
+          }
+        ]
+      },
+      {
+        "key": "interval_unit",
+        "label": "Interval unit",
+        "type": "select",
+        "options": [
+          {
+            "value": "minutes",
+            "label": "Minutes"
+          },
+          {
+            "value": "hours",
+            "label": "Hours"
+          },
+          {
+            "value": "days",
+            "label": "Days"
+          }
+        ]
+      },
+      {
+        "key": "interval_value",
+        "label": "Interval value",
+        "type": "text",
+        "placeholder": "5",
+        "helpText": "Used for interval mode only."
+      },
+      {
+        "key": "cron_expression",
+        "label": "Cron expression",
+        "type": "text",
+        "placeholder": "0 */6 * * *",
+        "helpText": "Used for cron mode only."
+      }
+    ]
+  }
+}

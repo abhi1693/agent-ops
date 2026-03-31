@@ -6,7 +6,7 @@ from urllib.request import Request, urlopen
 
 from django.core.exceptions import ValidationError
 
-from .base import (
+from automation.tools.base import (
     WorkflowToolDefinition,
     WorkflowToolExecutionContext,
     _coerce_positive_int,

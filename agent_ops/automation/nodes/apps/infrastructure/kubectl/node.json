@@ -1,0 +1,92 @@
+{
+  "node": "tool.kubectl",
+  "details": "Operate infrastructure workflows against the local app host environment.",
+  "agentOps": {
+    "kind": "tool",
+    "displayName": "kubectl",
+    "icon": "mdi-kubernetes",
+    "appId": "infrastructure",
+    "appLabel": "Infrastructure",
+    "appDescription": "Operate infrastructure workflows against the local app host environment.",
+    "appIcon": "mdi-kubernetes",
+    "config": {
+      "output_key": "kubectl.result",
+      "output_format": "text",
+      "timeout_seconds": 20,
+      "tool_name": "kubectl",
+      "auth_secret_group_id": ""
+    },
+    "fields": [
+      {
+        "key": "auth_secret_group_id",
+        "label": "Auth secret group",
+        "type": "select",
+        "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
+      },
+      {
+        "key": "output_key",
+        "label": "Save result as",
+        "type": "text",
+        "placeholder": "kubectl.result"
+      },
+      {
+        "key": "command",
+        "label": "kubectl command",
+        "type": "textarea",
+        "rows": 4,
+        "placeholder": "get pods -A -o json",
+        "help_text": "Arguments passed after the kubectl binary. A leading `kubectl` is ignored if you include it."
+      },
+      {
+        "key": "output_format",
+        "label": "Output format",
+        "type": "select",
+        "options": [
+          {
+            "value": "text",
+            "label": "text"
+          },
+          {
+            "value": "json",
+            "label": "json"
+          }
+        ],
+        "help_text": "Choose `json` when the command prints JSON, for example with `-o json`."
+      },
+      {
+        "key": "context_name",
+        "label": "Kube context",
+        "type": "text",
+        "placeholder": "prod-cluster",
+        "help_text": "Optional. Adds `--context` before the command."
+      },
+      {
+        "key": "namespace",
+        "label": "Namespace",
+        "type": "text",
+        "placeholder": "payments",
+        "help_text": "Optional. Adds `--namespace` before the command."
+      },
+      {
+        "key": "binary_path",
+        "label": "kubectl binary",
+        "type": "text",
+        "placeholder": "kubectl",
+        "help_text": "Optional. Defaults to `kubectl` from PATH on the app host."
+      },
+      {
+        "key": "timeout_seconds",
+        "label": "Timeout seconds",
+        "type": "text",
+        "placeholder": "20"
+      }
+    ],
+    "routes": [
+      {
+        "resource": "cluster",
+        "operation": "kubectl",
+        "toolName": "kubectl"
+      }
+    ]
+  }
+}

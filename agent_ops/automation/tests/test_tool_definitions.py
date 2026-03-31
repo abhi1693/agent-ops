@@ -1,6 +1,7 @@
+from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
 
-from automation.tools import WORKFLOW_TOOL_DEFINITIONS
+from automation.tools import WORKFLOW_TOOL_DEFINITIONS, validate_workflow_tool_config
 from automation.tools.base import (
     WorkflowToolFieldDefinition,
     tool_field_option,
@@ -111,4 +112,19 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
                 placeholder='{"X-Tenant": "ops"}',
                 help_text="Optional non-secret headers merged into every request. Auth and session headers are managed separately from stored Secret objects.",
             ).serialize(),
+        )
+
+    def test_tool_config_rejects_legacy_operation_alias(self):
+        with self.assertRaises(ValidationError) as exc_info:
+            validate_workflow_tool_config(
+                {
+                    "operation": "secret",
+                    "name": "OPENAI_API_KEY",
+                },
+                node_id="tool-1",
+            )
+
+        self.assertEqual(
+            exc_info.exception.message_dict,
+            {"definition": ['Node "tool-1" must define config.tool_name.']},
         )

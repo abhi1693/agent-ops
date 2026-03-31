@@ -31,6 +31,7 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "New task",
                         "position": {"x": 32, "y": 40},
                     }
@@ -54,6 +55,7 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "New task",
                         "position": {"x": 32, "y": 40},
                     }
@@ -69,6 +71,7 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "trigger-2",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Follow-up",
                         "position": {"x": 48, "y": 72},
                     }
@@ -89,6 +92,7 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "New task",
                         "position": {"x": 32, "y": 40},
                     }
@@ -128,12 +132,14 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "New task",
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "trigger-2",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Retry",
                         "position": {"x": 280, "y": 40},
                     },
@@ -154,12 +160,14 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "condition-1",
                         "kind": "condition",
+                        "type": "n8n-nodes-base.if",
                         "label": "Check priority",
                         "config": {
                             "path": "trigger.payload.priority",
@@ -173,12 +181,14 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "response-high",
                         "kind": "response",
+                        "type": "response",
                         "label": "High priority",
                         "position": {"x": 560, "y": 0},
                     },
                     {
                         "id": "response-low",
                         "kind": "response",
+                        "type": "response",
                         "label": "Low priority",
                         "position": {"x": 560, "y": 120},
                     },
@@ -210,12 +220,14 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "tool-1",
                         "kind": "tool",
+                        "type": "tool.template",
                         "label": "Render summary",
                         "config": {
                             "tool_name": "template",
@@ -227,6 +239,7 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "value_path": "summary",
@@ -252,6 +265,7 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
@@ -270,6 +284,7 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "value_path": "summary",
@@ -325,6 +340,7 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "value_path": "prometheus.query",
@@ -350,12 +366,14 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "tool-1",
                         "kind": "tool",
+                        "type": "tool.mcp_server",
                         "label": "MCP server",
                         "config": {
                             "tool_name": "mcp_server",
@@ -371,6 +389,7 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "value_path": "mcp.result",
@@ -399,21 +418,20 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "agent-1",
                         "kind": "agent",
-                        "type": "agent.openai",
+                        "type": "agent",
                         "label": "LLM chat",
                         "config": {
-                            "resource": "chat",
-                            "operation": "complete",
                             "base_url": "https://user:password@llm.example.com/v1",
                             "api_key_name": "OPENAI_API_KEY",
                             "model": "gpt-4.1-mini",
-                            "user_prompt": "hello",
+                            "template": "hello",
                             "output_key": "llm.response",
                         },
                         "position": {"x": 320, "y": 40},
@@ -421,6 +439,7 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "response-1",
                         "kind": "response",
+                        "type": "response",
                         "label": "Done",
                         "config": {
                             "value_path": "llm.response",
@@ -449,6 +468,7 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
                         "label": "New task",
                         "position": {"x": 32, "y": 40},
                     }
@@ -466,6 +486,7 @@ class WorkflowModelTests(TestCase):
                         {
                             "id": "trigger-2",
                             "kind": "trigger",
+                            "type": "n8n-nodes-base.manualTrigger",
                             "label": "Another trigger",
                             "position": {"x": 48, "y": 72},
                         }

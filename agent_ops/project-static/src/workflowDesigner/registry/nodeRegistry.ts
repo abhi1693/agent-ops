@@ -37,7 +37,7 @@ export function buildNodeRegistry(nodeTemplates: WorkflowNodeTemplate[]): Workfl
   const definitions = nodeTemplates.map(createNodeDefinition);
   const definitionMap = new Map(definitions.map((definition) => [definition.type, definition]));
   const paletteSections = definitions.reduce<WorkflowPaletteSection[]>((sections, definition) => {
-    const appId = definition.app_id ?? 'core';
+    const appId = definition.app_id ?? 'builtins';
     let section = sections.find((item) => item.id === appId);
     if (!section) {
       section = {
@@ -68,7 +68,7 @@ export function getNodeDefinition(
     return undefined;
   }
 
-  return registry.definitionMap.get(node.type) ?? registry.definitionMap.get(node.kind);
+  return registry.definitionMap.get(node.type);
 }
 
 export function getAvailablePaletteSections(

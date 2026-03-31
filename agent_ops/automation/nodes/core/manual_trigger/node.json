@@ -1,0 +1,21 @@
+{
+  "node": "n8n-nodes-base.manualTrigger",
+  "nodeVersion": "1.0.0",
+  "details": "Start a workflow manually from the UI or API, following n8n's starter trigger pattern.",
+  "categories": ["Core Nodes"],
+  "subcategories": {
+    "Core Nodes": ["Trigger"]
+  },
+  "resources": {
+    "primaryDocumentation": [
+      {
+        "url": "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.manualtrigger/"
+      }
+    ]
+  },
+  "agentOps": {
+    "kind": "trigger",
+    "displayName": "Manual Trigger",
+    "icon": "mdi-play-circle-outline"
+  }
+}

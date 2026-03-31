@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
 from typing import Any
 
 from django.core.exceptions import ValidationError
 
+from automation.nodes.base import WorkflowNodeDefinition
 from automation.tools import (
     WorkflowToolExecutionContext,
     execute_workflow_tool,
@@ -27,114 +30,97 @@ class WorkflowAppNodeRoute:
     trigger_type: str | None = None
     tool_name: str | None = None
 
+    @classmethod
+    def from_manifest(
+        cls,
+        payload: dict[str, Any],
+        *,
+        app_id: str,
+        node_type: str,
+        kind: str,
+    ) -> "WorkflowAppNodeRoute":
+        resource = payload.get("resource")
+        operation = payload.get("operation")
+        if not isinstance(resource, str) or not resource.strip():
+            raise ValueError(f'App node "{node_type}" route.resource must be a non-empty string.')
+        if not isinstance(operation, str) or not operation.strip():
+            raise ValueError(f'App node "{node_type}" route.operation must be a non-empty string.')
 
-WORKFLOW_APP_NODE_ROUTES = (
-    WorkflowAppNodeRoute(
-        app_id="core",
-        node_type="trigger.manual",
-        kind="trigger",
-        resource="trigger",
-        operation="manual",
-        trigger_type="manual",
-    ),
-    WorkflowAppNodeRoute(
-        app_id="core",
-        node_type="tool.passthrough",
-        kind="tool",
-        resource="context",
-        operation="passthrough",
-        tool_name="passthrough",
-    ),
-    WorkflowAppNodeRoute(
-        app_id="core",
-        node_type="tool.set",
-        kind="tool",
-        resource="context",
-        operation="set",
-        tool_name="set",
-    ),
-    WorkflowAppNodeRoute(
-        app_id="core",
-        node_type="tool.template",
-        kind="tool",
-        resource="template",
-        operation="render",
-        tool_name="template",
-    ),
-    WorkflowAppNodeRoute(
-        app_id="core",
-        node_type="tool.secret",
-        kind="tool",
-        resource="secret",
-        operation="resolve",
-        tool_name="secret",
-    ),
-    WorkflowAppNodeRoute(
-        app_id="openai",
-        node_type="agent.openai",
-        kind="agent",
-        resource="chat",
-        operation="complete",
-        tool_name="openai_compatible_chat",
-    ),
-    WorkflowAppNodeRoute(
-        app_id="github",
-        node_type="trigger.github",
-        kind="trigger",
-        resource="webhook",
-        operation="receive",
-        trigger_type="github_webhook",
-    ),
-    WorkflowAppNodeRoute(
-        app_id="observability",
-        node_type="trigger.observability",
-        kind="trigger",
-        resource="alertmanager",
-        operation="webhook",
-        trigger_type="alertmanager_webhook",
-    ),
-    WorkflowAppNodeRoute(
-        app_id="observability",
-        node_type="trigger.observability",
-        kind="trigger",
-        resource="kibana",
-        operation="webhook",
-        trigger_type="kibana_webhook",
-    ),
-    WorkflowAppNodeRoute(
-        app_id="observability",
-        node_type="tool.observability",
-        kind="tool",
-        resource="prometheus",
-        operation="query",
-        tool_name="prometheus_query",
-    ),
-    WorkflowAppNodeRoute(
-        app_id="observability",
-        node_type="tool.observability",
-        kind="tool",
-        resource="elasticsearch",
-        operation="search",
-        tool_name="elasticsearch_search",
-    ),
-    WorkflowAppNodeRoute(
-        app_id="infrastructure",
-        node_type="tool.kubectl",
-        kind="tool",
-        resource="cluster",
-        operation="kubectl",
-        tool_name="kubectl",
-    ),
-    WorkflowAppNodeRoute(
-        app_id="integrations",
-        node_type="tool.mcp_server",
-        kind="tool",
-        resource="server",
-        operation="call",
-        tool_name="mcp_server",
-    ),
+        trigger_type = payload.get("triggerType")
+        tool_name = payload.get("toolName")
+        if trigger_type is not None and (not isinstance(trigger_type, str) or not trigger_type.strip()):
+            raise ValueError(f'App node "{node_type}" route.triggerType must be a non-empty string when provided.')
+        if tool_name is not None and (not isinstance(tool_name, str) or not tool_name.strip()):
+            raise ValueError(f'App node "{node_type}" route.toolName must be a non-empty string when provided.')
+
+        return cls(
+            app_id=app_id,
+            node_type=node_type,
+            kind=kind,
+            resource=resource.strip(),
+            operation=operation.strip(),
+            trigger_type=trigger_type.strip() if isinstance(trigger_type, str) else None,
+            tool_name=tool_name.strip() if isinstance(tool_name, str) else None,
+        )
+
+
+@dataclass(frozen=True)
+class WorkflowAppNodeDefinition:
+    template_definition: WorkflowNodeDefinition
+    routes: tuple[WorkflowAppNodeRoute, ...]
+
+
+_APP_NODE_PACKAGE_MANIFEST_PATH = Path(__file__).parent / "nodes" / "apps" / "package.json"
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as manifest_file:
+        return json.load(manifest_file)
+
+
+def _load_app_node_definitions() -> tuple[WorkflowAppNodeDefinition, ...]:
+    package_manifest = _load_json(_APP_NODE_PACKAGE_MANIFEST_PATH)
+    node_paths = package_manifest.get("agentOps", {}).get("nodes", ())
+    definitions: list[WorkflowAppNodeDefinition] = []
+
+    for node_path in node_paths:
+        manifest_path = _APP_NODE_PACKAGE_MANIFEST_PATH.parent.joinpath(*node_path.split(".")).joinpath("node.json")
+        manifest = _load_json(manifest_path)
+        template_definition = WorkflowNodeDefinition.from_manifest(manifest)
+        routes_payload = manifest.get("agentOps", {}).get("routes", ())
+        if not isinstance(routes_payload, list) or not routes_payload:
+            raise RuntimeError(f'App node "{template_definition.type}" must define at least one route.')
+
+        routes = tuple(
+            WorkflowAppNodeRoute.from_manifest(
+                route_payload,
+                app_id=template_definition.app_id,
+                node_type=template_definition.type,
+                kind=template_definition.kind,
+            )
+            for route_payload in routes_payload
+        )
+        definitions.append(
+            WorkflowAppNodeDefinition(
+                template_definition=template_definition,
+                routes=routes,
+            )
+        )
+
+    return tuple(definitions)
+
+
+WORKFLOW_APP_NODE_PACKAGE = _load_json(_APP_NODE_PACKAGE_MANIFEST_PATH)
+WORKFLOW_APP_NODE_DEFINITIONS = _load_app_node_definitions()
+WORKFLOW_APP_NODE_DEFINITION_MAP = {
+    definition.template_definition.type: definition
+    for definition in WORKFLOW_APP_NODE_DEFINITIONS
+}
+WORKFLOW_APP_NODE_ROUTES = tuple(
+    route
+    for definition in WORKFLOW_APP_NODE_DEFINITIONS
+    for route in definition.routes
 )
-
 WORKFLOW_APP_NODE_ROUTES_BY_TYPE: dict[str, tuple[WorkflowAppNodeRoute, ...]] = {}
 for route in WORKFLOW_APP_NODE_ROUTES:
     WORKFLOW_APP_NODE_ROUTES_BY_TYPE.setdefault(route.node_type, ())
@@ -146,6 +132,15 @@ for route in WORKFLOW_APP_NODE_ROUTES:
 
 def _raise_definition_error(message: str) -> None:
     raise ValidationError({"definition": message})
+
+
+def get_workflow_app_node_definition(
+    *,
+    node_type: str | None,
+) -> WorkflowAppNodeDefinition | None:
+    if not isinstance(node_type, str) or not node_type.strip():
+        return None
+    return WORKFLOW_APP_NODE_DEFINITION_MAP.get(node_type.strip())
 
 
 def _get_node_routes(node_type: str | None) -> tuple[WorkflowAppNodeRoute, ...]:
@@ -160,7 +155,15 @@ def _resolve_route(node_type: str | None, config: dict[str, Any] | None) -> Work
         return None
 
     if len(routes) == 1:
-        return routes[0]
+        route = routes[0]
+        if isinstance(config, dict):
+            resource = config.get("resource")
+            operation = config.get("operation")
+            if resource not in (None, "", route.resource):
+                return None
+            if operation not in (None, "", route.operation):
+                return None
+        return route
 
     resource = config.get("resource") if isinstance(config, dict) else None
     operation = config.get("operation") if isinstance(config, dict) else None

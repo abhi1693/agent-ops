@@ -8,16 +8,25 @@ from django.db import transaction
 from django.template import Context, Engine
 from django.utils import timezone
 
+from automation.nodes import execute_workflow_builtin_node
 from automation.app_nodes import execute_workflow_app_node
 from automation.auth import resolve_workflow_secret
 from automation.models.runs import WorkflowRun
-from automation.primitives import normalize_workflow_definition_nodes, validate_workflow_runtime_definition
+from automation.primitives import (
+    build_workflow_agent_tool_config,
+    normalize_workflow_agent_config,
+    normalize_workflow_definition_nodes,
+    validate_workflow_runtime_definition,
+)
+from automation.tools import (
+    WorkflowToolExecutionContext,
+    execute_workflow_tool,
+    validate_workflow_tool_config,
+)
 
 
 _TEMPLATE_ENGINE = Engine(debug=False)
 _REDACTED_VALUE = "[redacted secret]"
-
-
 @dataclass
 class _NodeExecutionResult:
     next_node_id: str | None
@@ -194,6 +203,27 @@ def _execute_node(
     config = node.get("config") or {}
     kind = node["kind"]
 
+    builtin_node_output = execute_workflow_builtin_node(
+        workflow=workflow,
+        node=node,
+        next_node_id=next_node_id,
+        context=context,
+        secret_paths=secret_paths,
+        secret_values=secret_values,
+        render_template=_render_template,
+        get_path_value=_get_path_value,
+        set_path_value=_set_path_value,
+        evaluate_condition=_evaluate_condition,
+    )
+    if builtin_node_output is not None:
+        return _NodeExecutionResult(
+            next_node_id=builtin_node_output.next_node_id,
+            output=builtin_node_output.output,
+            response=builtin_node_output.response,
+            run_status=builtin_node_output.run_status,
+            terminal=builtin_node_output.terminal,
+        )
+
     app_node_output = execute_workflow_app_node(
         workflow=workflow,
         node=node,
@@ -211,22 +241,34 @@ def _execute_node(
         )
 
     if kind == "agent":
-        template = config.get("template") or node.get("label") or node["id"]
-        output_key = config.get("output_key") or node["id"]
-        rendered = _render_template(template, context)
-        _set_path_value(context, output_key, rendered)
-        context["messages"].append(
-            {
-                "node_id": node["id"],
-                "label": node.get("label") or node["id"],
-                "content": rendered,
-            }
+        normalized_agent_config = normalize_workflow_agent_config(config)
+        normalized_tool_config = validate_workflow_tool_config(
+            build_workflow_agent_tool_config(
+                node=node,
+                config=normalized_agent_config,
+            ),
+            node_id=node["id"],
+        )
+        output = execute_workflow_tool(
+            WorkflowToolExecutionContext(
+                workflow=workflow,
+                node=node,
+                config=normalized_tool_config,
+                context=context,
+                secret_paths=secret_paths,
+                secret_values=secret_values,
+                render_template=_render_template,
+                set_path_value=_set_path_value,
+                resolve_scoped_secret=_resolve_scoped_secret,
+            )
         )
         return _NodeExecutionResult(
             next_node_id=next_node_id,
             output={
-                "message": rendered,
-                "output_key": output_key,
+                **output,
+                "api_type": normalized_agent_config.get("api_type", "openai"),
+                "operation": "complete",
+                "resource": "chat",
             },
         )
 

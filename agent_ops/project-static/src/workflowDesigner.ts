@@ -44,6 +44,7 @@ import {
   getNodeTitle,
   getTemplateFieldValue,
   isNodeDisabled,
+  isTemplateFieldVisible,
   parseJsonScript,
 } from './workflowDesigner/utils';
 
@@ -97,6 +98,148 @@ function initWorkflowDesigner(): void {
 
   function getNodeTemplate(node: WorkflowNode | undefined): WorkflowNodeDefinition | undefined {
     return getNodeDefinition(nodeRegistry, node);
+  }
+
+  function getVisibleNodeTargetFields(
+    node: WorkflowNode,
+    template: WorkflowNodeDefinition,
+  ): WorkflowNodeTemplateField[] {
+    return template.fields.filter(
+      (field) => field.type === 'node_target' && isTemplateFieldVisible(node, field),
+    );
+  }
+
+  function getMaxOutgoingEdges(
+    node: WorkflowNode,
+    template: WorkflowNodeDefinition,
+  ): number {
+    const targetFields = getVisibleNodeTargetFields(node, template);
+    if (targetFields.length > 0) {
+      return targetFields.length;
+    }
+    if (node.kind === 'response') {
+      return 0;
+    }
+    return 1;
+  }
+
+  function assignNodeTargetField(
+    node: WorkflowNode,
+    template: WorkflowNodeDefinition,
+    targetId: string,
+  ): boolean {
+    const targetFields = getVisibleNodeTargetFields(node, template);
+    if (!targetFields.length) {
+      return false;
+    }
+
+    const nextConfig = { ...(node.config ?? {}) };
+    for (const field of targetFields) {
+      if (getConfigString(nextConfig, field.key) === targetId) {
+        return true;
+      }
+    }
+
+    const emptyField = targetFields.find((field) => !getConfigString(nextConfig, field.key));
+    if (!emptyField) {
+      return false;
+    }
+
+    nextConfig[emptyField.key] = targetId;
+    node.config = nextConfig;
+    return true;
+  }
+
+  function clearNodeTargetField(
+    node: WorkflowNode,
+    template: WorkflowNodeDefinition,
+    targetId: string,
+  ): void {
+    const targetFieldKeys = template.fields
+      .filter((field) => field.type === 'node_target')
+      .map((field) => field.key);
+    if (!targetFieldKeys.length) {
+      return;
+    }
+
+    const nextConfig = { ...(node.config ?? {}) };
+    let didChange = false;
+    targetFieldKeys.forEach((fieldKey) => {
+      if (getConfigString(nextConfig, fieldKey) === targetId) {
+        delete nextConfig[fieldKey];
+        didChange = true;
+      }
+    });
+
+    if (didChange) {
+      node.config = nextConfig;
+    }
+  }
+
+  function reconcileNodeConnections(
+    node: WorkflowNode,
+    template: WorkflowNodeDefinition,
+  ): void {
+    const targetFields = getVisibleNodeTargetFields(node, template);
+    if (targetFields.length > 0) {
+      const targetIds = new Set(
+        targetFields
+          .map((field) => getConfigString(node.config, field.key))
+          .filter((targetId) => Boolean(targetId)),
+      );
+
+      definition.edges = definition.edges.filter(
+        (edge) => edge.source !== node.id || targetIds.has(edge.target),
+      );
+
+      targetIds.forEach((targetId) => {
+        const hasEdge = definition.edges.some(
+          (edge) => edge.source === node.id && edge.target === targetId,
+        );
+        if (!hasEdge) {
+          definition.edges.push({
+            id: createId('edge'),
+            source: node.id,
+            target: targetId,
+          });
+        }
+      });
+      return;
+    }
+
+    const maxOutgoingEdges = getMaxOutgoingEdges(node, template);
+    const outgoingEdges = definition.edges.filter((edge) => edge.source === node.id);
+    if (outgoingEdges.length <= maxOutgoingEdges) {
+      return;
+    }
+
+    const keptEdgeIds = new Set(
+      outgoingEdges.slice(0, maxOutgoingEdges).map((edge) => edge.id),
+    );
+    definition.edges = definition.edges.filter(
+      (edge) => edge.source !== node.id || keptEdgeIds.has(edge.id),
+    );
+  }
+
+  function reconcileAllNodeConnections(): void {
+    definition.nodes.forEach((node) => {
+      const template = getNodeTemplate(node);
+      if (!template) {
+        return;
+      }
+      reconcileNodeConnections(node, template);
+    });
+  }
+
+  function canAddOutgoingEdge(sourceId: string): boolean {
+    const sourceNode = getNode(sourceId);
+    const sourceTemplate = getNodeTemplate(sourceNode);
+    if (!sourceNode || !sourceTemplate) {
+      return false;
+    }
+
+    const outgoingEdges = definition.edges.filter((edge) => edge.source === sourceId);
+    return outgoingEdges.length < getMaxOutgoingEdges(sourceNode, sourceTemplate);
   }
 
   function updateSurfaceSize(): void {
@@ -242,7 +385,11 @@ function initWorkflowDesigner(): void {
     syncAdvancedConfigEditor();
   }
 
-  function getQuickAddTemplates(_sourceId: string): WorkflowNodeDefinition[] {
+  function getQuickAddTemplates(sourceId: string): WorkflowNodeDefinition[] {
+    if (!canAddOutgoingEdge(sourceId)) {
+      return [];
+    }
+
     return nodeRegistry.definitions
       .filter((definitionItem) => !(definitionItem.kind === 'trigger' && definition.nodes.length > 0))
       .slice(0, 5);
@@ -268,8 +415,23 @@ function initWorkflowDesigner(): void {
       return false;
     }
 
+    const sourceNode = getNode(source);
+    const sourceTemplate = getNodeTemplate(sourceNode);
+    if (!sourceNode || !sourceTemplate) {
+      return false;
+    }
+
     const duplicate = definition.edges.some((edge) => edge.source === source && edge.target === target);
     if (duplicate) {
+      return false;
+    }
+
+    const targetFields = getVisibleNodeTargetFields(sourceNode, sourceTemplate);
+    if (targetFields.length > 0) {
+      if (!assignNodeTargetField(sourceNode, sourceTemplate, target)) {
+        return false;
+      }
+    } else if (!canAddOutgoingEdge(source)) {
       return false;
     }
 
@@ -281,8 +443,8 @@ function initWorkflowDesigner(): void {
     return true;
   }
 
-  function addConnectedNodeFromKind(sourceId: string, kind: string): void {
-    const template = nodeRegistry.definitionMap.get(kind);
+  function addConnectedNodeFromType(sourceId: string, nodeType: string): void {
+    const template = nodeRegistry.definitionMap.get(nodeType);
     const sourceNode = getNode(sourceId);
     if (!template || !sourceNode) {
       return;
@@ -329,6 +491,10 @@ function initWorkflowDesigner(): void {
   }
 
   function beginConnection(sourceId: string, event: MouseEvent | PointerEvent): void {
+    if (!canAddOutgoingEdge(sourceId)) {
+      return;
+    }
+
     quickAddSourceId = null;
     connectionDraft = {
       pointerX: event.clientX,
@@ -460,6 +626,7 @@ function initWorkflowDesigner(): void {
 
   function render(): void {
     synchronizeTemplateConfigs();
+    reconcileAllNodeConnections();
     updateSurfaceSize();
     syncDefinition();
     renderNodePalette();
@@ -471,13 +638,29 @@ function initWorkflowDesigner(): void {
     renderEdgeList();
   }
 
+  function isInspectorInteractionTarget(target: HTMLElement): boolean {
+    return Boolean(
+      target.closest(
+        [
+          '[data-node-fields]',
+          '[data-node-empty]',
+          '[data-selected-template]',
+          '[data-node-template-fields]',
+          '[data-advanced-panel]',
+          '[data-edge-list]',
+          '.workflow-designer-links-drawer',
+        ].join(', '),
+      ),
+    );
+  }
+
   function selectNode(nodeId: string | null): void {
     selectedNodeId = nodeId;
     render();
   }
 
-  function addNodeFromKind(kind: string): void {
-    const template = nodeRegistry.definitionMap.get(kind);
+  function addNodeFromType(nodeType: string): void {
+    const template = nodeRegistry.definitionMap.get(nodeType);
     if (!template) {
       return;
     }
@@ -498,9 +681,9 @@ function initWorkflowDesigner(): void {
     selectNode(node.id);
   }
 
-  function updateSelectedNodeKind(kind: string): void {
+  function updateSelectedNodeType(nodeType: string): void {
     const selectedNode = getNode(selectedNodeId);
-    const nextTemplate = nodeRegistry.definitionMap.get(kind);
+    const nextTemplate = nodeRegistry.definitionMap.get(nodeType);
     if (!selectedNode || !nextTemplate) {
       return;
     }
@@ -535,6 +718,7 @@ function initWorkflowDesigner(): void {
     ) {
       selectedNode.label = nextTemplate.label;
     }
+    reconcileNodeConnections(selectedNode, nextTemplate);
     render();
   }
 
@@ -545,7 +729,11 @@ function initWorkflowDesigner(): void {
     }
 
     selectedNode.label = value;
-    render();
+    syncDefinition();
+    renderNodes();
+    renderEdges();
+    renderBoardSummary();
+    renderEdgeList();
   }
 
   function updateSelectedNodeConfig(value: string): void {
@@ -557,8 +745,12 @@ function initWorkflowDesigner(): void {
     const trimmedValue = value.trim();
     if (!trimmedValue) {
       selectedNode.config = {};
+      const template = getNodeTemplate(selectedNode);
+      if (template) {
+        reconcileNodeConnections(selectedNode, template);
+      }
       elements.nodeConfig.setCustomValidity('');
-      syncDefinition();
+      render();
       return;
     }
 
@@ -571,6 +763,10 @@ function initWorkflowDesigner(): void {
       }
 
       selectedNode.config = parsed as Record<string, unknown>;
+      const template = getNodeTemplate(selectedNode);
+      if (template) {
+        reconcileNodeConnections(selectedNode, template);
+      }
       elements.nodeConfig.setCustomValidity('');
       render();
     } catch (error) {
@@ -594,6 +790,11 @@ function initWorkflowDesigner(): void {
     }
 
     selectedNode.config = nextConfig;
+    const template = getNodeTemplate(selectedNode);
+    if (template) {
+      synchronizeTemplateDrivenConfig(selectedNode, template);
+      reconcileNodeConnections(selectedNode, template);
+    }
     if (rerender) {
       render();
       return;
@@ -619,6 +820,14 @@ function initWorkflowDesigner(): void {
   }
 
   function removeEdge(edgeId: string): void {
+    const removedEdge = definition.edges.find((edge) => edge.id === edgeId);
+    if (removedEdge) {
+      const sourceNode = getNode(removedEdge.source);
+      const sourceTemplate = getNodeTemplate(sourceNode);
+      if (sourceNode && sourceTemplate) {
+        clearNodeTargetField(sourceNode, sourceTemplate, removedEdge.target);
+      }
+    }
     definition.edges = definition.edges.filter((edge) => edge.id !== edgeId);
     render();
   }
@@ -628,13 +837,13 @@ function initWorkflowDesigner(): void {
 
     const templateButton = target.closest<HTMLButtonElement>('[data-add-node]');
     if (templateButton) {
-      addNodeFromKind(templateButton.dataset.addNode ?? '');
+      addNodeFromType(templateButton.dataset.addNode ?? '');
       return;
     }
 
     const quickAddButton = target.closest<HTMLButtonElement>('[data-quick-add-kind]');
     if (quickAddButton) {
-      addConnectedNodeFromKind(
+      addConnectedNodeFromType(
         quickAddButton.dataset.quickAddSource ?? '',
         quickAddButton.dataset.quickAddKind ?? '',
       );
@@ -644,6 +853,9 @@ function initWorkflowDesigner(): void {
     const quickAddToggle = target.closest<HTMLButtonElement>('[data-quick-add-toggle]');
     if (quickAddToggle) {
       const sourceId = quickAddToggle.dataset.quickAddToggle ?? null;
+      if (sourceId && !getQuickAddTemplates(sourceId).length) {
+        return;
+      }
       quickAddSourceId = quickAddSourceId === sourceId ? null : sourceId;
       connectionDraft = null;
       render();
@@ -700,6 +912,10 @@ function initWorkflowDesigner(): void {
     const removeEdgeButton = target.closest<HTMLButtonElement>('[data-remove-edge]');
     if (removeEdgeButton) {
       removeEdge(removeEdgeButton.dataset.removeEdge ?? '');
+      return;
+    }
+
+    if (isInspectorInteractionTarget(target)) {
       return;
     }
 
@@ -782,7 +998,7 @@ function initWorkflowDesigner(): void {
     updateSelectedNodeLabel(elements.nodeLabel.value);
   });
   elements.nodeKind.addEventListener('change', () => {
-    updateSelectedNodeKind(elements.nodeKind.value);
+    updateSelectedNodeType(elements.nodeKind.value);
   });
 
   elements.nodeTemplateFields.addEventListener('input', (event) => {
