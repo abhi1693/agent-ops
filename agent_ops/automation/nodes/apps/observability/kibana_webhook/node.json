@@ -39,8 +39,6 @@
         "placeholder": "X-AgentOps-Webhook-Secret"
       }
     ],
-    "route": {
-      "triggerType": "kibana_webhook"
-    }
+    "triggerType": "kibana_webhook"
   }
 }

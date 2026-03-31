@@ -27,8 +27,6 @@
         "placeholder": "Service: {{ workflow.scope_label }}"
       }
     ],
-    "route": {
-      "toolName": "template"
-    }
+    "toolName": "template"
   }
 }

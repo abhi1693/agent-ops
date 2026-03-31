@@ -77,8 +77,6 @@
         "placeholder": "{\"size\": 10, \"query\": {\"match\": {\"service\": \"api\"}}}"
       }
     ],
-    "route": {
-      "toolName": "elasticsearch_search"
-    }
+    "toolName": "elasticsearch_search"
   }
 }

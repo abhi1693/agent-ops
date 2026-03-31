@@ -39,8 +39,6 @@
         "placeholder": "X-AgentOps-Webhook-Secret"
       }
     ],
-    "route": {
-      "triggerType": "alertmanager_webhook"
-    }
+    "triggerType": "alertmanager_webhook"
   }
 }

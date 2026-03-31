@@ -100,8 +100,6 @@
         "placeholder": "30"
       }
     ],
-    "route": {
-      "toolName": "mcp_server"
-    }
+    "toolName": "mcp_server"
   }
 }

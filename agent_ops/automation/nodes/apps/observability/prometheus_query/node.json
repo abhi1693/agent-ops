@@ -60,8 +60,6 @@
         "placeholder": "Optional RFC3339 or unix timestamp"
       }
     ],
-    "route": {
-      "toolName": "prometheus_query"
-    }
+    "toolName": "prometheus_query"
   }
 }

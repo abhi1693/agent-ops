@@ -80,8 +80,6 @@
         "placeholder": "20"
       }
     ],
-    "route": {
-      "toolName": "kubectl"
-    }
+    "toolName": "kubectl"
   }
 }
