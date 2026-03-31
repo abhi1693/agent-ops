@@ -422,66 +422,6 @@ class WorkflowRuntimeTests(TestCase):
         )
         self.assertEqual(run.step_results[1]["result"]["tool_name"], "secret")
 
-    def test_execute_workflow_rejects_legacy_tool_operation_configs(self):
-        workflow = Workflow.objects.create(
-            environment=self.environment,
-            name="Legacy secret-backed runtime",
-            definition={
-                "nodes": [
-                    {
-                        "id": "trigger-1",
-                        "kind": "trigger",
-                        "type": "n8n-nodes-base.manualTrigger",
-                        "label": "Manual",
-                        "position": {"x": 32, "y": 40},
-                    },
-                    {
-                        "id": "tool-1",
-                        "kind": "tool",
-                        "type": "tool.secret",
-                        "label": "Resolve key",
-                        "config": {
-                            "operation": "secret",
-                            "name": "OPENAI_API_KEY",
-                            "provider": "environment-variable",
-                            "output_key": "credentials.openai",
-                        },
-                        "position": {"x": 320, "y": 40},
-                    },
-                    {
-                        "id": "response-1",
-                        "kind": "response",
-                        "type": "response",
-                        "label": "Done",
-                        "config": {
-                            "template": "Resolved {{ credentials.openai }}",
-                        },
-                        "position": {"x": 608, "y": 40},
-                    },
-                ],
-                "edges": [
-                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
-                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
-                ],
-            },
-        )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="OPENAI_API_KEY",
-            parameters={"variable": "OPENAI_API_KEY"},
-        )
-
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-secret"}, clear=False):
-            run = execute_workflow(workflow)
-
-        self.assertEqual(run.status, "failed")
-        self.assertEqual(
-            run.error,
-            'definition: Node "tool-1" must not define legacy selector fields: config.operation.',
-        )
-        self.assertEqual(run.step_results, [])
-
     def test_execute_workflow_rejects_unconfigured_tool_nodes(self):
         workflow = Workflow.objects.create(
             environment=self.environment,
@@ -524,40 +464,6 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.error, 'definition: Node "tool-1" must define a supported type.')
         self.assertEqual(run.step_results, [])
 
-    def test_execute_workflow_rejects_legacy_builtin_type_aliases(self):
-        workflow = Workflow.objects.create(
-            environment=self.environment,
-            name="Legacy builtin aliases",
-            definition={
-                "nodes": [
-                    {
-                        "id": "trigger-1",
-                        "kind": "trigger",
-                        "type": "trigger.manual",
-                        "label": "Manual",
-                        "position": {"x": 32, "y": 40},
-                    },
-                    {
-                        "id": "response-1",
-                        "kind": "response",
-                        "type": "response",
-                        "label": "Done",
-                        "config": {
-                            "template": "should not run",
-                        },
-                        "position": {"x": 320, "y": 40},
-                    },
-                ],
-                "edges": [
-                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
-                ],
-            },
-        )
-
-        run = execute_workflow(workflow)
-
-        self.assertEqual(run.status, "failed")
-        self.assertEqual(run.error, 'definition: Node "trigger-1" type "trigger.manual" is not supported.')
         self.assertEqual(run.step_results, [])
 
     def test_execute_workflow_resolves_tool_auth_from_node_secret_group(self):

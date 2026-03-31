@@ -114,11 +114,10 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
             ).serialize(),
         )
 
-    def test_tool_config_rejects_legacy_operation_alias(self):
+    def test_tool_config_requires_tool_name(self):
         with self.assertRaises(ValidationError) as exc_info:
             validate_workflow_tool_config(
                 {
-                    "operation": "secret",
                     "name": "OPENAI_API_KEY",
                 },
                 node_id="tool-1",

@@ -11,10 +11,8 @@ from .base import (
 )
 from automation.nodes.apps.infrastructure.kubectl.node import TOOL_DEFINITION as KUBECTL_TOOL
 from automation.nodes.apps.integrations.mcp_server.node import TOOL_DEFINITION as MCP_SERVER_TOOL
-from automation.nodes.apps.observability.tool.node import (
-    ELASTICSEARCH_SEARCH_TOOL_DEFINITION as ELASTICSEARCH_SEARCH_TOOL,
-    PROMETHEUS_QUERY_TOOL_DEFINITION as PROMETHEUS_QUERY_TOOL,
-)
+from automation.nodes.apps.observability.tool.elasticsearch_search import TOOL_DEFINITION as ELASTICSEARCH_SEARCH_TOOL
+from automation.nodes.apps.observability.tool.prometheus_query import TOOL_DEFINITION as PROMETHEUS_QUERY_TOOL
 from automation.nodes.apps.openai.chat.node import TOOL_DEFINITION as OPENAI_COMPATIBLE_CHAT_TOOL
 from automation.nodes.apps.utilities.secret.node import TOOL_DEFINITION as SECRET_TOOL
 from automation.nodes.apps.utilities.template.node import TOOL_DEFINITION as TEMPLATE_TOOL

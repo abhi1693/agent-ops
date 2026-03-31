@@ -164,23 +164,6 @@ def get_workflow_app_node_metadata(
     }
 
 
-def _reject_legacy_selector_fields(
-    *,
-    config: dict[str, Any],
-    node_id: str,
-    keys: tuple[str, ...],
-) -> None:
-    legacy_fields = [
-        f"config.{key}"
-        for key in keys
-        if key in config
-    ]
-    if legacy_fields:
-        _raise_definition_error(
-            f'Node "{node_id}" must not define legacy selector fields: {", ".join(legacy_fields)}.'
-        )
-
-
 def _validate_single_outgoing_target(*, node_id: str, outgoing_targets: list[str]) -> None:
     if len(outgoing_targets) > 1:
         _raise_definition_error(f'Node "{node_id}" can only connect to a single next node.')
@@ -192,11 +175,6 @@ def _validate_routed_trigger_config(
     config: dict[str, Any],
     node_id: str,
 ) -> dict[str, Any]:
-    _reject_legacy_selector_fields(
-        config=config,
-        node_id=node_id,
-        keys=("resource", "operation", "type"),
-    )
     return validate_workflow_trigger_config(
         {
             **config,
@@ -214,11 +192,6 @@ def _validate_routed_tool_config(
 ) -> dict[str, Any]:
     if route.tool_name is None:
         _raise_definition_error(f'Node "{node_id}" has no routed tool implementation.')
-    _reject_legacy_selector_fields(
-        config=config,
-        node_id=node_id,
-        keys=("resource", "operation", "tool_name"),
-    )
     return validate_workflow_tool_config(
         {
             **config,

@@ -255,54 +255,6 @@ class WorkflowModelTests(TestCase):
 
         workflow.full_clean()
 
-    def test_workflow_rejects_legacy_tool_name_selector_on_typed_app_node(self):
-        workflow = Workflow(
-            environment=self.environment,
-            name="Mismatched concrete tool workflow",
-            definition={
-                "nodes": [
-                    {
-                        "id": "trigger-1",
-                        "kind": "trigger",
-                        "type": "n8n-nodes-base.manualTrigger",
-                        "label": "Manual",
-                        "position": {"x": 32, "y": 40},
-                    },
-                    {
-                        "id": "tool-1",
-                        "kind": "tool",
-                        "type": "tool.template",
-                        "label": "Render summary",
-                        "config": {
-                            "tool_name": "secret",
-                            "template": "Org {{ workflow.scope_label }}",
-                            "output_key": "summary",
-                        },
-                        "position": {"x": 320, "y": 40},
-                    },
-                    {
-                        "id": "response-1",
-                        "kind": "response",
-                        "type": "response",
-                        "label": "Done",
-                        "config": {
-                            "value_path": "summary",
-                        },
-                        "position": {"x": 608, "y": 40},
-                    },
-                ],
-                "edges": [
-                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
-                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
-                ],
-            },
-        )
-
-        with self.assertRaises(ValidationError) as context:
-            workflow.full_clean()
-
-        self.assertIn("legacy selector fields: config.tool_name", str(context.exception))
-
     def test_workflow_accepts_webhook_trigger_and_external_tool_nodes(self):
         workflow = Workflow(
             environment=self.environment,

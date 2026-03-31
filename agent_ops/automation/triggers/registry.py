@@ -10,10 +10,8 @@ from .base import (
     _raise_definition_error,
 )
 from automation.nodes.apps.github.webhook.node import TRIGGER_DEFINITION as GITHUB_WEBHOOK_TRIGGER
-from automation.nodes.apps.observability.trigger.node import (
-    ALERTMANAGER_WEBHOOK_TRIGGER_DEFINITION as ALERTMANAGER_WEBHOOK_TRIGGER,
-    KIBANA_WEBHOOK_TRIGGER_DEFINITION as KIBANA_WEBHOOK_TRIGGER,
-)
+from automation.nodes.apps.observability.trigger.alertmanager_webhook import TRIGGER_DEFINITION as ALERTMANAGER_WEBHOOK_TRIGGER
+from automation.nodes.apps.observability.trigger.kibana_webhook import TRIGGER_DEFINITION as KIBANA_WEBHOOK_TRIGGER
 from .manual import TRIGGER_DEFINITION as MANUAL_TRIGGER
 
 
