@@ -21,7 +21,7 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertEqual(mcp_template["label"], "MCP server")
         self.assertEqual(mcp_template["config"]["protocol_version"], "2025-11-25")
         self.assertEqual(mcp_template["config"]["timeout_seconds"], 30)
-        self.assertEqual(mcp_template["config"]["tool_name"], "mcp_server")
+        self.assertNotIn("tool_name", mcp_template["config"])
         self.assertEqual(mcp_template["config"]["auth_secret_group_id"], "")
         self.assertIn("auth_secret_group_id", fields_by_key)
         self.assertEqual(fields_by_key["remote_tool_name"]["placeholder"], "weather_current")
@@ -63,6 +63,8 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
             {"auth_secret_group_id", "output_key", "name", "provider"},
         )
         self.assertEqual(response_fields, {"status", "template", "value_path"})
+        self.assertNotIn("resource", github_fields)
+        self.assertNotIn("operation", github_fields)
         self.assertIn("signature_secret_name", github_fields)
         self.assertIn("auth_secret_group_id", github_fields)
 
@@ -167,6 +169,48 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertEqual(normalized["nodes"][0]["type"], "trigger.manual")
         self.assertEqual(normalized["nodes"][1]["type"], "tool.set")
         self.assertEqual(normalized["nodes"][2]["type"], "condition")
+
+    def test_normalize_typed_single_route_app_nodes_strips_redundant_route_selectors(self):
+        definition = {
+            "nodes": [
+                {
+                    "id": "trigger-1",
+                    "kind": "trigger",
+                    "type": "trigger.github",
+                    "label": "GitHub",
+                    "config": {
+                        "resource": "webhook",
+                        "operation": "receive",
+                        "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
+                    },
+                    "position": {"x": 32, "y": 40},
+                },
+                {
+                    "id": "tool-1",
+                    "kind": "tool",
+                    "type": "tool.template",
+                    "label": "Render",
+                    "config": {
+                        "tool_name": "template",
+                        "template": "hello",
+                        "output_key": "draft",
+                    },
+                    "position": {"x": 320, "y": 40},
+                },
+            ],
+            "edges": [],
+        }
+
+        normalized = normalize_workflow_definition_nodes(definition)
+
+        self.assertEqual(
+            normalized["nodes"][0]["config"],
+            {"signature_secret_name": "GITHUB_WEBHOOK_SECRET", "auth_secret_group_id": ""},
+        )
+        self.assertEqual(
+            normalized["nodes"][1]["config"],
+            {"template": "hello", "output_key": "draft"},
+        )
 
     def test_normalize_agent_node_applies_openai_defaults(self):
         definition = {

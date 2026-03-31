@@ -518,8 +518,6 @@ class WorkflowViewTests(TestCase):
                         "type": "trigger.github",
                         "label": "GitHub",
                         "config": {
-                            "resource": "webhook",
-                            "operation": "receive",
                             "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
                             "signature_secret_provider": "environment-variable",
                             "events": "push",
@@ -584,8 +582,6 @@ class WorkflowViewTests(TestCase):
                         "type": "trigger.github",
                         "label": "GitHub",
                         "config": {
-                            "resource": "webhook",
-                            "operation": "receive",
                             "auth_secret_group_id": "",
                             "signature_secret_name": "webhook_secret",
                             "events": "push",
@@ -659,8 +655,6 @@ class WorkflowViewTests(TestCase):
                         "type": "trigger.github",
                         "label": "GitHub",
                         "config": {
-                            "resource": "webhook",
-                            "operation": "receive",
                             "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
                             "signature_secret_provider": "environment-variable",
                         },

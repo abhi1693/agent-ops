@@ -106,8 +106,8 @@ export function getNodeSubtitle(
   template?: WorkflowNodeDefinition,
 ): string {
   if (node.kind === 'trigger') {
-    const resource = getConfigString(node.config, 'resource');
-    const operation = getConfigString(node.config, 'operation');
+    const resource = getConfigString(node.config, 'resource') || template?.resource || '';
+    const operation = getConfigString(node.config, 'operation') || template?.operation || '';
     if (resource && operation) {
       return `${formatKindLabel(resource)} • ${formatKindLabel(operation)}`;
     }
@@ -115,8 +115,8 @@ export function getNodeSubtitle(
   }
 
   if (node.kind === 'tool') {
-    const resource = getConfigString(node.config, 'resource');
-    const operation = getConfigString(node.config, 'operation');
+    const resource = getConfigString(node.config, 'resource') || template?.resource || '';
+    const operation = getConfigString(node.config, 'operation') || template?.operation || '';
     if (resource && operation) {
       return `${formatKindLabel(resource)} • ${formatKindLabel(operation)}`;
     }

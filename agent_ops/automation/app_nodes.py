@@ -222,6 +222,32 @@ def get_workflow_app_node_metadata(
     }
 
 
+def normalize_workflow_app_node_config(
+    *,
+    node_type: str | None,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized_config = dict(config or {})
+    routes = _get_node_routes(node_type)
+    if len(routes) != 1:
+        return normalized_config
+
+    route = _resolve_route(node_type, normalized_config)
+    if route is None:
+        return normalized_config
+
+    if normalized_config.get("resource") in ("", route.resource):
+        normalized_config.pop("resource", None)
+    if normalized_config.get("operation") in ("", route.operation):
+        normalized_config.pop("operation", None)
+    if route.tool_name is not None and normalized_config.get("tool_name") in ("", route.tool_name):
+        normalized_config.pop("tool_name", None)
+    if route.trigger_type is not None and normalized_config.get("type") in ("", route.trigger_type):
+        normalized_config.pop("type", None)
+
+    return normalized_config
+
+
 def _validate_single_outgoing_target(*, node_id: str, outgoing_targets: list[str]) -> None:
     if len(outgoing_targets) > 1:
         _raise_definition_error(f'Node "{node_id}" can only connect to a single next node.')

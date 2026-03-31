@@ -16,7 +16,6 @@
       "timeout_seconds": 30,
       "auth_header_name": "Authorization",
       "auth_header_template": "Bearer {token}",
-      "tool_name": "mcp_server",
       "auth_secret_group_id": ""
     },
     "fields": [

@@ -1,6 +1,6 @@
 {
   "node": "trigger.github",
-  "details": "GitHub trigger node with selector-driven resource and operation routing.",
+  "details": "GitHub trigger node for repository and workflow webhook events.",
   "agentOps": {
     "kind": "trigger",
     "displayName": "GitHub",
@@ -10,8 +10,6 @@
     "appDescription": "Receive webhook events from GitHub workflows and repositories.",
     "appIcon": "mdi-github",
     "config": {
-      "resource": "webhook",
-      "operation": "receive",
       "auth_secret_group_id": ""
     },
     "fields": [
@@ -20,28 +18,6 @@
         "label": "Auth secret group",
         "type": "select",
         "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
-      },
-      {
-        "key": "resource",
-        "label": "Resource",
-        "type": "select",
-        "options": [
-          {
-            "value": "webhook",
-            "label": "Webhook"
-          }
-        ]
-      },
-      {
-        "key": "operation",
-        "label": "Operation",
-        "type": "select",
-        "options": [
-          {
-            "value": "receive",
-            "label": "Receive"
-          }
-        ]
       },
       {
         "key": "signature_secret_name",

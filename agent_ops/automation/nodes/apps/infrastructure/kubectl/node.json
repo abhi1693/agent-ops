@@ -13,7 +13,6 @@
       "output_key": "kubectl.result",
       "output_format": "text",
       "timeout_seconds": 20,
-      "tool_name": "kubectl",
       "auth_secret_group_id": ""
     },
     "fields": [

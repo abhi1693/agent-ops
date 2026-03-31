@@ -377,7 +377,6 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "tool.secret",
                         "label": "Resolve key",
                         "config": {
-                            "tool_name": "secret",
                             "name": "OPENAI_API_KEY",
                             "provider": "environment-variable",
                             "output_key": "credentials.openai",
@@ -668,7 +667,6 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "tool.kubectl",
                         "label": "kubectl",
                         "config": {
-                            "tool_name": "kubectl",
                             "output_key": "kubectl.result",
                             "command": "kubectl get pods -o json",
                             "output_format": "json",
@@ -748,7 +746,6 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "tool.mcp_server",
                         "label": "MCP server",
                         "config": {
-                            "tool_name": "mcp_server",
                             "server_url": "https://mcp.example.com/mcp",
                             "remote_tool_name": "weather_current",
                             "arguments_json": '{"location": "{{ trigger.payload.location }}", "units": "imperial"}',
@@ -868,7 +865,6 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "tool.mcp_server",
                         "label": "MCP server",
                         "config": {
-                            "tool_name": "mcp_server",
                             "server_url": "https://mcp.example.com/mcp",
                             "remote_tool_name": "health_check",
                             "arguments_json": "{}",

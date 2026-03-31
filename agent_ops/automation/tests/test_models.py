@@ -230,7 +230,6 @@ class WorkflowModelTests(TestCase):
                         "type": "tool.template",
                         "label": "Render summary",
                         "config": {
-                            "tool_name": "template",
                             "template": "Org {{ workflow.scope_label }}",
                             "output_key": "summary",
                         },
@@ -316,8 +315,6 @@ class WorkflowModelTests(TestCase):
                         "type": "trigger.github",
                         "label": "GitHub webhook",
                         "config": {
-                            "resource": "webhook",
-                            "operation": "receive",
                             "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
                             "events": "push,pull_request",
                         },
@@ -376,7 +373,6 @@ class WorkflowModelTests(TestCase):
                         "type": "tool.mcp_server",
                         "label": "MCP server",
                         "config": {
-                            "tool_name": "mcp_server",
                             "server_url": "https://mcp.example.com/mcp",
                             "remote_tool_name": "weather_current",
                             "headers_json": {
