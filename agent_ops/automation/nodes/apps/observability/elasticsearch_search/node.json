@@ -1,0 +1,86 @@
+{
+  "node": "tool.elasticsearch_search",
+  "details": "Elasticsearch search node for observability workflows.",
+  "agentOps": {
+    "kind": "tool",
+    "displayName": "Elasticsearch search",
+    "icon": "mdi-database-search-outline",
+    "appId": "observability",
+    "appLabel": "Observability",
+    "appDescription": "Ingest alerts and query monitoring systems such as Prometheus and Elasticsearch.",
+    "appIcon": "mdi-chart-areaspline",
+    "config": {
+      "output_key": "elasticsearch.search",
+      "auth_scheme": "ApiKey",
+      "auth_secret_group_id": ""
+    },
+    "fields": [
+      {
+        "key": "auth_secret_group_id",
+        "label": "Auth secret group",
+        "type": "select",
+        "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
+      },
+      {
+        "key": "output_key",
+        "label": "Save result as",
+        "type": "text",
+        "placeholder": "elasticsearch.search"
+      },
+      {
+        "key": "base_url",
+        "label": "Service base URL",
+        "type": "text",
+        "placeholder": "https://elasticsearch.example.com"
+      },
+      {
+        "key": "index",
+        "label": "Index",
+        "type": "text",
+        "placeholder": "logs-*",
+        "help_text": "Optional. Leave blank to search all indices reachable at this endpoint."
+      },
+      {
+        "key": "auth_token_name",
+        "label": "Auth token secret name",
+        "type": "text",
+        "placeholder": "ELASTICSEARCH_API_KEY",
+        "help_text": "Optional. Provide a token when the cluster requires auth."
+      },
+      {
+        "key": "auth_token_provider",
+        "label": "Auth token provider",
+        "type": "text",
+        "placeholder": "environment-variable",
+        "help_text": "Optional. Leave blank to search all enabled providers in scope."
+      },
+      {
+        "key": "auth_scheme",
+        "label": "Auth scheme",
+        "type": "select",
+        "options": [
+          {
+            "value": "ApiKey",
+            "label": "ApiKey"
+          },
+          {
+            "value": "Bearer",
+            "label": "Bearer"
+          }
+        ]
+      },
+      {
+        "key": "query_json",
+        "label": "Query JSON",
+        "type": "textarea",
+        "rows": 8,
+        "placeholder": "{\"size\": 10, \"query\": {\"match\": {\"service\": \"api\"}}}"
+      }
+    ],
+    "route": {
+      "resource": "elasticsearch",
+      "operation": "search",
+      "toolName": "elasticsearch_search"
+    }
+  }
+}

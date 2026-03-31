@@ -27,12 +27,10 @@
         "placeholder": "Service: {{ workflow.scope_label }}"
       }
     ],
-    "routes": [
-      {
-        "resource": "template",
-        "operation": "render",
-        "toolName": "template"
-      }
-    ]
+    "route": {
+      "resource": "template",
+      "operation": "render",
+      "toolName": "template"
+    }
   }
 }

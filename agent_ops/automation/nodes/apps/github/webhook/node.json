@@ -40,12 +40,10 @@
         "help_text": "Optional comma-separated allow-list. Leave blank to accept all GitHub events."
       }
     ],
-    "routes": [
-      {
-        "resource": "webhook",
-        "operation": "receive",
-        "triggerType": "github_webhook"
-      }
-    ]
+    "route": {
+      "resource": "webhook",
+      "operation": "receive",
+      "triggerType": "github_webhook"
+    }
   }
 }

@@ -214,7 +214,10 @@ class WorkflowViewTests(TestCase):
         self.assertContains(response, '<option value="response">Response</option>', html=True)
         self.assertContains(response, '<option value="n8n-nodes-base.stopAndError">Stop and Error</option>', html=True)
         self.assertContains(response, '<option value="trigger.github">GitHub</option>', html=True)
-        self.assertContains(response, '<option value="tool.observability">Observability</option>', html=True)
+        self.assertContains(response, '<option value="trigger.alertmanager_webhook">Alertmanager webhook</option>', html=True)
+        self.assertContains(response, '<option value="trigger.kibana_webhook">Kibana webhook</option>', html=True)
+        self.assertContains(response, '<option value="tool.prometheus_query">Prometheus query</option>', html=True)
+        self.assertContains(response, '<option value="tool.elasticsearch_search">Elasticsearch search</option>', html=True)
         self.assertContains(response, '<option value="tool.template">Render template</option>', html=True)
         self.assertContains(response, '&quot;type&quot;: &quot;n8n-nodes-base.manualTrigger&quot;')
         self.assertContains(response, '<option value="trigger-1">New task</option>', html=True)
@@ -403,11 +406,9 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
-                        "type": "trigger.observability",
+                        "type": "trigger.alertmanager_webhook",
                         "label": "Alertmanager",
                         "config": {
-                            "resource": "alertmanager",
-                            "operation": "webhook",
                             "webhook_secret_name": "ALERTMANAGER_WEBHOOK_SECRET",
                             "webhook_secret_provider": "environment-variable",
                         },
@@ -460,11 +461,9 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
-                        "type": "trigger.observability",
+                        "type": "trigger.kibana_webhook",
                         "label": "Kibana",
                         "config": {
-                            "resource": "kibana",
-                            "operation": "webhook",
                             "webhook_secret_name": "KIBANA_WEBHOOK_SECRET",
                             "webhook_secret_provider": "environment-variable",
                         },

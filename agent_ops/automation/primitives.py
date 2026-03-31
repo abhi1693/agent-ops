@@ -9,7 +9,6 @@ from automation.nodes import (
 from automation.app_nodes import (
     WORKFLOW_APP_NODE_DEFINITIONS,
     get_workflow_app_node_metadata,
-    normalize_workflow_app_node_config,
     validate_workflow_app_node,
 )
 from automation.tools import validate_workflow_tool_config
@@ -48,7 +47,7 @@ WORKFLOW_RUNTIME_EXAMPLES = (
     {
         "label": "Trigger",
         "description": "Workflow entry point. The submitted payload is available as trigger.payload.",
-        "example": '{\n  "resource": "webhook",\n  "operation": "receive"\n}',
+        "example": '{\n  "webhook_secret_name": "ALERTMANAGER_WEBHOOK_SECRET"\n}',
     },
     {
         "label": "Agent",
@@ -58,7 +57,7 @@ WORKFLOW_RUNTIME_EXAMPLES = (
     {
         "label": "Tool",
         "description": "Run a named tool from the workflow tool catalog.",
-        "example": '{\n  "tool_name": "template",\n  "template": "Org: {{ workflow.scope_label }}",\n  "output_key": "summary"\n}',
+        "example": '{\n  "template": "Org: {{ workflow.scope_label }}",\n  "output_key": "summary"\n}',
     },
     {
         "label": "Condition",
@@ -245,7 +244,6 @@ def _attach_route_metadata(template: dict) -> dict:
     hydrated_template = _copy_node_template(template)
     route_metadata = get_workflow_app_node_metadata(
         node_type=hydrated_template.get("type"),
-        config=hydrated_template.get("config"),
     )
     return {
         **hydrated_template,
@@ -421,10 +419,6 @@ def normalize_workflow_definition_nodes(definition: dict | None) -> dict:
                 **(node_template.get("config") or {}),
                 **existing_config,
             }
-            normalized_config = normalize_workflow_app_node_config(
-                node_type=node_template["type"],
-                config=normalized_config,
-            )
             normalized_node["config"] = normalized_config
 
         normalized_nodes.append(normalized_node)

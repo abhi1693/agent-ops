@@ -68,30 +68,35 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertIn("signature_secret_name", github_fields)
         self.assertIn("auth_secret_group_id", github_fields)
 
-    def test_observability_template_uses_manifest_field_rules(self):
-        observability_template = WORKFLOW_NODE_TEMPLATE_MAP["tool.observability"]
-        fields_by_key = {
-            field["key"]: field
-            for field in observability_template["fields"]
-        }
+    def test_concrete_observability_templates_are_route_specific(self):
+        prometheus_template = WORKFLOW_NODE_TEMPLATE_MAP["tool.prometheus_query"]
+        elasticsearch_template = WORKFLOW_NODE_TEMPLATE_MAP["tool.elasticsearch_search"]
+        alertmanager_template = WORKFLOW_NODE_TEMPLATE_MAP["trigger.alertmanager_webhook"]
 
-        self.assertEqual(
-            fields_by_key["operation"]["options_by_field"],
-            {
-                "resource": {
-                    "prometheus": [{"value": "query", "label": "Query"}],
-                    "elasticsearch": [{"value": "search", "label": "Search"}],
-                }
-            },
-        )
-        self.assertEqual(
-            fields_by_key["query_json"]["visible_when"],
-            {"resource": ["elasticsearch"]},
-        )
-        self.assertEqual(
-            fields_by_key["bearer_token_name"]["visible_when"],
-            {"resource": ["prometheus"]},
-        )
+        prometheus_fields = {field["key"] for field in prometheus_template["fields"]}
+        elasticsearch_fields = {field["key"] for field in elasticsearch_template["fields"]}
+        alertmanager_fields = {field["key"] for field in alertmanager_template["fields"]}
+
+        self.assertEqual(prometheus_template["resource"], "prometheus")
+        self.assertEqual(prometheus_template["operation"], "query")
+        self.assertEqual(prometheus_template["config"]["output_key"], "prometheus.query")
+        self.assertNotIn("resource", prometheus_fields)
+        self.assertNotIn("operation", prometheus_fields)
+        self.assertIn("query", prometheus_fields)
+        self.assertIn("bearer_token_name", prometheus_fields)
+
+        self.assertEqual(elasticsearch_template["resource"], "elasticsearch")
+        self.assertEqual(elasticsearch_template["operation"], "search")
+        self.assertEqual(elasticsearch_template["config"]["output_key"], "elasticsearch.search")
+        self.assertNotIn("resource", elasticsearch_fields)
+        self.assertNotIn("operation", elasticsearch_fields)
+        self.assertIn("query_json", elasticsearch_fields)
+        self.assertIn("auth_scheme", elasticsearch_fields)
+
+        self.assertEqual(alertmanager_template["resource"], "alertmanager")
+        self.assertEqual(alertmanager_template["operation"], "webhook")
+        self.assertNotIn("resource", alertmanager_fields)
+        self.assertNotIn("operation", alertmanager_fields)
 
     def test_legacy_tool_operation_nodes_no_longer_normalize_to_concrete_types(self):
         definition = {
@@ -169,48 +174,6 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertEqual(normalized["nodes"][0]["type"], "trigger.manual")
         self.assertEqual(normalized["nodes"][1]["type"], "tool.set")
         self.assertEqual(normalized["nodes"][2]["type"], "condition")
-
-    def test_normalize_typed_single_route_app_nodes_strips_redundant_route_selectors(self):
-        definition = {
-            "nodes": [
-                {
-                    "id": "trigger-1",
-                    "kind": "trigger",
-                    "type": "trigger.github",
-                    "label": "GitHub",
-                    "config": {
-                        "resource": "webhook",
-                        "operation": "receive",
-                        "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
-                    },
-                    "position": {"x": 32, "y": 40},
-                },
-                {
-                    "id": "tool-1",
-                    "kind": "tool",
-                    "type": "tool.template",
-                    "label": "Render",
-                    "config": {
-                        "tool_name": "template",
-                        "template": "hello",
-                        "output_key": "draft",
-                    },
-                    "position": {"x": 320, "y": 40},
-                },
-            ],
-            "edges": [],
-        }
-
-        normalized = normalize_workflow_definition_nodes(definition)
-
-        self.assertEqual(
-            normalized["nodes"][0]["config"],
-            {"signature_secret_name": "GITHUB_WEBHOOK_SECRET", "auth_secret_group_id": ""},
-        )
-        self.assertEqual(
-            normalized["nodes"][1]["config"],
-            {"template": "hello", "output_key": "draft"},
-        )
 
     def test_normalize_agent_node_applies_openai_defaults(self):
         definition = {

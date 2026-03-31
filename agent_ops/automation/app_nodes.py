@@ -67,7 +67,7 @@ class WorkflowAppNodeRoute:
 @dataclass(frozen=True)
 class WorkflowAppNodeDefinition:
     template_definition: WorkflowNodeDefinition
-    routes: tuple[WorkflowAppNodeRoute, ...]
+    route: WorkflowAppNodeRoute
 
 
 _APP_NODE_PACKAGE_MANIFEST_PATH = Path(__file__).parent / "nodes" / "apps" / "package.json"
@@ -87,23 +87,20 @@ def _load_app_node_definitions() -> tuple[WorkflowAppNodeDefinition, ...]:
         manifest_path = _APP_NODE_PACKAGE_MANIFEST_PATH.parent.joinpath(*node_path.split(".")).joinpath("node.json")
         manifest = _load_json(manifest_path)
         template_definition = WorkflowNodeDefinition.from_manifest(manifest)
-        routes_payload = manifest.get("agentOps", {}).get("routes", ())
-        if not isinstance(routes_payload, list) or not routes_payload:
-            raise RuntimeError(f'App node "{template_definition.type}" must define at least one route.')
+        route_payload = manifest.get("agentOps", {}).get("route")
+        if not isinstance(route_payload, dict):
+            raise RuntimeError(f'App node "{template_definition.type}" must define an agentOps.route object.')
 
-        routes = tuple(
-            WorkflowAppNodeRoute.from_manifest(
-                route_payload,
-                app_id=template_definition.app_id,
-                node_type=template_definition.type,
-                kind=template_definition.kind,
-            )
-            for route_payload in routes_payload
+        route = WorkflowAppNodeRoute.from_manifest(
+            route_payload,
+            app_id=template_definition.app_id,
+            node_type=template_definition.type,
+            kind=template_definition.kind,
         )
         definitions.append(
             WorkflowAppNodeDefinition(
                 template_definition=template_definition,
-                routes=routes,
+                route=route,
             )
         )
 
@@ -117,17 +114,13 @@ WORKFLOW_APP_NODE_DEFINITION_MAP = {
     for definition in WORKFLOW_APP_NODE_DEFINITIONS
 }
 WORKFLOW_APP_NODE_ROUTES = tuple(
-    route
+    definition.route
     for definition in WORKFLOW_APP_NODE_DEFINITIONS
-    for route in definition.routes
 )
-WORKFLOW_APP_NODE_ROUTES_BY_TYPE: dict[str, tuple[WorkflowAppNodeRoute, ...]] = {}
-for route in WORKFLOW_APP_NODE_ROUTES:
-    WORKFLOW_APP_NODE_ROUTES_BY_TYPE.setdefault(route.node_type, ())
-    WORKFLOW_APP_NODE_ROUTES_BY_TYPE[route.node_type] = (
-        *WORKFLOW_APP_NODE_ROUTES_BY_TYPE[route.node_type],
-        route,
-    )
+WORKFLOW_APP_NODE_ROUTE_MAP = {
+    route.node_type: route
+    for route in WORKFLOW_APP_NODE_ROUTES
+}
 
 
 def _raise_definition_error(message: str) -> None:
@@ -143,77 +136,26 @@ def get_workflow_app_node_definition(
     return WORKFLOW_APP_NODE_DEFINITION_MAP.get(node_type.strip())
 
 
-def _get_node_routes(node_type: str | None) -> tuple[WorkflowAppNodeRoute, ...]:
+def _get_node_route(node_type: str | None) -> WorkflowAppNodeRoute | None:
     if not isinstance(node_type, str) or not node_type.strip():
-        return ()
-    return WORKFLOW_APP_NODE_ROUTES_BY_TYPE.get(node_type.strip(), ())
-
-
-def _resolve_route(node_type: str | None, config: dict[str, Any] | None) -> WorkflowAppNodeRoute | None:
-    routes = _get_node_routes(node_type)
-    if not routes:
         return None
-
-    if len(routes) == 1:
-        route = routes[0]
-        if isinstance(config, dict):
-            resource = config.get("resource")
-            operation = config.get("operation")
-            if resource not in (None, "", route.resource):
-                return None
-            if operation not in (None, "", route.operation):
-                return None
-        return route
-
-    resource = config.get("resource") if isinstance(config, dict) else None
-    operation = config.get("operation") if isinstance(config, dict) else None
-    matching_routes = [
-        route
-        for route in routes
-        if route.resource == resource and route.operation == operation
-    ]
-    if len(matching_routes) == 1:
-        return matching_routes[0]
-    return None
+    return WORKFLOW_APP_NODE_ROUTE_MAP.get(node_type.strip())
 
 
 def _resolve_required_route(*, node: dict[str, Any]) -> WorkflowAppNodeRoute:
     node_type = node.get("type")
-    config = node.get("config") or {}
-    route = _resolve_route(node_type, config)
+    route = _get_node_route(node_type)
     if route is not None:
         return route
 
-    routes = _get_node_routes(node_type)
-    if not routes:
-        _raise_definition_error(f'Node "{node["id"]}" type "{node_type}" is not a supported app node.')
-
-    supported_pairs = ", ".join(
-        f"{candidate.resource}/{candidate.operation}"
-        for candidate in routes
-    )
-    _raise_definition_error(
-        (
-            f'Node "{node["id"]}" config.resource and config.operation must match one of: '
-            f"{supported_pairs}."
-        )
-    )
-
-
-def get_workflow_app_node_route(
-    *,
-    node_type: str | None,
-    config: dict[str, Any] | None = None,
-) -> WorkflowAppNodeRoute | None:
-    return _resolve_route(node_type, config)
+    _raise_definition_error(f'Node "{node["id"]}" type "{node_type}" is not a supported app node.')
 
 
 def get_workflow_app_node_metadata(
     *,
     node_type: str | None,
-    config: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    route = _resolve_route(node_type, config)
+    route = _get_node_route(node_type)
     if route is None:
         return {}
     return {
@@ -222,30 +164,21 @@ def get_workflow_app_node_metadata(
     }
 
 
-def normalize_workflow_app_node_config(
+def _reject_legacy_selector_fields(
     *,
-    node_type: str | None,
-    config: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    normalized_config = dict(config or {})
-    routes = _get_node_routes(node_type)
-    if len(routes) != 1:
-        return normalized_config
-
-    route = _resolve_route(node_type, normalized_config)
-    if route is None:
-        return normalized_config
-
-    if normalized_config.get("resource") in ("", route.resource):
-        normalized_config.pop("resource", None)
-    if normalized_config.get("operation") in ("", route.operation):
-        normalized_config.pop("operation", None)
-    if route.tool_name is not None and normalized_config.get("tool_name") in ("", route.tool_name):
-        normalized_config.pop("tool_name", None)
-    if route.trigger_type is not None and normalized_config.get("type") in ("", route.trigger_type):
-        normalized_config.pop("type", None)
-
-    return normalized_config
+    config: dict[str, Any],
+    node_id: str,
+    keys: tuple[str, ...],
+) -> None:
+    legacy_fields = [
+        f"config.{key}"
+        for key in keys
+        if key in config
+    ]
+    if legacy_fields:
+        _raise_definition_error(
+            f'Node "{node_id}" must not define legacy selector fields: {", ".join(legacy_fields)}.'
+        )
 
 
 def _validate_single_outgoing_target(*, node_id: str, outgoing_targets: list[str]) -> None:
@@ -259,22 +192,14 @@ def _validate_routed_trigger_config(
     config: dict[str, Any],
     node_id: str,
 ) -> dict[str, Any]:
-    configured_trigger_type = config.get("type")
-    if (
-        isinstance(configured_trigger_type, str)
-        and configured_trigger_type.strip()
-        and configured_trigger_type.strip() != route.trigger_type
-    ):
-        _raise_definition_error(
-            f'Node "{node_id}" config.type must match concrete node type.'
-        )
+    _reject_legacy_selector_fields(
+        config=config,
+        node_id=node_id,
+        keys=("resource", "operation", "type"),
+    )
     return validate_workflow_trigger_config(
         {
-            **{
-                key: value
-                for key, value in config.items()
-                if key not in {"resource", "operation", "type"}
-            },
+            **config,
             "type": route.trigger_type,
         },
         node_id=node_id,
@@ -289,22 +214,14 @@ def _validate_routed_tool_config(
 ) -> dict[str, Any]:
     if route.tool_name is None:
         _raise_definition_error(f'Node "{node_id}" has no routed tool implementation.')
-    configured_tool_name = config.get("tool_name")
-    if (
-        isinstance(configured_tool_name, str)
-        and configured_tool_name.strip()
-        and configured_tool_name.strip() != route.tool_name
-    ):
-        _raise_definition_error(
-            f'Node "{node_id}" config.tool_name must match concrete node type.'
-        )
+    _reject_legacy_selector_fields(
+        config=config,
+        node_id=node_id,
+        keys=("resource", "operation", "tool_name"),
+    )
     return validate_workflow_tool_config(
         {
-            **{
-                key: value
-                for key, value in config.items()
-                if key not in {"resource", "operation", "tool_name"}
-            },
+            **config,
             "tool_name": route.tool_name,
         },
         node_id=node_id,
@@ -312,7 +229,7 @@ def _validate_routed_tool_config(
 
 
 def validate_workflow_app_node(*, node: dict[str, Any], outgoing_targets: list[str]) -> WorkflowAppNodeRoute | None:
-    if not _get_node_routes(node.get("type")):
+    if _get_node_route(node.get("type")) is None:
         return None
 
     _validate_single_outgoing_target(node_id=node["id"], outgoing_targets=outgoing_targets)
@@ -341,7 +258,7 @@ def execute_workflow_app_node(
     set_path_value,
     resolve_scoped_secret,
 ) -> dict[str, Any] | None:
-    if not _get_node_routes(node.get("type")):
+    if _get_node_route(node.get("type")) is None:
         return None
 
     route = _resolve_required_route(node=node)

@@ -8,8 +8,10 @@
       "utilities.template",
       "utilities.secret",
       "github.webhook",
-      "observability.trigger",
-      "observability.tool",
+      "observability.alertmanager_webhook",
+      "observability.kibana_webhook",
+      "observability.prometheus_query",
+      "observability.elasticsearch_search",
       "infrastructure.kubectl",
       "integrations.mcp_server"
     ]

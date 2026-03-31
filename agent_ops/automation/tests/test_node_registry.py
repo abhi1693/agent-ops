@@ -89,8 +89,10 @@ class WorkflowAppNodeRegistryTests(SimpleTestCase):
                 "utilities.template",
                 "utilities.secret",
                 "github.webhook",
-                "observability.trigger",
-                "observability.tool",
+                "observability.alertmanager_webhook",
+                "observability.kibana_webhook",
+                "observability.prometheus_query",
+                "observability.elasticsearch_search",
                 "infrastructure.kubectl",
                 "integrations.mcp_server",
             ],
@@ -101,8 +103,10 @@ class WorkflowAppNodeRegistryTests(SimpleTestCase):
                 "tool.template",
                 "tool.secret",
                 "trigger.github",
-                "trigger.observability",
-                "tool.observability",
+                "trigger.alertmanager_webhook",
+                "trigger.kibana_webhook",
+                "tool.prometheus_query",
+                "tool.elasticsearch_search",
                 "tool.kubectl",
                 "tool.mcp_server",
             ],
@@ -110,10 +114,7 @@ class WorkflowAppNodeRegistryTests(SimpleTestCase):
 
     def test_app_node_registry_exposes_typed_route_metadata(self):
         self.assertEqual(
-            get_workflow_app_node_metadata(
-                node_type="tool.observability",
-                config={"resource": "elasticsearch", "operation": "search"},
-            ),
+            get_workflow_app_node_metadata(node_type="tool.elasticsearch_search"),
             {"resource": "elasticsearch", "operation": "search"},
         )
 

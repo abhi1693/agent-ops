@@ -80,12 +80,10 @@
         "placeholder": "20"
       }
     ],
-    "routes": [
-      {
-        "resource": "cluster",
-        "operation": "kubectl",
-        "toolName": "kubectl"
-      }
-    ]
+    "route": {
+      "resource": "cluster",
+      "operation": "kubectl",
+      "toolName": "kubectl"
+    }
   }
 }

@@ -1,17 +1,15 @@
 {
-  "node": "trigger.observability",
-  "details": "Observability webhook trigger for alert streams such as Alertmanager and Kibana.",
+  "node": "trigger.kibana_webhook",
+  "details": "Kibana webhook trigger for observability rule ingestion.",
   "agentOps": {
     "kind": "trigger",
-    "displayName": "Observability trigger",
-    "icon": "mdi-bell-ring-outline",
+    "displayName": "Kibana webhook",
+    "icon": "mdi-view-dashboard-outline",
     "appId": "observability",
     "appLabel": "Observability",
     "appDescription": "Ingest alerts and query monitoring systems such as Prometheus and Elasticsearch.",
     "appIcon": "mdi-chart-areaspline",
     "config": {
-      "resource": "alertmanager",
-      "operation": "webhook",
       "auth_secret_group_id": ""
     },
     "fields": [
@@ -22,36 +20,10 @@
         "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
       },
       {
-        "key": "resource",
-        "label": "Resource",
-        "type": "select",
-        "options": [
-          {
-            "value": "alertmanager",
-            "label": "Alertmanager"
-          },
-          {
-            "value": "kibana",
-            "label": "Kibana"
-          }
-        ]
-      },
-      {
-        "key": "operation",
-        "label": "Operation",
-        "type": "select",
-        "options": [
-          {
-            "value": "webhook",
-            "label": "Webhook"
-          }
-        ]
-      },
-      {
         "key": "webhook_secret_name",
         "label": "Webhook secret name",
         "type": "text",
-        "placeholder": "ALERTMANAGER_WEBHOOK_SECRET"
+        "placeholder": "KIBANA_WEBHOOK_SECRET"
       },
       {
         "key": "webhook_secret_provider",
@@ -67,17 +39,10 @@
         "placeholder": "X-AgentOps-Webhook-Secret"
       }
     ],
-    "routes": [
-      {
-        "resource": "alertmanager",
-        "operation": "webhook",
-        "triggerType": "alertmanager_webhook"
-      },
-      {
-        "resource": "kibana",
-        "operation": "webhook",
-        "triggerType": "kibana_webhook"
-      }
-    ]
+    "route": {
+      "resource": "kibana",
+      "operation": "webhook",
+      "triggerType": "kibana_webhook"
+    }
   }
 }

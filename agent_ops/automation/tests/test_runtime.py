@@ -478,7 +478,7 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.status, "failed")
         self.assertEqual(
             run.error,
-            'definition: Node "tool-1" config.resource and config.operation must match one of: secret/resolve.',
+            'definition: Node "tool-1" must not define legacy selector fields: config.operation.',
         )
         self.assertEqual(run.step_results, [])
 
@@ -576,11 +576,9 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "tool-1",
                         "kind": "tool",
-                        "type": "tool.observability",
+                        "type": "tool.prometheus_query",
                         "label": "Prometheus query",
                         "config": {
-                            "resource": "prometheus",
-                            "operation": "query",
                             "auth_secret_group_id": "",
                             "base_url": "https://prometheus.example.com",
                             "bearer_token_name": "api_token",
@@ -954,11 +952,9 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "tool-1",
                         "kind": "tool",
-                        "type": "tool.observability",
+                        "type": "tool.prometheus_query",
                         "label": "Prometheus query",
                         "config": {
-                            "resource": "prometheus",
-                            "operation": "query",
                             "base_url": "https://{{ trigger.payload.base_url }}",
                             "query": "up",
                             "output_key": "prometheus.query",
@@ -1007,11 +1003,9 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "tool-1",
                         "kind": "tool",
-                        "type": "tool.observability",
+                        "type": "tool.prometheus_query",
                         "label": "Prometheus query",
                         "config": {
-                            "resource": "prometheus",
-                            "operation": "query",
                             "base_url": "https://prometheus.example.com",
                             "bearer_token_name": "PROMETHEUS_API_TOKEN",
                             "bearer_token_provider": "environment-variable",
@@ -1086,11 +1080,9 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "tool-1",
                         "kind": "tool",
-                        "type": "tool.observability",
+                        "type": "tool.elasticsearch_search",
                         "label": "Elasticsearch search",
                         "config": {
-                            "resource": "elasticsearch",
-                            "operation": "search",
                             "base_url": "https://elastic.example.com",
                             "index": "logs-*",
                             "auth_token_name": "ELASTICSEARCH_API_KEY",

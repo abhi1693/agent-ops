@@ -255,7 +255,7 @@ class WorkflowModelTests(TestCase):
 
         workflow.full_clean()
 
-    def test_workflow_rejects_concrete_tool_type_with_mismatched_config_tool_name(self):
+    def test_workflow_rejects_legacy_tool_name_selector_on_typed_app_node(self):
         workflow = Workflow(
             environment=self.environment,
             name="Mismatched concrete tool workflow",
@@ -301,7 +301,7 @@ class WorkflowModelTests(TestCase):
         with self.assertRaises(ValidationError) as context:
             workflow.full_clean()
 
-        self.assertIn("config.tool_name must match concrete node type", str(context.exception))
+        self.assertIn("legacy selector fields: config.tool_name", str(context.exception))
 
     def test_workflow_accepts_webhook_trigger_and_external_tool_nodes(self):
         workflow = Workflow(
@@ -323,11 +323,9 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "tool-1",
                         "kind": "tool",
-                        "type": "tool.observability",
+                        "type": "tool.prometheus_query",
                         "label": "Prometheus query",
                         "config": {
-                            "resource": "prometheus",
-                            "operation": "query",
                             "base_url": "https://prometheus.example.com",
                             "query": "up",
                             "output_key": "prometheus.query",

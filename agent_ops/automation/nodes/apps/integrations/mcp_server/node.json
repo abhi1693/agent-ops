@@ -100,12 +100,10 @@
         "placeholder": "30"
       }
     ],
-    "routes": [
-      {
-        "resource": "server",
-        "operation": "call",
-        "toolName": "mcp_server"
-      }
-    ]
+    "route": {
+      "resource": "server",
+      "operation": "call",
+      "toolName": "mcp_server"
+    }
   }
 }

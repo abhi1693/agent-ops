@@ -1,0 +1,48 @@
+{
+  "node": "trigger.alertmanager_webhook",
+  "details": "Alertmanager webhook trigger for observability alert ingestion.",
+  "agentOps": {
+    "kind": "trigger",
+    "displayName": "Alertmanager webhook",
+    "icon": "mdi-bell-ring-outline",
+    "appId": "observability",
+    "appLabel": "Observability",
+    "appDescription": "Ingest alerts and query monitoring systems such as Prometheus and Elasticsearch.",
+    "appIcon": "mdi-chart-areaspline",
+    "config": {
+      "auth_secret_group_id": ""
+    },
+    "fields": [
+      {
+        "key": "auth_secret_group_id",
+        "label": "Auth secret group",
+        "type": "select",
+        "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
+      },
+      {
+        "key": "webhook_secret_name",
+        "label": "Webhook secret name",
+        "type": "text",
+        "placeholder": "ALERTMANAGER_WEBHOOK_SECRET"
+      },
+      {
+        "key": "webhook_secret_provider",
+        "label": "Webhook secret provider",
+        "type": "text",
+        "placeholder": "environment-variable",
+        "help_text": "Optional. Leave blank to search all enabled providers in scope."
+      },
+      {
+        "key": "secret_header",
+        "label": "Secret header",
+        "type": "text",
+        "placeholder": "X-AgentOps-Webhook-Secret"
+      }
+    ],
+    "route": {
+      "resource": "alertmanager",
+      "operation": "webhook",
+      "triggerType": "alertmanager_webhook"
+    }
+  }
+}

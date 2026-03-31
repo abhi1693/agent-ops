@@ -1,0 +1,69 @@
+{
+  "node": "tool.prometheus_query",
+  "details": "Prometheus query node for observability workflows.",
+  "agentOps": {
+    "kind": "tool",
+    "displayName": "Prometheus query",
+    "icon": "mdi-chart-areaspline",
+    "appId": "observability",
+    "appLabel": "Observability",
+    "appDescription": "Ingest alerts and query monitoring systems such as Prometheus and Elasticsearch.",
+    "appIcon": "mdi-chart-areaspline",
+    "config": {
+      "output_key": "prometheus.query",
+      "auth_secret_group_id": ""
+    },
+    "fields": [
+      {
+        "key": "auth_secret_group_id",
+        "label": "Auth secret group",
+        "type": "select",
+        "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
+      },
+      {
+        "key": "output_key",
+        "label": "Save result as",
+        "type": "text",
+        "placeholder": "prometheus.query"
+      },
+      {
+        "key": "base_url",
+        "label": "Service base URL",
+        "type": "text",
+        "placeholder": "https://prometheus.example.com"
+      },
+      {
+        "key": "bearer_token_name",
+        "label": "Bearer token secret name",
+        "type": "text",
+        "placeholder": "PROMETHEUS_API_TOKEN",
+        "help_text": "Optional. Leave blank if Prometheus is reachable without auth."
+      },
+      {
+        "key": "bearer_token_provider",
+        "label": "Bearer token provider",
+        "type": "text",
+        "placeholder": "environment-variable",
+        "help_text": "Optional. Leave blank to search all enabled providers in scope."
+      },
+      {
+        "key": "query",
+        "label": "PromQL query",
+        "type": "textarea",
+        "rows": 4,
+        "placeholder": "sum(rate(http_requests_total[5m]))"
+      },
+      {
+        "key": "time",
+        "label": "Query time",
+        "type": "text",
+        "placeholder": "Optional RFC3339 or unix timestamp"
+      }
+    ],
+    "route": {
+      "resource": "prometheus",
+      "operation": "query",
+      "toolName": "prometheus_query"
+    }
+  }
+}
