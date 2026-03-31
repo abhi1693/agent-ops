@@ -3,12 +3,10 @@ from __future__ import annotations
 from django.core.exceptions import ValidationError
 
 from automation.nodes import (
-    WORKFLOW_BUILTIN_NODE_TEMPLATES,
-    validate_workflow_builtin_node,
-)
-from automation.app_nodes import (
-    WORKFLOW_APP_NODE_DEFINITIONS,
-    normalize_workflow_app_node_config,
+    WORKFLOW_NODE_DEFINITIONS as WORKFLOW_MANIFEST_NODE_DEFINITIONS,
+    WORKFLOW_NODE_TEMPLATES as WORKFLOW_MANIFEST_NODE_TEMPLATES,
+    normalize_workflow_node_config,
+    validate_workflow_node,
 )
 from automation.tools import validate_workflow_tool_config
 from automation.triggers import validate_workflow_trigger_config
@@ -70,9 +68,9 @@ def _copy_template_fields(*fields):
     return tuple(dict(field) for field in fields)
 
 
-_WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP = {
+_WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP = {
     template["type"]: template
-    for template in WORKFLOW_BUILTIN_NODE_TEMPLATES
+    for template in WORKFLOW_MANIFEST_NODE_TEMPLATES
 }
 
 _BUILTIN_NODE_APP_DESCRIPTION = (
@@ -226,48 +224,46 @@ def _copy_node_template(template: dict) -> dict:
     }
 
 
-_WORKFLOW_APP_NODE_TEMPLATE_MAP = {
-    definition.type: _copy_node_template(definition.serialize())
-    for definition in WORKFLOW_APP_NODE_DEFINITIONS
-}
-
 _BUILTIN_NODE_APP_DEFINITION = {
     "id": "builtins",
     "label": "Built-ins",
     "description": _BUILTIN_NODE_APP_DESCRIPTION,
     "icon": "mdi-toy-brick-outline",
     "templates": (
-        _WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP["n8n-nodes-base.manualTrigger"],
-        _WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP["n8n-nodes-base.scheduleTrigger"],
+        _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP["n8n-nodes-base.manualTrigger"],
+        _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP["n8n-nodes-base.scheduleTrigger"],
         _WORKFLOW_INTERNAL_NODE_TEMPLATE_MAP["agent"],
-        _WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP["n8n-nodes-base.set"],
-        _WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP["n8n-nodes-base.if"],
-        _WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP["n8n-nodes-base.switch"],
+        _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP["n8n-nodes-base.set"],
+        _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP["n8n-nodes-base.if"],
+        _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP["n8n-nodes-base.switch"],
         _WORKFLOW_INTERNAL_NODE_TEMPLATE_MAP["response"],
-        _WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP["n8n-nodes-base.stopAndError"],
+        _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP["n8n-nodes-base.stopAndError"],
     ),
 }
 
 
-def _build_workflow_app_group_definitions():
+def _build_workflow_manifest_group_definitions():
     app_groups: list[dict] = []
     groups_by_id: dict[str, dict] = {}
 
-    for app_definition in WORKFLOW_APP_NODE_DEFINITIONS:
-        template = _WORKFLOW_APP_NODE_TEMPLATE_MAP.get(app_definition.type)
-        if template is None:
-            raise KeyError(f'Missing workflow app node template for "{app_definition.type}".')
+    for node_definition in WORKFLOW_MANIFEST_NODE_DEFINITIONS:
+        if node_definition.app_id == "builtins":
+            continue
 
-        app_group = groups_by_id.get(app_definition.app_id)
+        template = _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP.get(node_definition.type)
+        if template is None:
+            raise KeyError(f'Missing workflow node template for "{node_definition.type}".')
+
+        app_group = groups_by_id.get(node_definition.app_id)
         if app_group is None:
             app_group = {
-                "id": app_definition.app_id,
-                "label": app_definition.app_label,
-                "description": app_definition.app_description,
-                "icon": app_definition.app_icon,
+                "id": node_definition.app_id,
+                "label": node_definition.app_label,
+                "description": node_definition.app_description,
+                "icon": node_definition.app_icon,
                 "templates": [],
             }
-            groups_by_id[app_definition.app_id] = app_group
+            groups_by_id[node_definition.app_id] = app_group
             app_groups.append(app_group)
 
         app_group["templates"].append(_copy_node_template(template))
@@ -281,7 +277,7 @@ def _build_workflow_app_group_definitions():
     )
 
 
-_WORKFLOW_APP_GROUP_DEFINITIONS = _build_workflow_app_group_definitions()
+_WORKFLOW_MANIFEST_GROUP_DEFINITIONS = _build_workflow_manifest_group_definitions()
 
 WORKFLOW_NODE_APPS = tuple(
     {
@@ -291,12 +287,12 @@ WORKFLOW_NODE_APPS = tuple(
         "icon": app_definition["icon"],
         "node_types": [template["type"] for template in app_definition["templates"]],
     }
-    for app_definition in (_BUILTIN_NODE_APP_DEFINITION, *_WORKFLOW_APP_GROUP_DEFINITIONS)
+    for app_definition in (_BUILTIN_NODE_APP_DEFINITION, *_WORKFLOW_MANIFEST_GROUP_DEFINITIONS)
 )
 
 WORKFLOW_NODE_TEMPLATES = tuple(
     template
-    for app_definition in (_BUILTIN_NODE_APP_DEFINITION, *_WORKFLOW_APP_GROUP_DEFINITIONS)
+    for app_definition in (_BUILTIN_NODE_APP_DEFINITION, *_WORKFLOW_MANIFEST_GROUP_DEFINITIONS)
     for template in app_definition["templates"]
 )
 
@@ -398,7 +394,7 @@ def normalize_workflow_definition_nodes(definition: dict | None) -> dict:
                 **(node_template.get("config") or {}),
                 **existing_config,
             }
-            normalized_config = normalize_workflow_app_node_config(
+            normalized_config = normalize_workflow_node_config(
                 node_type=node_template["type"],
                 config=normalized_config,
             )
@@ -474,11 +470,12 @@ def _validate_runtime_node(*, node: dict, node_ids: set[str], outgoing_targets: 
     if not isinstance(config, dict):
         _raise_definition_error(f'Node "{node_id}" config must be a JSON object.')
 
-    if validate_workflow_builtin_node(
+    node_definition = validate_workflow_node(
         node=node,
         outgoing_targets=outgoing_targets,
         node_ids=node_ids,
-    ) is not None:
+    )
+    if node_definition is not None and node_definition.validator is not None:
         return
 
     node_template = get_workflow_node_template(

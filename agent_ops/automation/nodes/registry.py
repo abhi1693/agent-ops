@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import json
 from pathlib import Path
+from typing import Any
 
 from automation.nodes.base import (
     WorkflowNodeDefinition,
@@ -13,23 +14,25 @@ from automation.nodes.base import (
 
 
 _PACKAGE_MANIFEST_PATH = Path(__file__).with_name("package.json")
+_APP_PACKAGE_MANIFEST_PATH = _PACKAGE_MANIFEST_PATH.with_name("apps").joinpath("package.json")
 
 
-def _load_package_manifest() -> dict:
-    with _PACKAGE_MANIFEST_PATH.open("r", encoding="utf-8") as package_file:
+def _load_package_manifest(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as package_file:
         return json.load(package_file)
 
 
-def _load_node_manifest(manifest_path: Path) -> dict:
+def _load_node_manifest(manifest_path: Path) -> dict[str, Any]:
     with manifest_path.open("r", encoding="utf-8") as manifest_file:
         return json.load(manifest_file)
 
 
-WORKFLOW_BUILTIN_NODE_PACKAGE = _load_package_manifest()
+_WORKFLOW_BUILTIN_PACKAGE = _load_package_manifest(_PACKAGE_MANIFEST_PATH)
+_WORKFLOW_APP_PACKAGE = _load_package_manifest(_APP_PACKAGE_MANIFEST_PATH)
 
 
 def _load_builtin_node_definitions() -> tuple[WorkflowNodeDefinition, ...]:
-    nodes_config = WORKFLOW_BUILTIN_NODE_PACKAGE.get("agentOps", {})
+    nodes_config = _WORKFLOW_BUILTIN_PACKAGE.get("agentOps", {})
     node_modules = nodes_config.get("nodes", ())
     definitions: list[WorkflowNodeDefinition] = []
 
@@ -56,37 +59,76 @@ def _load_builtin_node_definitions() -> tuple[WorkflowNodeDefinition, ...]:
     return tuple(definitions)
 
 
-WORKFLOW_BUILTIN_NODE_DEFINITIONS = _load_builtin_node_definitions()
+def _validate_runtime_mapped_node_type(definition: WorkflowNodeDefinition) -> None:
+    prefix = f"{definition.kind}."
+    if not definition.type.startswith(prefix):
+        raise RuntimeError(
+            f'Node "{definition.type}" must use a "{prefix}<name>" type.'
+        )
 
-WORKFLOW_BUILTIN_NODE_REGISTRY = {
-    node_definition.type: node_definition
-    for node_definition in WORKFLOW_BUILTIN_NODE_DEFINITIONS
-}
+    runtime_name = definition.type.removeprefix(prefix).strip()
+    if not runtime_name:
+        raise RuntimeError(
+            f'Node "{definition.type}" must use a "{prefix}<name>" type.'
+        )
 
-WORKFLOW_BUILTIN_NODE_TEMPLATES = tuple(
-    node_definition.serialize()
-    for node_definition in WORKFLOW_BUILTIN_NODE_DEFINITIONS
+
+def _load_app_node_definitions() -> tuple[WorkflowNodeDefinition, ...]:
+    nodes_config = _WORKFLOW_APP_PACKAGE.get("agentOps", {})
+    node_paths = nodes_config.get("nodes", ())
+    definitions: list[WorkflowNodeDefinition] = []
+
+    for node_path in node_paths:
+        manifest_path = _APP_PACKAGE_MANIFEST_PATH.parent.joinpath(*node_path.split(".")).joinpath("node.json")
+        definition = WorkflowNodeDefinition.from_manifest(_load_node_manifest(manifest_path))
+        if definition.kind not in {"trigger", "tool"}:
+            raise RuntimeError(
+                f'Node "{definition.type}" kind "{definition.kind}" is not supported in the app node catalog.'
+            )
+        _validate_runtime_mapped_node_type(definition)
+        definitions.append(definition)
+
+    return tuple(definitions)
+
+
+_BUILTIN_NODE_DEFINITIONS = _load_builtin_node_definitions()
+_APP_NODE_DEFINITIONS = _load_app_node_definitions()
+
+WORKFLOW_NODE_DEFINITIONS = (
+    *_BUILTIN_NODE_DEFINITIONS,
+    *_APP_NODE_DEFINITIONS,
 )
 
-WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP = {
-    template["type"]: template
-    for template in WORKFLOW_BUILTIN_NODE_TEMPLATES
+WORKFLOW_NODE_REGISTRY = {
+    node_definition.type: node_definition
+    for node_definition in WORKFLOW_NODE_DEFINITIONS
 }
 
-def get_workflow_builtin_node_definition(node_type: str | None) -> WorkflowNodeDefinition | None:
+WORKFLOW_NODE_TEMPLATES = tuple(
+    node_definition.serialize()
+    for node_definition in WORKFLOW_NODE_DEFINITIONS
+)
+
+WORKFLOW_NODE_TEMPLATE_MAP = {
+    template["type"]: template
+    for template in WORKFLOW_NODE_TEMPLATES
+}
+
+
+def get_workflow_node_definition(node_type: str | None) -> WorkflowNodeDefinition | None:
     if not isinstance(node_type, str) or not node_type.strip():
         return None
-    return WORKFLOW_BUILTIN_NODE_REGISTRY.get(node_type.strip())
+    return WORKFLOW_NODE_REGISTRY.get(node_type.strip())
 
 
-def get_workflow_builtin_node_template(*, node_type: str | None = None):
+def get_workflow_node_template(*, node_type: str | None = None):
     if not isinstance(node_type, str) or not node_type.strip():
         return None
-    return WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP.get(node_type.strip())
+    return WORKFLOW_NODE_TEMPLATE_MAP.get(node_type.strip())
 
 
-def validate_workflow_builtin_node(*, node: dict, outgoing_targets: list[str], node_ids: set[str]) -> WorkflowNodeDefinition | None:
-    node_definition = get_workflow_builtin_node_definition(node.get("type"))
+def validate_workflow_node(*, node: dict, outgoing_targets: list[str], node_ids: set[str]) -> WorkflowNodeDefinition | None:
+    node_definition = get_workflow_node_definition(node.get("type"))
     if node_definition is None:
         return None
     if node_definition.validator is not None:
@@ -94,7 +136,7 @@ def validate_workflow_builtin_node(*, node: dict, outgoing_targets: list[str], n
     return node_definition
 
 
-def execute_workflow_builtin_node(
+def execute_workflow_node(
     *,
     workflow,
     node: dict,
@@ -107,7 +149,7 @@ def execute_workflow_builtin_node(
     set_path_value,
     evaluate_condition,
 ) -> WorkflowNodeExecutionResult | None:
-    node_definition = get_workflow_builtin_node_definition(node.get("type"))
+    node_definition = get_workflow_node_definition(node.get("type"))
     if node_definition is None or node_definition.executor is None:
         return None
     return node_definition.executor(
@@ -125,3 +167,22 @@ def execute_workflow_builtin_node(
             evaluate_condition=evaluate_condition,
         )
     )
+
+
+def normalize_workflow_node_config(
+    *,
+    node_type: str | None,
+    config: dict[str, Any] | None,
+) -> dict[str, Any]:
+    normalized = dict(config or {})
+    node_definition = get_workflow_node_definition(node_type)
+    if node_definition is None:
+        return normalized
+
+    prefix = f"{node_definition.kind}."
+    if node_definition.kind == "trigger" and node_definition.type.startswith(prefix):
+        normalized["type"] = node_definition.type.removeprefix(prefix).strip()
+    elif node_definition.kind == "tool" and node_definition.type.startswith(prefix):
+        normalized["tool_name"] = node_definition.type.removeprefix(prefix).strip()
+
+    return normalized

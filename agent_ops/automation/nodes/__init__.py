@@ -1,17 +1,19 @@
 from .registry import (
-    WORKFLOW_BUILTIN_NODE_DEFINITIONS,
-    WORKFLOW_BUILTIN_NODE_TEMPLATES,
-    execute_workflow_builtin_node,
-    get_workflow_builtin_node_definition,
-    get_workflow_builtin_node_template,
-    validate_workflow_builtin_node,
+    WORKFLOW_NODE_DEFINITIONS,
+    WORKFLOW_NODE_TEMPLATES,
+    execute_workflow_node,
+    get_workflow_node_definition,
+    get_workflow_node_template,
+    normalize_workflow_node_config,
+    validate_workflow_node,
 )
 
 __all__ = [
-    "WORKFLOW_BUILTIN_NODE_DEFINITIONS",
-    "WORKFLOW_BUILTIN_NODE_TEMPLATES",
-    "execute_workflow_builtin_node",
-    "get_workflow_builtin_node_definition",
-    "get_workflow_builtin_node_template",
-    "validate_workflow_builtin_node",
+    "WORKFLOW_NODE_DEFINITIONS",
+    "WORKFLOW_NODE_TEMPLATES",
+    "execute_workflow_node",
+    "get_workflow_node_definition",
+    "get_workflow_node_template",
+    "normalize_workflow_node_config",
+    "validate_workflow_node",
 ]

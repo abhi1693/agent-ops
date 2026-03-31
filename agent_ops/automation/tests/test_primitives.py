@@ -127,7 +127,7 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertEqual(normalized["nodes"][0]["config"]["template"], "hello")
         self.assertEqual(normalized["nodes"][0]["config"]["output_key"], "llm.response")
 
-    def test_normalize_app_nodes_injects_runtime_trigger_and_tool_identifiers(self):
+    def test_normalize_manifest_trigger_and_tool_nodes_injects_runtime_identifiers(self):
         definition = {
             "nodes": [
                 {

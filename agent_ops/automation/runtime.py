@@ -8,7 +8,7 @@ from django.db import transaction
 from django.template import Context, Engine
 from django.utils import timezone
 
-from automation.nodes import execute_workflow_builtin_node
+from automation.nodes import execute_workflow_node
 from automation.auth import resolve_workflow_secret
 from automation.models.runs import WorkflowRun
 from automation.primitives import (
@@ -203,7 +203,7 @@ def _execute_node(
     config = node.get("config") or {}
     kind = node["kind"]
 
-    builtin_node_output = execute_workflow_builtin_node(
+    node_output = execute_workflow_node(
         workflow=workflow,
         node=node,
         next_node_id=next_node_id,
@@ -215,13 +215,13 @@ def _execute_node(
         set_path_value=_set_path_value,
         evaluate_condition=_evaluate_condition,
     )
-    if builtin_node_output is not None:
+    if node_output is not None:
         return _NodeExecutionResult(
-            next_node_id=builtin_node_output.next_node_id,
-            output=builtin_node_output.output,
-            response=builtin_node_output.response,
-            run_status=builtin_node_output.run_status,
-            terminal=builtin_node_output.terminal,
+            next_node_id=node_output.next_node_id,
+            output=node_output.output,
+            response=node_output.response,
+            run_status=node_output.run_status,
+            terminal=node_output.terminal,
         )
 
     if kind == "trigger":
