@@ -15,12 +15,6 @@ from automation.primitives import (
     normalize_workflow_definition_nodes,
     validate_workflow_runtime_definition,
 )
-from automation.tools import (
-    WorkflowToolExecutionContext,
-    execute_workflow_tool,
-    validate_workflow_tool_config,
-)
-from automation.triggers import validate_workflow_trigger_config
 
 
 _TEMPLATE_ENGINE = Engine(debug=False)
@@ -200,9 +194,6 @@ def _execute_node(
     secret_paths: set[str],
     secret_values: list[str],
 ) -> _NodeExecutionResult:
-    config = node.get("config") or {}
-    kind = node["kind"]
-
     node_output = execute_workflow_node(
         workflow=workflow,
         node=node,
@@ -225,42 +216,8 @@ def _execute_node(
             terminal=node_output.terminal,
         )
 
-    if kind == "trigger":
-        normalized_trigger_config = validate_workflow_trigger_config(config, node_id=node["id"])
-        return _NodeExecutionResult(
-            next_node_id=next_node_id,
-            output={
-                "payload": context["trigger"]["payload"],
-                "trigger_type": normalized_trigger_config["type"],
-                "trigger_meta": context["trigger"].get("meta", {}),
-            },
-        )
-
-    if kind == "tool":
-        normalized_tool_config = validate_workflow_tool_config(config, node_id=node["id"])
-        output = execute_workflow_tool(
-            WorkflowToolExecutionContext(
-                workflow=workflow,
-                node=node,
-                config=normalized_tool_config,
-                context=context,
-                secret_paths=secret_paths,
-                secret_values=secret_values,
-                render_template=_render_template,
-                set_path_value=_set_path_value,
-                resolve_scoped_secret=_resolve_scoped_secret,
-            )
-        )
-        return _NodeExecutionResult(
-            next_node_id=next_node_id,
-            output={
-                key: value
-                for key, value in output.items()
-                if key != "operation"
-            },
-        )
-
-    raise ValidationError({"definition": f'Unsupported node kind "{kind}".'})
+    node_type = node.get("type")
+    raise ValidationError({"definition": f'Unsupported node type "{node_type}".'})
 
 
 def execute_workflow(

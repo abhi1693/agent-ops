@@ -15,7 +15,7 @@ from automation.forms import WorkflowDesignerForm, WorkflowForm, WorkflowRunForm
 from automation.models import Workflow, WorkflowRun
 from automation.primitives import WORKFLOW_NODE_TEMPLATES, normalize_workflow_definition_nodes
 from automation.runtime import execute_workflow
-from automation.triggers import prepare_webhook_trigger_request
+from automation.nodes import prepare_workflow_node_webhook_request
 from core.generic_views import (
     ObjectChangeLogView,
     ObjectDeleteView,
@@ -233,7 +233,7 @@ class WorkflowWebhookTriggerView(View):
             return JsonResponse({"detail": "Workflow has no trigger node."}, status=400)
 
         try:
-            trigger_mode, input_data, trigger_metadata = prepare_webhook_trigger_request(
+            trigger_mode, input_data, trigger_metadata = prepare_workflow_node_webhook_request(
                 workflow=workflow,
                 node=trigger_node,
                 request=request,

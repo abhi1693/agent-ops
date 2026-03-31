@@ -8,8 +8,6 @@ from automation.nodes import (
     normalize_workflow_node_config,
     validate_workflow_node,
 )
-from automation.tools import validate_workflow_tool_config
-from automation.triggers import validate_workflow_trigger_config
 from automation.workflow_agents import normalize_workflow_agent_config
 
 
@@ -250,25 +248,10 @@ def _validate_runtime_node(*, node: dict, node_ids: set[str], outgoing_targets: 
         outgoing_targets=outgoing_targets,
         node_ids=node_ids,
     )
-    if node_definition is not None and node_definition.validator is not None:
-        return
-
-    node_template = get_workflow_node_template(
-        node_type=node.get("type"),
-    )
-    if node_template is None:
-        node_type = node.get("type")
-        if not isinstance(node_type, str) or not node_type.strip():
-            _raise_definition_error(f'Node "{node_id}" must define a supported type.')
-        _raise_definition_error(f'Node "{node_id}" type "{node_type}" is not supported.')
-
-    if kind == "trigger":
-        validate_workflow_trigger_config(config, node_id=node_id)
-        return
-
-    if kind == "tool":
-        validate_workflow_tool_config(config, node_id=node_id)
-        return
-
     if node_definition is not None:
         return
+
+    node_type = node.get("type")
+    if not isinstance(node_type, str) or not node_type.strip():
+        _raise_definition_error(f'Node "{node_id}" must define a supported type.')
+    _raise_definition_error(f'Node "{node_id}" type "{node_type}" is not supported.')

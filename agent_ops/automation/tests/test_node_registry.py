@@ -1,15 +1,24 @@
+from django.core.exceptions import ValidationError
+from django.template import Context, Engine
+from django.test import RequestFactory
 from django.test import SimpleTestCase
 
 from automation.nodes import (
     WORKFLOW_NODE_DEFINITIONS,
     WORKFLOW_NODE_TEMPLATES,
+    execute_workflow_node,
     get_workflow_node_definition,
     get_workflow_node_template,
+    prepare_workflow_node_webhook_request,
+    validate_workflow_node,
 )
 from automation.nodes.base import WorkflowNodeDefinition
 
 
 class WorkflowNodeRegistryTests(SimpleTestCase):
+    def setUp(self):
+        self.request_factory = RequestFactory()
+
     def test_manifest_backed_node_registry_is_unified(self):
         self.assertEqual(
             [definition.type for definition in WORKFLOW_NODE_DEFINITIONS],
@@ -143,3 +152,104 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
                 }
             },
         )
+
+    def test_registry_validates_and_executes_manifest_trigger_and_tool_nodes(self):
+        tool_node = {
+            "id": "tool-1",
+            "kind": "tool",
+            "type": "tool.template",
+            "label": "Render template",
+            "config": {
+                "tool_name": "template",
+                "output_key": "draft",
+                "template": "Hello {{ trigger.payload.name }}",
+            },
+        }
+        trigger_node = {
+            "id": "trigger-1",
+            "kind": "trigger",
+            "type": "trigger.github_webhook",
+            "label": "GitHub",
+            "config": {
+                "type": "github_webhook",
+                "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
+            },
+        }
+        context = {
+            "trigger": {
+                "payload": {"name": "Ada"},
+                "meta": {"source": "github"},
+            }
+        }
+
+        self.assertEqual(
+            validate_workflow_node(node=tool_node, outgoing_targets=["done"], node_ids={"tool-1", "done"}).type,
+            "tool.template",
+        )
+        self.assertEqual(
+            validate_workflow_node(
+                node=trigger_node,
+                outgoing_targets=["tool-1"],
+                node_ids={"trigger-1", "tool-1"},
+            ).type,
+            "trigger.github_webhook",
+        )
+
+        template_engine = Engine(debug=False)
+
+        def render_template(template: str, runtime_context: dict) -> str:
+            return template_engine.from_string(template).render(Context(runtime_context)).strip()
+
+        def set_path_value(data: dict, path: str, value):
+            data[path] = value
+
+        tool_result = execute_workflow_node(
+            workflow=None,
+            node=tool_node,
+            next_node_id="done",
+            context=context,
+            secret_paths=set(),
+            secret_values=[],
+            render_template=render_template,
+            get_path_value=lambda data, path: data if not path else data.get(path),
+            set_path_value=set_path_value,
+            resolve_scoped_secret=lambda **kwargs: None,
+            evaluate_condition=lambda operator, left, right: left == right,
+        )
+        trigger_result = execute_workflow_node(
+            workflow=None,
+            node=trigger_node,
+            next_node_id="tool-1",
+            context=context,
+            secret_paths=set(),
+            secret_values=[],
+            render_template=render_template,
+            get_path_value=lambda data, path: data if not path else data.get(path),
+            set_path_value=set_path_value,
+            resolve_scoped_secret=lambda **kwargs: None,
+            evaluate_condition=lambda operator, left, right: left == right,
+        )
+
+        self.assertEqual(tool_result.output["tool_name"], "template")
+        self.assertEqual(tool_result.output["value"], "Hello Ada")
+        self.assertEqual(context["draft"], "Hello Ada")
+        self.assertEqual(trigger_result.output["payload"], {"name": "Ada"})
+        self.assertEqual(trigger_result.output["trigger_type"], "github_webhook")
+        self.assertEqual(trigger_result.output["trigger_meta"], {"source": "github"})
+
+    def test_registry_webhook_helper_delegates_to_trigger_registry(self):
+        request = self.request_factory.post("/webhook", data=b"{}", content_type="application/json")
+        trigger_node = {
+            "id": "trigger-1",
+            "kind": "trigger",
+            "type": "n8n-nodes-base.manualTrigger",
+            "label": "Manual",
+            "config": {},
+        }
+
+        with self.assertRaises(ValidationError):
+            prepare_workflow_node_webhook_request(
+                workflow=object(),
+                node=trigger_node,
+                request=request,
+            )

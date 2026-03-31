@@ -5,6 +5,7 @@ from .registry import (
     get_workflow_node_definition,
     get_workflow_node_template,
     normalize_workflow_node_config,
+    prepare_workflow_node_webhook_request,
     validate_workflow_node,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "get_workflow_node_definition",
     "get_workflow_node_template",
     "normalize_workflow_node_config",
+    "prepare_workflow_node_webhook_request",
     "validate_workflow_node",
 ]
