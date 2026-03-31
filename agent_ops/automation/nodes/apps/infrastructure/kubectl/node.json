@@ -79,7 +79,6 @@
         "type": "text",
         "placeholder": "20"
       }
-    ],
-    "toolName": "kubectl"
+    ]
   }
 }

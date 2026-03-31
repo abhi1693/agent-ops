@@ -99,7 +99,6 @@
         "type": "text",
         "placeholder": "30"
       }
-    ],
-    "toolName": "mcp_server"
+    ]
   }
 }

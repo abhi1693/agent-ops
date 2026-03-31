@@ -76,7 +76,6 @@
         "rows": 8,
         "placeholder": "{\"size\": 10, \"query\": {\"match\": {\"service\": \"api\"}}}"
       }
-    ],
-    "toolName": "elasticsearch_search"
+    ]
   }
 }

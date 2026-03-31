@@ -97,11 +97,11 @@ class WorkflowAppNodeRegistryTests(SimpleTestCase):
             ],
         )
         self.assertEqual(
-            [definition.template_definition.type for definition in WORKFLOW_APP_NODE_DEFINITIONS],
+            [definition.type for definition in WORKFLOW_APP_NODE_DEFINITIONS],
             [
                 "tool.template",
                 "tool.secret",
-                "trigger.github",
+                "trigger.github_webhook",
                 "trigger.alertmanager_webhook",
                 "trigger.kibana_webhook",
                 "tool.prometheus_query",

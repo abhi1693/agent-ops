@@ -5,7 +5,7 @@ from automation.primitives import WORKFLOW_NODE_TEMPLATE_MAP, normalize_workflow
 
 class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
     def test_app_routed_templates_do_not_expose_route_metadata(self):
-        github_template = WORKFLOW_NODE_TEMPLATE_MAP["trigger.github"]
+        github_template = WORKFLOW_NODE_TEMPLATE_MAP["trigger.github_webhook"]
 
         self.assertNotIn("resource", github_template)
         self.assertNotIn("operation", github_template)
@@ -32,7 +32,7 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         secret_template = WORKFLOW_NODE_TEMPLATE_MAP["tool.secret"]
         agent_template = WORKFLOW_NODE_TEMPLATE_MAP["agent"]
         response_template = WORKFLOW_NODE_TEMPLATE_MAP["response"]
-        github_template = WORKFLOW_NODE_TEMPLATE_MAP["trigger.github"]
+        github_template = WORKFLOW_NODE_TEMPLATE_MAP["trigger.github_webhook"]
 
         template_fields = {field["key"] for field in template_template["fields"]}
         secret_fields = {field["key"] for field in secret_template["fields"]}

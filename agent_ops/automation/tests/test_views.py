@@ -213,7 +213,7 @@ class WorkflowViewTests(TestCase):
         self.assertContains(response, '<option value="n8n-nodes-base.switch">Switch</option>', html=True)
         self.assertContains(response, '<option value="response">Response</option>', html=True)
         self.assertContains(response, '<option value="n8n-nodes-base.stopAndError">Stop and Error</option>', html=True)
-        self.assertContains(response, '<option value="trigger.github">GitHub</option>', html=True)
+        self.assertContains(response, '<option value="trigger.github_webhook">GitHub</option>', html=True)
         self.assertContains(response, '<option value="trigger.alertmanager_webhook">Alertmanager webhook</option>', html=True)
         self.assertContains(response, '<option value="trigger.kibana_webhook">Kibana webhook</option>', html=True)
         self.assertContains(response, '<option value="tool.prometheus_query">Prometheus query</option>', html=True)
@@ -514,7 +514,7 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
-                        "type": "trigger.github",
+                        "type": "trigger.github_webhook",
                         "label": "GitHub",
                         "config": {
                             "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
@@ -578,7 +578,7 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
-                        "type": "trigger.github",
+                        "type": "trigger.github_webhook",
                         "label": "GitHub",
                         "config": {
                             "auth_secret_group_id": "",
@@ -651,7 +651,7 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
-                        "type": "trigger.github",
+                        "type": "trigger.github_webhook",
                         "label": "GitHub",
                         "config": {
                             "signature_secret_name": "GITHUB_WEBHOOK_SECRET",

@@ -59,7 +59,6 @@
         "type": "text",
         "placeholder": "Optional RFC3339 or unix timestamp"
       }
-    ],
-    "toolName": "prometheus_query"
+    ]
   }
 }

@@ -38,7 +38,6 @@
         "type": "text",
         "placeholder": "X-AgentOps-Webhook-Secret"
       }
-    ],
-    "triggerType": "alertmanager_webhook"
+    ]
   }
 }

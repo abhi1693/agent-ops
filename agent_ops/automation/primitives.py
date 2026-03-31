@@ -227,9 +227,7 @@ def _copy_node_template(template: dict) -> dict:
 
 
 _WORKFLOW_APP_NODE_TEMPLATE_MAP = {
-    definition.template_definition.type: _copy_node_template(
-        definition.template_definition.serialize()
-    )
+    definition.type: _copy_node_template(definition.serialize())
     for definition in WORKFLOW_APP_NODE_DEFINITIONS
 }
 
@@ -255,22 +253,21 @@ def _build_workflow_app_group_definitions():
     app_groups: list[dict] = []
     groups_by_id: dict[str, dict] = {}
 
-    for app_node_definition in WORKFLOW_APP_NODE_DEFINITIONS:
-        template_definition = app_node_definition.template_definition
-        template = _WORKFLOW_APP_NODE_TEMPLATE_MAP.get(template_definition.type)
+    for app_definition in WORKFLOW_APP_NODE_DEFINITIONS:
+        template = _WORKFLOW_APP_NODE_TEMPLATE_MAP.get(app_definition.type)
         if template is None:
-            raise KeyError(f'Missing workflow app node template for "{template_definition.type}".')
+            raise KeyError(f'Missing workflow app node template for "{app_definition.type}".')
 
-        app_group = groups_by_id.get(template_definition.app_id)
+        app_group = groups_by_id.get(app_definition.app_id)
         if app_group is None:
             app_group = {
-                "id": template_definition.app_id,
-                "label": template_definition.app_label,
-                "description": template_definition.app_description,
-                "icon": template_definition.app_icon,
+                "id": app_definition.app_id,
+                "label": app_definition.app_label,
+                "description": app_definition.app_description,
+                "icon": app_definition.app_icon,
                 "templates": [],
             }
-            groups_by_id[template_definition.app_id] = app_group
+            groups_by_id[app_definition.app_id] = app_group
             app_groups.append(app_group)
 
         app_group["templates"].append(_copy_node_template(template))

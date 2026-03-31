@@ -1,5 +1,5 @@
 {
-  "node": "trigger.github",
+  "node": "trigger.github_webhook",
   "details": "GitHub trigger node for repository and workflow webhook events.",
   "agentOps": {
     "kind": "trigger",
@@ -39,7 +39,6 @@
         "placeholder": "push,pull_request",
         "help_text": "Optional comma-separated allow-list. Leave blank to accept all GitHub events."
       }
-    ],
-    "triggerType": "github_webhook"
+    ]
   }
 }

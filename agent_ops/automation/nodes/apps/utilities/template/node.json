@@ -26,7 +26,6 @@
         "rows": 4,
         "placeholder": "Service: {{ workflow.scope_label }}"
       }
-    ],
-    "toolName": "template"
+    ]
   }
 }

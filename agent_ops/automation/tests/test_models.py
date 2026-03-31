@@ -264,7 +264,7 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
-                        "type": "trigger.github",
+                        "type": "trigger.github_webhook",
                         "label": "GitHub webhook",
                         "config": {
                             "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
