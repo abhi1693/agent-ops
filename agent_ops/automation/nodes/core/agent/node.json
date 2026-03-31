@@ -1,0 +1,109 @@
+{
+  "node": "agent",
+  "nodeVersion": "1.0.0",
+  "details": "Call an LLM with an OpenAI-style chat API and store the result in workflow context.",
+  "categories": ["Core Nodes"],
+  "subcategories": {
+    "Core Nodes": ["AI"]
+  },
+  "agentOps": {
+    "kind": "agent",
+    "displayName": "Agent",
+    "icon": "mdi-robot-outline",
+    "appDescription": "Core workflow nodes, runtime primitives, and n8n-style built-in blocks available in the designer.",
+    "appIcon": "mdi-toy-brick-outline",
+    "config": {
+      "api_type": "openai",
+      "api_key_name": "OPENAI_API_KEY",
+      "base_url": "https://api.openai.com/v1",
+      "model": "gpt-4.1-mini",
+      "output_key": "llm.response"
+    },
+    "fields": [
+      {
+        "key": "api_type",
+        "label": "API type",
+        "type": "select",
+        "options": [
+          {
+            "value": "openai",
+            "label": "OpenAI"
+          }
+        ]
+      },
+      {
+        "key": "template",
+        "label": "Template",
+        "type": "textarea",
+        "rows": 6,
+        "placeholder": "Summarize incident {{ trigger.payload.incident_id }} and propose next steps.",
+        "helpText": "Rendered as the user prompt sent to the model."
+      },
+      {
+        "key": "output_key",
+        "label": "Save result as",
+        "type": "text",
+        "placeholder": "draft"
+      },
+      {
+        "key": "auth_secret_group_id",
+        "label": "Auth secret group",
+        "type": "select",
+        "helpText": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
+      },
+      {
+        "key": "base_url",
+        "label": "API base URL",
+        "type": "text",
+        "placeholder": "https://api.openai.com/v1",
+        "helpText": "Override the default endpoint when you need a different OpenAI-compatible API base URL."
+      },
+      {
+        "key": "api_key_name",
+        "label": "API key secret name",
+        "type": "text",
+        "placeholder": "OPENAI_API_KEY"
+      },
+      {
+        "key": "api_key_provider",
+        "label": "API key provider",
+        "type": "text",
+        "placeholder": "environment-variable",
+        "helpText": "Optional. Leave blank to search all enabled providers in scope."
+      },
+      {
+        "key": "model",
+        "label": "Model",
+        "type": "text",
+        "placeholder": "gpt-4.1-mini"
+      },
+      {
+        "key": "system_prompt",
+        "label": "System prompt",
+        "type": "textarea",
+        "rows": 4,
+        "placeholder": "You are an incident response assistant."
+      },
+      {
+        "key": "temperature",
+        "label": "Temperature",
+        "type": "text",
+        "placeholder": "0.2"
+      },
+      {
+        "key": "max_tokens",
+        "label": "Max tokens",
+        "type": "text",
+        "placeholder": "800"
+      },
+      {
+        "key": "extra_body_json",
+        "label": "Extra body JSON",
+        "type": "textarea",
+        "rows": 5,
+        "placeholder": "{\"response_format\": {\"type\": \"json_object\"}}",
+        "helpText": "Optional provider-specific fields merged into the request body after prompts and model."
+      }
+    ]
+  }
+}

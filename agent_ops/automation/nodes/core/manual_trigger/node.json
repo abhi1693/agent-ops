@@ -16,6 +16,8 @@
   "agentOps": {
     "kind": "trigger",
     "displayName": "Manual Trigger",
-    "icon": "mdi-play-circle-outline"
+    "icon": "mdi-play-circle-outline",
+    "appDescription": "Core workflow nodes, runtime primitives, and n8n-style built-in blocks available in the designer.",
+    "appIcon": "mdi-toy-brick-outline"
   }
 }

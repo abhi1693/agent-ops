@@ -1,0 +1,50 @@
+{
+  "node": "response",
+  "nodeVersion": "1.0.0",
+  "details": "Finish the workflow and persist a terminal response payload.",
+  "categories": ["Core Nodes"],
+  "subcategories": {
+    "Core Nodes": ["Flow"]
+  },
+  "agentOps": {
+    "kind": "response",
+    "displayName": "Response",
+    "icon": "mdi-flag-checkered",
+    "appDescription": "Core workflow nodes, runtime primitives, and n8n-style built-in blocks available in the designer.",
+    "appIcon": "mdi-toy-brick-outline",
+    "config": {
+      "status": "succeeded"
+    },
+    "fields": [
+      {
+        "key": "template",
+        "label": "Template",
+        "type": "textarea",
+        "rows": 4,
+        "placeholder": "Completed {{ draft }}"
+      },
+      {
+        "key": "value_path",
+        "label": "Value path",
+        "type": "text",
+        "placeholder": "draft",
+        "helpText": "Optional. When set, the response is read directly from context instead of rendering the template."
+      },
+      {
+        "key": "status",
+        "label": "Status",
+        "type": "select",
+        "options": [
+          {
+            "value": "succeeded",
+            "label": "Succeeded"
+          },
+          {
+            "value": "failed",
+            "label": "Failed"
+          }
+        ]
+      }
+    ]
+  }
+}

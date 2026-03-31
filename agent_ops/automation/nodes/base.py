@@ -383,6 +383,7 @@ class WorkflowNodeExecutionContext:
     render_template: Callable[[str, dict[str, Any]], str]
     get_path_value: Callable[[Any, str | None], Any]
     set_path_value: Callable[[dict[str, Any], str, Any], None]
+    resolve_scoped_secret: Callable[..., Any]
     evaluate_condition: Callable[[str, Any, Any], bool]
 
 

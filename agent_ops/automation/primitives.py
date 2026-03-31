@@ -10,6 +10,7 @@ from automation.nodes import (
 )
 from automation.tools import validate_workflow_tool_config
 from automation.triggers import validate_workflow_trigger_config
+from automation.workflow_agents import normalize_workflow_agent_config
 
 
 WORKFLOW_NODE_KINDS = (
@@ -21,19 +22,6 @@ WORKFLOW_NODE_KINDS = (
 )
 
 SUPPORTED_WORKFLOW_NODE_KINDS = frozenset(kind["value"] for kind in WORKFLOW_NODE_KINDS)
-SUPPORTED_CONDITION_OPERATORS = frozenset({"equals", "not_equals", "contains", "exists", "truthy"})
-SUPPORTED_RESPONSE_STATUSES = frozenset({"succeeded", "failed"})
-SUPPORTED_AGENT_API_TYPES = frozenset({"openai"})
-
-_DEFAULT_AGENT_API_TYPE = "openai"
-_AGENT_DEFAULTS_BY_API_TYPE = {
-    "openai": {
-        "api_key_name": "OPENAI_API_KEY",
-        "base_url": "https://api.openai.com/v1",
-        "model": "gpt-4.1-mini",
-        "output_key": "llm.response",
-    }
-}
 
 WORKFLOW_RUNTIME_EXAMPLES = (
     {
@@ -64,155 +52,9 @@ WORKFLOW_RUNTIME_EXAMPLES = (
 )
 
 
-def _copy_template_fields(*fields):
-    return tuple(dict(field) for field in fields)
-
-
 _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP = {
     template["type"]: template
     for template in WORKFLOW_MANIFEST_NODE_TEMPLATES
-}
-
-_BUILTIN_NODE_APP_DESCRIPTION = (
-    "Core workflow nodes, runtime primitives, and n8n-style built-in blocks available in the designer."
-)
-
-_WORKFLOW_INTERNAL_NODE_TEMPLATE_MAP = {
-    "agent": {
-        "kind": "agent",
-        "type": "agent",
-        "label": "Agent",
-        "description": "Call an LLM with an OpenAI-style chat API and store the result in workflow context.",
-        "icon": "mdi-robot-outline",
-        "config": {
-            "api_type": _DEFAULT_AGENT_API_TYPE,
-            **_AGENT_DEFAULTS_BY_API_TYPE[_DEFAULT_AGENT_API_TYPE],
-        },
-        "fields": _copy_template_fields(
-            {
-                "key": "api_type",
-                "label": "API type",
-                "type": "select",
-                "options": (
-                    {"value": "openai", "label": "OpenAI"},
-                ),
-            },
-            {
-                "key": "template",
-                "label": "Template",
-                "type": "textarea",
-                "rows": 6,
-                "placeholder": "Summarize incident {{ trigger.payload.incident_id }} and propose next steps.",
-                "help_text": "Rendered as the user prompt sent to the model.",
-            },
-            {
-                "key": "output_key",
-                "label": "Save result as",
-                "type": "text",
-                "placeholder": "draft",
-            },
-            {
-                "key": "auth_secret_group_id",
-                "label": "Auth secret group",
-                "type": "select",
-                "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name.",
-            },
-            {
-                "key": "base_url",
-                "label": "API base URL",
-                "type": "text",
-                "placeholder": "https://api.openai.com/v1",
-                "help_text": "Override the default endpoint when you need a different OpenAI-compatible API base URL.",
-            },
-            {
-                "key": "api_key_name",
-                "label": "API key secret name",
-                "type": "text",
-                "placeholder": "OPENAI_API_KEY",
-            },
-            {
-                "key": "api_key_provider",
-                "label": "API key provider",
-                "type": "text",
-                "placeholder": "environment-variable",
-                "help_text": "Optional. Leave blank to search all enabled providers in scope.",
-            },
-            {
-                "key": "model",
-                "label": "Model",
-                "type": "text",
-                "placeholder": "gpt-4.1-mini",
-            },
-            {
-                "key": "system_prompt",
-                "label": "System prompt",
-                "type": "textarea",
-                "rows": 4,
-                "placeholder": "You are an incident response assistant.",
-            },
-            {
-                "key": "temperature",
-                "label": "Temperature",
-                "type": "text",
-                "placeholder": "0.2",
-            },
-            {
-                "key": "max_tokens",
-                "label": "Max tokens",
-                "type": "text",
-                "placeholder": "800",
-            },
-            {
-                "key": "extra_body_json",
-                "label": "Extra body JSON",
-                "type": "textarea",
-                "rows": 5,
-                "placeholder": '{"response_format": {"type": "json_object"}}',
-                "help_text": "Optional provider-specific fields merged into the request body after prompts and model.",
-            },
-        ),
-        "app_id": "builtins",
-        "app_label": "Built-ins",
-        "app_description": _BUILTIN_NODE_APP_DESCRIPTION,
-        "app_icon": "mdi-toy-brick-outline",
-    },
-    "response": {
-        "kind": "response",
-        "type": "response",
-        "label": "Response",
-        "description": "Finish the workflow and persist a terminal response payload.",
-        "icon": "mdi-flag-checkered",
-        "config": {"status": "succeeded"},
-        "fields": _copy_template_fields(
-            {
-                "key": "template",
-                "label": "Template",
-                "type": "textarea",
-                "rows": 4,
-                "placeholder": "Completed {{ draft }}",
-            },
-            {
-                "key": "value_path",
-                "label": "Value path",
-                "type": "text",
-                "placeholder": "draft",
-                "help_text": "Optional. When set, the response is read directly from context instead of rendering the template.",
-            },
-            {
-                "key": "status",
-                "label": "Status",
-                "type": "select",
-                "options": (
-                    {"value": "succeeded", "label": "Succeeded"},
-                    {"value": "failed", "label": "Failed"},
-                ),
-            },
-        ),
-        "app_id": "builtins",
-        "app_label": "Built-ins",
-        "app_description": _BUILTIN_NODE_APP_DESCRIPTION,
-        "app_icon": "mdi-toy-brick-outline",
-    },
 }
 
 
@@ -220,36 +62,15 @@ def _copy_node_template(template: dict) -> dict:
     return {
         **dict(template),
         "config": dict(template.get("config") or {}),
-        "fields": _copy_template_fields(*(template.get("fields") or ())),
+        "fields": tuple(dict(field) for field in (template.get("fields") or ())),
     }
 
 
-_BUILTIN_NODE_APP_DEFINITION = {
-    "id": "builtins",
-    "label": "Built-ins",
-    "description": _BUILTIN_NODE_APP_DESCRIPTION,
-    "icon": "mdi-toy-brick-outline",
-    "templates": (
-        _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP["n8n-nodes-base.manualTrigger"],
-        _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP["n8n-nodes-base.scheduleTrigger"],
-        _WORKFLOW_INTERNAL_NODE_TEMPLATE_MAP["agent"],
-        _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP["n8n-nodes-base.set"],
-        _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP["n8n-nodes-base.if"],
-        _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP["n8n-nodes-base.switch"],
-        _WORKFLOW_INTERNAL_NODE_TEMPLATE_MAP["response"],
-        _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP["n8n-nodes-base.stopAndError"],
-    ),
-}
-
-
-def _build_workflow_manifest_group_definitions():
+def _build_workflow_group_definitions():
     app_groups: list[dict] = []
     groups_by_id: dict[str, dict] = {}
 
     for node_definition in WORKFLOW_MANIFEST_NODE_DEFINITIONS:
-        if node_definition.app_id == "builtins":
-            continue
-
         template = _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP.get(node_definition.type)
         if template is None:
             raise KeyError(f'Missing workflow node template for "{node_definition.type}".')
@@ -277,7 +98,7 @@ def _build_workflow_manifest_group_definitions():
     )
 
 
-_WORKFLOW_MANIFEST_GROUP_DEFINITIONS = _build_workflow_manifest_group_definitions()
+_WORKFLOW_GROUP_DEFINITIONS = _build_workflow_group_definitions()
 
 WORKFLOW_NODE_APPS = tuple(
     {
@@ -287,12 +108,12 @@ WORKFLOW_NODE_APPS = tuple(
         "icon": app_definition["icon"],
         "node_types": [template["type"] for template in app_definition["templates"]],
     }
-    for app_definition in (_BUILTIN_NODE_APP_DEFINITION, *_WORKFLOW_MANIFEST_GROUP_DEFINITIONS)
+    for app_definition in _WORKFLOW_GROUP_DEFINITIONS
 )
 
 WORKFLOW_NODE_TEMPLATES = tuple(
     template
-    for app_definition in (_BUILTIN_NODE_APP_DEFINITION, *_WORKFLOW_MANIFEST_GROUP_DEFINITIONS)
+    for app_definition in _WORKFLOW_GROUP_DEFINITIONS
     for template in app_definition["templates"]
 )
 
@@ -300,44 +121,6 @@ WORKFLOW_NODE_TEMPLATE_MAP = {
     template["type"]: template
     for template in WORKFLOW_NODE_TEMPLATES
 }
-
-def normalize_workflow_agent_config(
-    config: dict | None,
-) -> dict:
-    normalized = dict(config or {})
-    auth_secret_group_id = normalized.get("auth_secret_group_id")
-
-    if auth_secret_group_id in ("", None):
-        normalized.pop("auth_secret_group_id", None)
-    elif not isinstance(auth_secret_group_id, str):
-        normalized["auth_secret_group_id"] = str(auth_secret_group_id)
-
-    configured_api_type = normalized.get("api_type")
-    if isinstance(configured_api_type, str) and configured_api_type.strip():
-        normalized_api_type = configured_api_type.strip()
-    else:
-        normalized_api_type = _DEFAULT_AGENT_API_TYPE
-
-    normalized["api_type"] = normalized_api_type
-    for key, value in _AGENT_DEFAULTS_BY_API_TYPE.get(normalized_api_type, {}).items():
-        if normalized.get(key) in ("", None):
-            normalized[key] = value
-
-    return normalized
-
-
-def build_workflow_agent_tool_config(*, node: dict, config: dict) -> dict:
-    normalized = normalize_workflow_agent_config(config)
-    prompt_template = normalized.get("template")
-    if isinstance(prompt_template, str) and prompt_template.strip():
-        rendered_prompt_template = prompt_template.strip()
-    else:
-        rendered_prompt_template = (node.get("label") or node["id"]).strip()
-    return {
-        **normalized,
-        "user_prompt": rendered_prompt_template,
-        "tool_name": "openai_compatible_chat",
-    }
 
 
 def resolve_workflow_node_template_type(
@@ -408,14 +191,6 @@ def normalize_workflow_definition_nodes(definition: dict | None) -> dict:
 
 def _raise_definition_error(message: str) -> None:
     raise ValidationError({"definition": message})
-
-
-def _validate_optional_string(config: dict, key: str, *, node_id: str) -> None:
-    value = config.get(key)
-    if value is None:
-        return
-    if not isinstance(value, str) or not value.strip():
-        _raise_definition_error(f'Node "{node_id}" config.{key} must be a non-empty string.')
 
 
 def validate_workflow_runtime_definition(*, nodes: list[dict], edges: list[dict]) -> None:
@@ -495,60 +270,5 @@ def _validate_runtime_node(*, node: dict, node_ids: set[str], outgoing_targets: 
         validate_workflow_tool_config(config, node_id=node_id)
         return
 
-    if kind == "agent":
-        normalized_agent_config = normalize_workflow_agent_config(config)
-        agent_api_type = normalized_agent_config.get("api_type", _DEFAULT_AGENT_API_TYPE)
-        if agent_api_type not in SUPPORTED_AGENT_API_TYPES:
-            _raise_definition_error(
-                (
-                    f'Node "{node_id}" config.api_type must be one of: '
-                    f'{", ".join(sorted(SUPPORTED_AGENT_API_TYPES))}.'
-                )
-            )
-        validate_workflow_tool_config(
-            build_workflow_agent_tool_config(
-                node=node,
-                config=normalized_agent_config,
-            ),
-            node_id=node_id,
-        )
-        if len(outgoing_targets) > 1:
-            _raise_definition_error(f'Node "{node_id}" can only connect to a single next node.')
+    if node_definition is not None:
         return
-
-    if kind == "condition":
-        _validate_optional_string(config, "path", node_id=node_id)
-        operator = config.get("operator")
-        if operator not in SUPPORTED_CONDITION_OPERATORS:
-            _raise_definition_error(
-                f'Node "{node_id}" config.operator must be one of: {", ".join(sorted(SUPPORTED_CONDITION_OPERATORS))}.'
-            )
-        if operator not in {"exists", "truthy"} and "right_value" not in config:
-            _raise_definition_error(f'Node "{node_id}" must define config.right_value for operator "{operator}".')
-        true_target = config.get("true_target")
-        false_target = config.get("false_target")
-        if not isinstance(true_target, str) or not true_target.strip():
-            _raise_definition_error(f'Node "{node_id}" must define config.true_target.')
-        if not isinstance(false_target, str) or not false_target.strip():
-            _raise_definition_error(f'Node "{node_id}" must define config.false_target.')
-        if true_target == false_target:
-            _raise_definition_error(f'Node "{node_id}" true_target and false_target must be different.')
-        for target_name, target_id in (("true_target", true_target), ("false_target", false_target)):
-            if target_id not in node_ids:
-                _raise_definition_error(f'Node "{node_id}" {target_name} "{target_id}" does not exist.')
-            if target_id not in outgoing_targets:
-                _raise_definition_error(
-                    f'Node "{node_id}" {target_name} "{target_id}" must also be represented by a graph edge.'
-                )
-        return
-
-    if kind == "response":
-        _validate_optional_string(config, "template", node_id=node_id)
-        _validate_optional_string(config, "value_path", node_id=node_id)
-        status = config.get("status", "succeeded")
-        if status not in SUPPORTED_RESPONSE_STATUSES:
-            _raise_definition_error(
-                f'Node "{node_id}" config.status must be one of: {", ".join(sorted(SUPPORTED_RESPONSE_STATUSES))}.'
-            )
-        if outgoing_targets:
-            _raise_definition_error(f'Node "{node_id}" is terminal and cannot have outgoing edges.')

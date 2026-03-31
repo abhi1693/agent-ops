@@ -147,6 +147,7 @@ def execute_workflow_node(
     render_template,
     get_path_value,
     set_path_value,
+    resolve_scoped_secret,
     evaluate_condition,
 ) -> WorkflowNodeExecutionResult | None:
     node_definition = get_workflow_node_definition(node.get("type"))
@@ -164,6 +165,7 @@ def execute_workflow_node(
             render_template=render_template,
             get_path_value=get_path_value,
             set_path_value=set_path_value,
+            resolve_scoped_secret=resolve_scoped_secret,
             evaluate_condition=evaluate_condition,
         )
     )

@@ -16,9 +16,11 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
             [
                 "n8n-nodes-base.manualTrigger",
                 "n8n-nodes-base.scheduleTrigger",
+                "agent",
                 "n8n-nodes-base.set",
                 "n8n-nodes-base.if",
                 "n8n-nodes-base.switch",
+                "response",
                 "n8n-nodes-base.stopAndError",
                 "tool.template",
                 "tool.secret",
@@ -43,9 +45,11 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
             {
                 "n8n-nodes-base.manualTrigger",
                 "n8n-nodes-base.scheduleTrigger",
+                "agent",
                 "n8n-nodes-base.set",
                 "n8n-nodes-base.if",
                 "n8n-nodes-base.switch",
+                "response",
                 "n8n-nodes-base.stopAndError",
                 "tool.template",
                 "tool.secret",
@@ -66,8 +70,8 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
             get_workflow_node_template(node_type="trigger.github_webhook")["type"],
             "trigger.github_webhook",
         )
-        self.assertIsNone(get_workflow_node_definition("agent"))
-        self.assertIsNone(get_workflow_node_definition("response"))
+        self.assertEqual(get_workflow_node_definition("agent").type, "agent")
+        self.assertEqual(get_workflow_node_definition("response").type, "response")
         self.assertIsNone(get_workflow_node_definition("condition"))
 
         set_template = templates_by_type["n8n-nodes-base.set"]

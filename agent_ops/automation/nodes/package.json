@@ -7,9 +7,11 @@
     "nodes": [
       "core.manual_trigger.node",
       "core.schedule_trigger.node",
+      "core.agent.node",
       "core.set.node",
       "core.if.node",
       "core.switch.node",
+      "core.response.node",
       "core.stop_and_error.node"
     ]
   }

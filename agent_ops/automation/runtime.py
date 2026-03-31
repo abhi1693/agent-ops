@@ -12,8 +12,6 @@ from automation.nodes import execute_workflow_node
 from automation.auth import resolve_workflow_secret
 from automation.models.runs import WorkflowRun
 from automation.primitives import (
-    build_workflow_agent_tool_config,
-    normalize_workflow_agent_config,
     normalize_workflow_definition_nodes,
     validate_workflow_runtime_definition,
 )
@@ -27,6 +25,8 @@ from automation.triggers import validate_workflow_trigger_config
 
 _TEMPLATE_ENGINE = Engine(debug=False)
 _REDACTED_VALUE = "[redacted secret]"
+
+
 @dataclass
 class _NodeExecutionResult:
     next_node_id: str | None
@@ -213,6 +213,7 @@ def _execute_node(
         render_template=_render_template,
         get_path_value=_get_path_value,
         set_path_value=_set_path_value,
+        resolve_scoped_secret=_resolve_scoped_secret,
         evaluate_condition=_evaluate_condition,
     )
     if node_output is not None:
@@ -257,77 +258,6 @@ def _execute_node(
                 for key, value in output.items()
                 if key != "operation"
             },
-        )
-
-    if kind == "agent":
-        normalized_agent_config = normalize_workflow_agent_config(config)
-        normalized_tool_config = validate_workflow_tool_config(
-            build_workflow_agent_tool_config(
-                node=node,
-                config=normalized_agent_config,
-            ),
-            node_id=node["id"],
-        )
-        output = execute_workflow_tool(
-            WorkflowToolExecutionContext(
-                workflow=workflow,
-                node=node,
-                config=normalized_tool_config,
-                context=context,
-                secret_paths=secret_paths,
-                secret_values=secret_values,
-                render_template=_render_template,
-                set_path_value=_set_path_value,
-                resolve_scoped_secret=_resolve_scoped_secret,
-            )
-        )
-        return _NodeExecutionResult(
-            next_node_id=next_node_id,
-            output={
-                **{
-                    key: value
-                    for key, value in output.items()
-                    if key != "operation"
-                },
-                "api_type": normalized_agent_config.get("api_type", "openai"),
-            },
-        )
-
-    if kind == "condition":
-        left_value = _get_path_value(context, config.get("path"))
-        matched = _evaluate_condition(
-            config["operator"],
-            left_value,
-            config.get("right_value"),
-        )
-        selected_target = config["true_target"] if matched else config["false_target"]
-        return _NodeExecutionResult(
-            next_node_id=selected_target,
-            output={
-                "path": config.get("path"),
-                "operator": config["operator"],
-                "matched": matched,
-                "next_node_id": selected_target,
-            },
-        )
-
-    if kind == "response":
-        if "value_path" in config:
-            payload = _get_path_value(context, config.get("value_path"))
-        else:
-            template = config.get("template") or node.get("label") or node["id"]
-            payload = _render_template(template, context)
-
-        output = {
-            "node_id": node["id"],
-            "response": payload,
-        }
-        return _NodeExecutionResult(
-            next_node_id=None,
-            output=output,
-            response=output,
-            run_status=config.get("status", WorkflowRun.StatusChoices.SUCCEEDED),
-            terminal=True,
         )
 
     raise ValidationError({"definition": f'Unsupported node kind "{kind}".'})
