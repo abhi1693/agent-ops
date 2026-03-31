@@ -4,19 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from django.core.exceptions import ValidationError
-
 from automation.nodes.base import WorkflowNodeDefinition
-from automation.tools import (
-    WorkflowToolExecutionContext,
-    execute_workflow_tool,
-    validate_workflow_tool_config,
-)
-from automation.triggers import (
-    WorkflowTriggerRequestContext,
-    get_workflow_trigger_definition,
-    validate_workflow_trigger_config,
-)
 
 
 _APP_NODE_PACKAGE_MANIFEST_PATH = Path(__file__).parent / "nodes" / "apps" / "package.json"
@@ -40,10 +28,6 @@ def _load_app_node_definitions() -> tuple[WorkflowNodeDefinition, ...]:
         definitions.append(definition)
 
     return tuple(definitions)
-
-
-def _raise_definition_error(message: str) -> None:
-    raise ValidationError({"definition": message})
 
 
 def _derive_app_node_runtime_name(definition: WorkflowNodeDefinition) -> str:
@@ -86,146 +70,28 @@ WORKFLOW_APP_NODE_DEFINITION_MAP = {
 }
 
 
-def _get_node_definition(node_type: str | None) -> WorkflowNodeDefinition | None:
+def get_workflow_app_node_definition(node_type: str | None) -> WorkflowNodeDefinition | None:
     if not isinstance(node_type, str) or not node_type.strip():
         return None
     return WORKFLOW_APP_NODE_DEFINITION_MAP.get(node_type.strip())
 
 
-def _resolve_required_definition(*, node: dict[str, Any]) -> WorkflowNodeDefinition:
-    node_type = node.get("type")
-    definition = _get_node_definition(node_type)
-    if definition is not None:
-        return definition
-
-    _raise_definition_error(f'Node "{node["id"]}" type "{node_type}" is not a supported app node.')
-
-
-def _validate_single_outgoing_target(*, node_id: str, outgoing_targets: list[str]) -> None:
-    if len(outgoing_targets) > 1:
-        _raise_definition_error(f'Node "{node_id}" can only connect to a single next node.')
-
-
-def _validate_routed_trigger_config(
+def normalize_workflow_app_node_config(
     *,
-    definition: WorkflowNodeDefinition,
-    config: dict[str, Any],
-    node_id: str,
+    node_type: str | None,
+    config: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    return validate_workflow_trigger_config(
-        {
-            **config,
-            "type": _derive_trigger_type(definition),
-        },
-        node_id=node_id,
-    )
-
-
-def _validate_routed_tool_config(
-    *,
-    definition: WorkflowNodeDefinition,
-    config: dict[str, Any],
-    node_id: str,
-) -> dict[str, Any]:
-    return validate_workflow_tool_config(
-        {
-            **config,
-            "tool_name": _derive_tool_name(definition),
-        },
-        node_id=node_id,
-    )
-
-
-def validate_workflow_app_node(*, node: dict[str, Any], outgoing_targets: list[str]) -> WorkflowNodeDefinition | None:
-    definition = _get_node_definition(node.get("type"))
+    normalized = dict(config or {})
+    definition = get_workflow_app_node_definition(node_type)
     if definition is None:
-        return None
+        return normalized
 
-    _validate_single_outgoing_target(node_id=node["id"], outgoing_targets=outgoing_targets)
-    config = node.get("config") or {}
     if definition.kind == "trigger":
-        _validate_routed_trigger_config(definition=definition, config=config, node_id=node["id"])
-        return definition
+        normalized["type"] = _derive_trigger_type(definition)
+        return normalized
 
     if definition.kind == "tool":
-        _validate_routed_tool_config(definition=definition, config=config, node_id=node["id"])
-        return definition
+        normalized["tool_name"] = _derive_tool_name(definition)
+        return normalized
 
-    _raise_definition_error(f'Node "{node["id"]}" type "{node.get("type")}" is not executable.')
-
-
-def execute_workflow_app_node(
-    *,
-    workflow,
-    node: dict[str, Any],
-    context: dict[str, Any],
-    secret_paths: set[str],
-    secret_values: list[str],
-    render_template,
-    set_path_value,
-    resolve_scoped_secret,
-) -> dict[str, Any] | None:
-    definition = _get_node_definition(node.get("type"))
-    if definition is None:
-        return None
-
-    config = node.get("config") or {}
-
-    if definition.kind == "trigger":
-        normalized = _validate_routed_trigger_config(definition=definition, config=config, node_id=node["id"])
-        return {
-            "payload": context["trigger"]["payload"],
-            "trigger_type": normalized["type"],
-            "trigger_meta": context["trigger"].get("meta", {}),
-        }
-
-    normalized = _validate_routed_tool_config(definition=definition, config=config, node_id=node["id"])
-    output = execute_workflow_tool(
-        WorkflowToolExecutionContext(
-            workflow=workflow,
-            node=node,
-            config=normalized,
-            context=context,
-            secret_paths=secret_paths,
-            secret_values=secret_values,
-            render_template=render_template,
-            set_path_value=set_path_value,
-            resolve_scoped_secret=resolve_scoped_secret,
-        )
-    )
-    return {
-        key: value
-        for key, value in output.items()
-        if key != "operation"
-    }
-
-
-def prepare_workflow_app_webhook_request(*, workflow, node: dict[str, Any], request) -> tuple[str, dict[str, Any], dict[str, Any]]:
-    definition = _resolve_required_definition(node=node)
-    if definition.kind != "trigger":
-        raise ValidationError(
-            {"trigger": f'Node type "{node.get("type") or node.get("kind")}" does not support webhook delivery.'}
-        )
-
-    normalized = _validate_routed_trigger_config(
-        definition=definition,
-        config=node.get("config") or {},
-        node_id=node["id"],
-    )
-    trigger_type = _derive_trigger_type(definition)
-    trigger_definition = get_workflow_trigger_definition(trigger_type)
-    if trigger_definition is None or trigger_definition.webhook_handler is None:
-        raise ValidationError({"trigger": f'Trigger type "{trigger_type}" does not support webhook delivery.'})
-
-    return (
-        trigger_type,
-        *trigger_definition.webhook_handler(
-            WorkflowTriggerRequestContext(
-                workflow=workflow,
-                node=node,
-                config=normalized,
-                request=request,
-                body=request.body,
-            )
-        ),
-    )
+    raise RuntimeError(f'App node "{definition.type}" is not executable.')

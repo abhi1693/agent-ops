@@ -8,7 +8,7 @@ from automation.nodes import (
 )
 from automation.app_nodes import (
     WORKFLOW_APP_NODE_DEFINITIONS,
-    validate_workflow_app_node,
+    normalize_workflow_app_node_config,
 )
 from automation.tools import validate_workflow_tool_config
 from automation.triggers import validate_workflow_trigger_config
@@ -398,6 +398,10 @@ def normalize_workflow_definition_nodes(definition: dict | None) -> dict:
                 **(node_template.get("config") or {}),
                 **existing_config,
             }
+            normalized_config = normalize_workflow_app_node_config(
+                node_type=node_template["type"],
+                config=normalized_config,
+            )
             normalized_node["config"] = normalized_config
 
         normalized_nodes.append(normalized_node)
@@ -475,9 +479,6 @@ def _validate_runtime_node(*, node: dict, node_ids: set[str], outgoing_targets: 
         outgoing_targets=outgoing_targets,
         node_ids=node_ids,
     ) is not None:
-        return
-
-    if validate_workflow_app_node(node=node, outgoing_targets=outgoing_targets) is not None:
         return
 
     node_template = get_workflow_node_template(

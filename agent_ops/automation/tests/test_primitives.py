@@ -126,3 +126,38 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertEqual(normalized["nodes"][0]["config"]["api_type"], "openai")
         self.assertEqual(normalized["nodes"][0]["config"]["template"], "hello")
         self.assertEqual(normalized["nodes"][0]["config"]["output_key"], "llm.response")
+
+    def test_normalize_app_nodes_injects_runtime_trigger_and_tool_identifiers(self):
+        definition = {
+            "nodes": [
+                {
+                    "id": "trigger-1",
+                    "kind": "trigger",
+                    "type": "trigger.github_webhook",
+                    "label": "GitHub webhook",
+                    "config": {
+                        "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
+                    },
+                },
+                {
+                    "id": "tool-1",
+                    "kind": "tool",
+                    "type": "tool.prometheus_query",
+                    "label": "Prometheus query",
+                    "config": {
+                        "base_url": "https://prometheus.example.com",
+                        "query": "up",
+                    },
+                },
+            ],
+            "edges": [],
+        }
+
+        normalized = normalize_workflow_definition_nodes(definition)
+
+        self.assertEqual(normalized["nodes"][0]["config"]["type"], "github_webhook")
+        self.assertEqual(normalized["nodes"][1]["config"]["tool_name"], "prometheus_query")
+        self.assertEqual(
+            normalized["nodes"][1]["config"]["output_key"],
+            "prometheus.query",
+        )
