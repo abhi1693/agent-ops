@@ -41,8 +41,6 @@
       }
     ],
     "route": {
-      "resource": "webhook",
-      "operation": "receive",
       "triggerType": "github_webhook"
     }
   }

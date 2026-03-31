@@ -265,10 +265,12 @@ def _execute_node(
         return _NodeExecutionResult(
             next_node_id=next_node_id,
             output={
-                **output,
+                **{
+                    key: value
+                    for key, value in output.items()
+                    if key != "operation"
+                },
                 "api_type": normalized_agent_config.get("api_type", "openai"),
-                "operation": "complete",
-                "resource": "chat",
             },
         )
 

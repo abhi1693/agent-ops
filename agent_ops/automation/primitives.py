@@ -8,7 +8,6 @@ from automation.nodes import (
 )
 from automation.app_nodes import (
     WORKFLOW_APP_NODE_DEFINITIONS,
-    get_workflow_app_node_metadata,
     validate_workflow_app_node,
 )
 from automation.tools import validate_workflow_tool_config
@@ -28,11 +27,6 @@ SUPPORTED_CONDITION_OPERATORS = frozenset({"equals", "not_equals", "contains", "
 SUPPORTED_RESPONSE_STATUSES = frozenset({"succeeded", "failed"})
 SUPPORTED_AGENT_API_TYPES = frozenset({"openai"})
 
-_OPENAI_COMPATIBLE_AGENT_ROUTE = {
-    "resource": "chat",
-    "operation": "complete",
-    "tool_name": "openai_compatible_chat",
-}
 _DEFAULT_AGENT_API_TYPE = "openai"
 _AGENT_DEFAULTS_BY_API_TYPE = {
     "openai": {
@@ -239,18 +233,6 @@ _WORKFLOW_APP_NODE_TEMPLATE_MAP = {
     for definition in WORKFLOW_APP_NODE_DEFINITIONS
 }
 
-
-def _attach_route_metadata(template: dict) -> dict:
-    hydrated_template = _copy_node_template(template)
-    route_metadata = get_workflow_app_node_metadata(
-        node_type=hydrated_template.get("type"),
-    )
-    return {
-        **hydrated_template,
-        **route_metadata,
-    }
-
-
 _BUILTIN_NODE_APP_DEFINITION = {
     "id": "builtins",
     "label": "Built-ins",
@@ -291,7 +273,7 @@ def _build_workflow_app_group_definitions():
             groups_by_id[template_definition.app_id] = app_group
             app_groups.append(app_group)
 
-        app_group["templates"].append(_attach_route_metadata(template))
+        app_group["templates"].append(_copy_node_template(template))
 
     return tuple(
         {
@@ -361,7 +343,7 @@ def build_workflow_agent_tool_config(*, node: dict, config: dict) -> dict:
     return {
         **normalized,
         "user_prompt": rendered_prompt_template,
-        **_OPENAI_COMPATIBLE_AGENT_ROUTE,
+        "tool_name": "openai_compatible_chat",
     }
 
 

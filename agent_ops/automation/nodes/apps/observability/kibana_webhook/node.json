@@ -40,8 +40,6 @@
       }
     ],
     "route": {
-      "resource": "kibana",
-      "operation": "webhook",
       "triggerType": "kibana_webhook"
     }
   }

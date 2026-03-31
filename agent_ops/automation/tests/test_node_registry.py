@@ -3,7 +3,6 @@ from django.test import SimpleTestCase
 from automation.app_nodes import (
     WORKFLOW_APP_NODE_DEFINITIONS,
     WORKFLOW_APP_NODE_PACKAGE,
-    get_workflow_app_node_metadata,
 )
 from automation.nodes import (
     WORKFLOW_BUILTIN_NODE_DEFINITIONS,
@@ -110,12 +109,6 @@ class WorkflowAppNodeRegistryTests(SimpleTestCase):
                 "tool.kubectl",
                 "tool.mcp_server",
             ],
-        )
-
-    def test_app_node_registry_exposes_typed_route_metadata(self):
-        self.assertEqual(
-            get_workflow_app_node_metadata(node_type="tool.elasticsearch_search"),
-            {"resource": "elasticsearch", "operation": "search"},
         )
 
     def test_manifest_field_schema_supports_visibility_and_dynamic_options(self):

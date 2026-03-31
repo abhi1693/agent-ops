@@ -27,8 +27,6 @@ export type WorkflowNodeTemplate = {
   icon?: string;
   kind: string;
   label: string;
-  operation?: string;
-  resource?: string;
   type: string;
   typeVersion?: number;
 };
@@ -59,8 +57,6 @@ export type WorkflowNodeDefinition = {
   icon?: string;
   kind: WorkflowNodeKind | string;
   label: string;
-  operation?: string;
-  resource?: string;
   type: string;
   typeVersion: number;
 };

@@ -78,8 +78,6 @@
       }
     ],
     "route": {
-      "resource": "elasticsearch",
-      "operation": "search",
       "toolName": "elasticsearch_search"
     }
   }

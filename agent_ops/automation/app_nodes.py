@@ -22,11 +22,7 @@ from automation.triggers import (
 
 @dataclass(frozen=True)
 class WorkflowAppNodeRoute:
-    app_id: str
     node_type: str
-    kind: str
-    resource: str
-    operation: str
     trigger_type: str | None = None
     tool_name: str | None = None
 
@@ -35,30 +31,22 @@ class WorkflowAppNodeRoute:
         cls,
         payload: dict[str, Any],
         *,
-        app_id: str,
         node_type: str,
         kind: str,
     ) -> "WorkflowAppNodeRoute":
-        resource = payload.get("resource")
-        operation = payload.get("operation")
-        if not isinstance(resource, str) or not resource.strip():
-            raise ValueError(f'App node "{node_type}" route.resource must be a non-empty string.')
-        if not isinstance(operation, str) or not operation.strip():
-            raise ValueError(f'App node "{node_type}" route.operation must be a non-empty string.')
-
         trigger_type = payload.get("triggerType")
         tool_name = payload.get("toolName")
         if trigger_type is not None and (not isinstance(trigger_type, str) or not trigger_type.strip()):
             raise ValueError(f'App node "{node_type}" route.triggerType must be a non-empty string when provided.')
         if tool_name is not None and (not isinstance(tool_name, str) or not tool_name.strip()):
             raise ValueError(f'App node "{node_type}" route.toolName must be a non-empty string when provided.')
+        if kind == "trigger" and trigger_type is None:
+            raise ValueError(f'App node "{node_type}" trigger routes must define route.triggerType.')
+        if kind == "tool" and tool_name is None:
+            raise ValueError(f'App node "{node_type}" tool routes must define route.toolName.')
 
         return cls(
-            app_id=app_id,
             node_type=node_type,
-            kind=kind,
-            resource=resource.strip(),
-            operation=operation.strip(),
             trigger_type=trigger_type.strip() if isinstance(trigger_type, str) else None,
             tool_name=tool_name.strip() if isinstance(tool_name, str) else None,
         )
@@ -93,7 +81,6 @@ def _load_app_node_definitions() -> tuple[WorkflowAppNodeDefinition, ...]:
 
         route = WorkflowAppNodeRoute.from_manifest(
             route_payload,
-            app_id=template_definition.app_id,
             node_type=template_definition.type,
             kind=template_definition.kind,
         )
@@ -149,19 +136,6 @@ def _resolve_required_route(*, node: dict[str, Any]) -> WorkflowAppNodeRoute:
         return route
 
     _raise_definition_error(f'Node "{node["id"]}" type "{node_type}" is not a supported app node.')
-
-
-def get_workflow_app_node_metadata(
-    *,
-    node_type: str | None,
-) -> dict[str, str]:
-    route = _get_node_route(node_type)
-    if route is None:
-        return {}
-    return {
-        "resource": route.resource,
-        "operation": route.operation,
-    }
 
 
 def _validate_single_outgoing_target(*, node_id: str, outgoing_targets: list[str]) -> None:
@@ -243,8 +217,6 @@ def execute_workflow_app_node(
             "payload": context["trigger"]["payload"],
             "trigger_type": normalized["type"],
             "trigger_meta": context["trigger"].get("meta", {}),
-            "resource": route.resource,
-            "operation": route.operation,
         }
 
     normalized = _validate_routed_tool_config(route=route, config=config, node_id=node["id"])
@@ -262,9 +234,9 @@ def execute_workflow_app_node(
         )
     )
     return {
-        **output,
-        "resource": route.resource,
-        "operation": route.operation,
+        key: value
+        for key, value in output.items()
+        if key != "operation"
     }
 
 

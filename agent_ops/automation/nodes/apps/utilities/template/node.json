@@ -28,8 +28,6 @@
       }
     ],
     "route": {
-      "resource": "template",
-      "operation": "render",
       "toolName": "template"
     }
   }

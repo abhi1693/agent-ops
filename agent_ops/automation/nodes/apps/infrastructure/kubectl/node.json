@@ -81,8 +81,6 @@
       }
     ],
     "route": {
-      "resource": "cluster",
-      "operation": "kubectl",
       "toolName": "kubectl"
     }
   }

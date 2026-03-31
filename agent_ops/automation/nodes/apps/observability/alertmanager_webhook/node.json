@@ -40,8 +40,6 @@
       }
     ],
     "route": {
-      "resource": "alertmanager",
-      "operation": "webhook",
       "triggerType": "alertmanager_webhook"
     }
   }

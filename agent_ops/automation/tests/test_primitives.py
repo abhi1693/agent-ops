@@ -4,11 +4,11 @@ from automation.primitives import WORKFLOW_NODE_TEMPLATE_MAP, normalize_workflow
 
 
 class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
-    def test_app_routed_templates_expose_resource_and_operation_metadata(self):
+    def test_app_routed_templates_do_not_expose_route_metadata(self):
         github_template = WORKFLOW_NODE_TEMPLATE_MAP["trigger.github"]
 
-        self.assertEqual(github_template["resource"], "webhook")
-        self.assertEqual(github_template["operation"], "receive")
+        self.assertNotIn("resource", github_template)
+        self.assertNotIn("operation", github_template)
 
     def test_manifest_backed_app_templates_preserve_manifest_defaults(self):
         mcp_template = WORKFLOW_NODE_TEMPLATE_MAP["tool.mcp_server"]
@@ -77,24 +77,24 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         elasticsearch_fields = {field["key"] for field in elasticsearch_template["fields"]}
         alertmanager_fields = {field["key"] for field in alertmanager_template["fields"]}
 
-        self.assertEqual(prometheus_template["resource"], "prometheus")
-        self.assertEqual(prometheus_template["operation"], "query")
         self.assertEqual(prometheus_template["config"]["output_key"], "prometheus.query")
+        self.assertNotIn("resource", prometheus_template)
+        self.assertNotIn("operation", prometheus_template)
         self.assertNotIn("resource", prometheus_fields)
         self.assertNotIn("operation", prometheus_fields)
         self.assertIn("query", prometheus_fields)
         self.assertIn("bearer_token_name", prometheus_fields)
 
-        self.assertEqual(elasticsearch_template["resource"], "elasticsearch")
-        self.assertEqual(elasticsearch_template["operation"], "search")
         self.assertEqual(elasticsearch_template["config"]["output_key"], "elasticsearch.search")
+        self.assertNotIn("resource", elasticsearch_template)
+        self.assertNotIn("operation", elasticsearch_template)
         self.assertNotIn("resource", elasticsearch_fields)
         self.assertNotIn("operation", elasticsearch_fields)
         self.assertIn("query_json", elasticsearch_fields)
         self.assertIn("auth_scheme", elasticsearch_fields)
 
-        self.assertEqual(alertmanager_template["resource"], "alertmanager")
-        self.assertEqual(alertmanager_template["operation"], "webhook")
+        self.assertNotIn("resource", alertmanager_template)
+        self.assertNotIn("operation", alertmanager_template)
         self.assertNotIn("resource", alertmanager_fields)
         self.assertNotIn("operation", alertmanager_fields)
 

@@ -26,8 +26,6 @@ function createNodeDefinition(template: WorkflowNodeTemplate): WorkflowNodeDefin
     icon: template.icon,
     kind: template.kind,
     label: template.label,
-    operation: template.operation,
-    resource: template.resource,
     type: template.type,
     typeVersion: template.typeVersion ?? 1,
   };

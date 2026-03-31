@@ -101,8 +101,6 @@
       }
     ],
     "route": {
-      "resource": "server",
-      "operation": "call",
       "toolName": "mcp_server"
     }
   }

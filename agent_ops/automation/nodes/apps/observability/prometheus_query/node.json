@@ -61,8 +61,6 @@
       }
     ],
     "route": {
-      "resource": "prometheus",
-      "operation": "query",
       "toolName": "prometheus_query"
     }
   }
