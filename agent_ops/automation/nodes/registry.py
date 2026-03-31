@@ -79,30 +79,10 @@ def get_workflow_builtin_node_definition(node_type: str | None) -> WorkflowNodeD
     return WORKFLOW_BUILTIN_NODE_REGISTRY.get(node_type.strip())
 
 
-def resolve_workflow_builtin_node_type(
-    *,
-    kind: str | None,
-    node_type: str | None = None,
-    config: dict | None = None,
-) -> str | None:
-    del kind, config
+def get_workflow_builtin_node_template(*, node_type: str | None = None):
     if not isinstance(node_type, str) or not node_type.strip():
         return None
-    normalized_type = node_type.strip()
-    if normalized_type in WORKFLOW_BUILTIN_NODE_REGISTRY:
-        return normalized_type
-    return None
-
-
-def get_workflow_builtin_node_template(*, kind: str | None, node_type: str | None = None, config: dict | None = None):
-    resolved_type = resolve_workflow_builtin_node_type(
-        kind=kind,
-        node_type=node_type,
-        config=config,
-    )
-    if resolved_type is None:
-        return None
-    return WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP.get(resolved_type)
+    return WORKFLOW_BUILTIN_NODE_TEMPLATE_MAP.get(node_type.strip())
 
 
 def validate_workflow_builtin_node(*, node: dict, outgoing_targets: list[str], node_ids: set[str]) -> WorkflowNodeDefinition | None:

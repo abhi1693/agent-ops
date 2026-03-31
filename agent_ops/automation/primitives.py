@@ -11,8 +11,8 @@ from automation.app_nodes import (
     get_workflow_app_node_metadata,
     validate_workflow_app_node,
 )
-from automation.tools import normalize_workflow_tool_config, validate_workflow_tool_config
-from automation.triggers import normalize_workflow_trigger_config, validate_workflow_trigger_config
+from automation.tools import validate_workflow_tool_config
+from automation.triggers import validate_workflow_trigger_config
 
 
 WORKFLOW_NODE_KINDS = (
@@ -368,11 +368,8 @@ def build_workflow_agent_tool_config(*, node: dict, config: dict) -> dict:
 
 def resolve_workflow_node_template_type(
     *,
-    kind: str | None,
     node_type: str | None = None,
-    config: dict | None = None,
 ) -> str | None:
-    del kind, config
     if isinstance(node_type, str) and node_type.strip():
         normalized_type = node_type.strip()
         if normalized_type in WORKFLOW_NODE_TEMPLATE_MAP:
@@ -381,11 +378,9 @@ def resolve_workflow_node_template_type(
     return None
 
 
-def get_workflow_node_template(*, kind: str | None, node_type: str | None = None, config: dict | None = None):
+def get_workflow_node_template(*, node_type: str | None = None):
     resolved_type = resolve_workflow_node_template_type(
-        kind=kind,
         node_type=node_type,
-        config=config,
     )
     if resolved_type is None:
         return None
@@ -415,9 +410,7 @@ def normalize_workflow_definition_nodes(definition: dict | None) -> dict:
             existing_config = normalize_workflow_agent_config(existing_config)
 
         node_template = get_workflow_node_template(
-            kind=normalized_node.get("kind"),
             node_type=normalized_node.get("type"),
-            config=existing_config,
         )
 
         if node_template is not None:
@@ -510,9 +503,7 @@ def _validate_runtime_node(*, node: dict, node_ids: set[str], outgoing_targets: 
         return
 
     node_template = get_workflow_node_template(
-        kind=kind,
         node_type=node.get("type"),
-        config=config,
     )
     if node_template is None:
         node_type = node.get("type")

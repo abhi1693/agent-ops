@@ -126,7 +126,6 @@ def _validate_workflow_nodes(nodes):
             raise ValidationError({"definition": f'Node "{node_id}" must define a non-empty string type.'})
 
         resolved_template = get_workflow_node_template(
-            kind=kind,
             node_type=node_type,
         )
         if resolved_template is None:

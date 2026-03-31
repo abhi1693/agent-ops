@@ -60,7 +60,7 @@ class WorkflowBuiltinNodeRegistryTests(SimpleTestCase):
             },
         )
         self.assertEqual(
-            get_workflow_builtin_node_template(kind=None, node_type="n8n-nodes-base.if")["type"],
+            get_workflow_builtin_node_template(node_type="n8n-nodes-base.if")["type"],
             "n8n-nodes-base.if",
         )
         self.assertIsNone(get_workflow_builtin_node_definition("trigger.manual"))
