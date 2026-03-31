@@ -11,6 +11,10 @@ WorkflowNodeFieldType = Literal["text", "textarea", "select", "node_target"]
 SUPPORTED_WORKFLOW_NODE_FIELD_TYPES = frozenset(("text", "textarea", "select", "node_target"))
 WorkflowNodeValidator = Callable[[dict[str, Any], str, list[str], set[str]], None]
 WorkflowNodeExecutor = Callable[["WorkflowNodeExecutionContext"], "WorkflowNodeExecutionResult"]
+WorkflowNodeWebhookHandler = Callable[
+    ["WorkflowNodeWebhookContext"],
+    tuple[dict[str, Any], dict[str, Any]],
+]
 
 _DEFAULT_WORKFLOW_NODE_APP_DESCRIPTION = (
     "n8n-style built-in nodes packaged as first-class workflow node types."
@@ -123,6 +127,7 @@ def _normalize_manifest_field_options_by_field(
 class WorkflowNodeImplementation:
     validator: WorkflowNodeValidator | None = None
     executor: WorkflowNodeExecutor | None = None
+    webhook_handler: WorkflowNodeWebhookHandler | None = None
 
 
 @dataclass(frozen=True)
@@ -257,6 +262,7 @@ class WorkflowNodeDefinition:
     app_icon: str = "mdi-toy-brick-outline"
     validator: WorkflowNodeValidator | None = None
     executor: WorkflowNodeExecutor | None = None
+    webhook_handler: WorkflowNodeWebhookHandler | None = None
 
     @property
     def documentation_url(self) -> str | None:
@@ -330,6 +336,7 @@ class WorkflowNodeDefinition:
             app_icon=_optional_manifest_string(agent_ops, "appIcon", "app_icon") or "mdi-toy-brick-outline",
             validator=implementation.validator,
             executor=implementation.executor,
+            webhook_handler=implementation.webhook_handler,
         )
 
     def serialize(self) -> dict[str, Any]:
@@ -385,6 +392,15 @@ class WorkflowNodeExecutionContext:
     set_path_value: Callable[[dict[str, Any], str, Any], None]
     resolve_scoped_secret: Callable[..., Any]
     evaluate_condition: Callable[[str, Any, Any], bool]
+
+
+@dataclass
+class WorkflowNodeWebhookContext:
+    workflow: Any
+    node: dict[str, Any]
+    config: dict[str, Any]
+    request: Any
+    body: bytes
 
 
 def node_field_option(value: str, label: str | None = None) -> WorkflowNodeFieldOption:

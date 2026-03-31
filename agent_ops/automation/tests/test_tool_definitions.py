@@ -1,7 +1,7 @@
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
 
-from automation.tools import WORKFLOW_TOOL_DEFINITIONS, validate_workflow_tool_config
+from automation.nodes import get_workflow_node_template, validate_workflow_node
 from automation.tools.base import (
     WorkflowToolFieldDefinition,
     tool_field_option,
@@ -51,12 +51,8 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
                 rows=4,
             )
 
-    def test_tool_registry_still_serializes_plain_json_field_payloads(self):
-        elasticsearch_tool = next(
-            tool_definition
-            for tool_definition in WORKFLOW_TOOL_DEFINITIONS
-            if tool_definition["name"] == "elasticsearch_search"
-        )
+    def test_tool_node_template_still_serializes_plain_json_field_payloads(self):
+        elasticsearch_tool = get_workflow_node_template(node_type="tool.elasticsearch_search")
 
         auth_scheme_field = next(
             field
@@ -84,12 +80,8 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
             placeholder='{"size": 10, "query": {"match": {"service": "api"}}}',
         ).serialize())
 
-    def test_mcp_server_tool_definition_serializes_expected_fields(self):
-        mcp_tool = next(
-            tool_definition
-            for tool_definition in WORKFLOW_TOOL_DEFINITIONS
-            if tool_definition["name"] == "mcp_server"
-        )
+    def test_mcp_server_tool_node_template_serializes_expected_fields(self):
+        mcp_tool = get_workflow_node_template(node_type="tool.mcp_server")
 
         remote_tool_name_field = next(
             field
@@ -114,16 +106,33 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
             ).serialize(),
         )
 
-    def test_tool_config_requires_tool_name(self):
+    def test_openai_tool_node_template_serializes_expected_fields(self):
+        openai_tool = get_workflow_node_template(node_type="tool.openai_compatible_chat")
+
+        self.assertEqual(openai_tool["label"], "LLM chat (OpenAI-compatible)")
+        self.assertEqual(openai_tool["config"]["output_key"], "llm.response")
+        self.assertEqual(openai_tool["fields"][0]["key"], "output_key")
+        self.assertEqual(openai_tool["fields"][1]["key"], "base_url")
+
+    def test_tool_node_validation_requires_base_url(self):
         with self.assertRaises(ValidationError) as exc_info:
-            validate_workflow_tool_config(
-                {
-                    "name": "OPENAI_API_KEY",
+            validate_workflow_node(
+                node={
+                    "id": "tool-1",
+                    "kind": "tool",
+                    "type": "tool.openai_compatible_chat",
+                    "config": {
+                        "output_key": "llm.response",
+                        "api_key_name": "OPENAI_API_KEY",
+                        "model": "gpt-4.1-mini",
+                        "user_prompt": "Hello",
+                    },
                 },
-                node_id="tool-1",
+                outgoing_targets=["done"],
+                node_ids={"tool-1", "done"},
             )
 
         self.assertEqual(
             exc_info.exception.message_dict,
-            {"definition": ['Node "tool-1" must define config.tool_name.']},
+            {"definition": ['Node "tool-1" must define config.base_url.']},
         )

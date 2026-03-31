@@ -1,6 +1,6 @@
 from django.test import SimpleTestCase
 
-from automation.triggers import WORKFLOW_TRIGGER_DEFINITIONS
+from automation.nodes import get_workflow_node_template
 from automation.triggers.base import (
     WorkflowTriggerFieldDefinition,
     trigger_text_field,
@@ -37,12 +37,8 @@ class WorkflowTriggerFieldDefinitionTests(SimpleTestCase):
                 rows=4,
             )
 
-    def test_trigger_registry_still_serializes_plain_json_field_payloads(self):
-        github_trigger = next(
-            trigger_definition
-            for trigger_definition in WORKFLOW_TRIGGER_DEFINITIONS
-            if trigger_definition["name"] == "github_webhook"
-        )
+    def test_trigger_node_template_still_serializes_plain_json_field_payloads(self):
+        github_trigger = get_workflow_node_template(node_type="trigger.github_webhook")
 
         events_field = next(
             field

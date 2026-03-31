@@ -6,6 +6,7 @@ import hmac
 from django.core.exceptions import ValidationError
 
 from automation.auth import resolve_workflow_secret
+from automation.nodes.adapters import trigger_definition_as_node_implementation
 
 from automation.triggers.base import (
     WorkflowTriggerDefinition,
@@ -104,3 +105,5 @@ TRIGGER_DEFINITION = WorkflowTriggerDefinition(
     validator=_validate_github_webhook_trigger,
     webhook_handler=_handle_github_webhook,
 )
+
+NODE_IMPLEMENTATION = trigger_definition_as_node_implementation(TRIGGER_DEFINITION)

@@ -6,6 +6,7 @@ from urllib.request import Request, urlopen
 
 from django.core.exceptions import ValidationError
 
+from automation.nodes.adapters import tool_definition_as_node_implementation
 from automation.tools.base import (
     WorkflowToolDefinition,
     WorkflowToolExecutionContext,
@@ -621,3 +622,5 @@ TOOL_DEFINITION = WorkflowToolDefinition(
     validator=_validate_mcp_server_tool,
     executor=_execute_mcp_server_tool,
 )
+
+NODE_IMPLEMENTATION = tool_definition_as_node_implementation(TOOL_DEFINITION)

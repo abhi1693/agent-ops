@@ -36,6 +36,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
                 "trigger.github_webhook",
                 "trigger.alertmanager_webhook",
                 "trigger.kibana_webhook",
+                "tool.openai_compatible_chat",
                 "tool.prometheus_query",
                 "tool.elasticsearch_search",
                 "tool.kubectl",
@@ -65,6 +66,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
                 "trigger.github_webhook",
                 "trigger.alertmanager_webhook",
                 "trigger.kibana_webhook",
+                "tool.openai_compatible_chat",
                 "tool.prometheus_query",
                 "tool.elasticsearch_search",
                 "tool.kubectl",
@@ -93,6 +95,11 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
         )
         self.assertEqual(set_template["config"]["output_key"], "tool.output")
         self.assertEqual(set_template["fields"][0]["key"], "output_key")
+
+        openai_template = templates_by_type["tool.openai_compatible_chat"]
+        self.assertEqual(openai_template["label"], "LLM chat (OpenAI-compatible)")
+        self.assertEqual(openai_template["config"]["output_key"], "llm.response")
+        self.assertEqual(openai_template["fields"][1]["key"], "base_url")
 
     def test_manifest_field_schema_supports_visibility_and_dynamic_options(self):
         definition = WorkflowNodeDefinition.from_manifest(
@@ -237,7 +244,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
         self.assertEqual(trigger_result.output["trigger_type"], "github_webhook")
         self.assertEqual(trigger_result.output["trigger_meta"], {"source": "github"})
 
-    def test_registry_webhook_helper_delegates_to_trigger_registry(self):
+    def test_registry_webhook_helper_uses_node_webhook_handler(self):
         request = self.request_factory.post("/webhook", data=b"{}", content_type="application/json")
         trigger_node = {
             "id": "trigger-1",

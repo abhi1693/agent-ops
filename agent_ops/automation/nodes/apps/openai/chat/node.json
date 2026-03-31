@@ -1,0 +1,83 @@
+{
+  "node": "tool.openai_compatible_chat",
+  "details": "Call an OpenAI-compatible /chat/completions endpoint with a model, prompts, and API key.",
+  "agentOps": {
+    "kind": "tool",
+    "displayName": "LLM chat (OpenAI-compatible)",
+    "icon": "mdi-robot-happy-outline",
+    "appId": "openai",
+    "appLabel": "OpenAI-compatible APIs",
+    "appDescription": "LLM and inference nodes that talk to OpenAI-compatible chat completion APIs.",
+    "appIcon": "mdi-robot-happy-outline",
+    "config": {
+      "output_key": "llm.response"
+    },
+    "fields": [
+      {
+        "key": "output_key",
+        "label": "Save result as",
+        "type": "text",
+        "placeholder": "llm.response"
+      },
+      {
+        "key": "base_url",
+        "label": "API base URL",
+        "type": "text",
+        "placeholder": "https://api.openai.com/v1"
+      },
+      {
+        "key": "api_key_name",
+        "label": "API key secret name",
+        "type": "text",
+        "placeholder": "OPENAI_API_KEY"
+      },
+      {
+        "key": "api_key_provider",
+        "label": "API key provider",
+        "type": "text",
+        "placeholder": "environment-variable",
+        "help_text": "Optional. Leave blank to search all enabled providers in scope."
+      },
+      {
+        "key": "model",
+        "label": "Model",
+        "type": "text",
+        "placeholder": "gpt-4.1-mini"
+      },
+      {
+        "key": "system_prompt",
+        "label": "System prompt",
+        "type": "textarea",
+        "rows": 4,
+        "placeholder": "You are an incident response assistant."
+      },
+      {
+        "key": "user_prompt",
+        "label": "User prompt",
+        "type": "textarea",
+        "rows": 6,
+        "placeholder": "Summarize incident {{ trigger.payload.incident_id }} and propose next steps."
+      },
+      {
+        "key": "temperature",
+        "label": "Temperature",
+        "type": "text",
+        "placeholder": "0.2"
+      },
+      {
+        "key": "max_tokens",
+        "label": "Max tokens",
+        "type": "text",
+        "placeholder": "800"
+      },
+      {
+        "key": "extra_body_json",
+        "label": "Extra body JSON",
+        "type": "textarea",
+        "rows": 5,
+        "placeholder": "{\"response_format\": {\"type\": \"json_object\"}}",
+        "help_text": "Optional provider-specific fields merged into the request body after prompts and model."
+      }
+    ]
+  }
+}

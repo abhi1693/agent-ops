@@ -7,6 +7,7 @@ import subprocess
 
 from django.core.exceptions import ValidationError
 
+from automation.nodes.adapters import tool_definition_as_node_implementation
 from automation.tools.base import (
     WorkflowToolDefinition,
     WorkflowToolExecutionContext,
@@ -203,3 +204,5 @@ TOOL_DEFINITION = WorkflowToolDefinition(
     validator=_validate_kubectl_tool,
     executor=_execute_kubectl_tool,
 )
+
+NODE_IMPLEMENTATION = tool_definition_as_node_implementation(TOOL_DEFINITION)

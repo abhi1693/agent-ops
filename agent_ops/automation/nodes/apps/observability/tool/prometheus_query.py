@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from automation.nodes.adapters import tool_definition_as_node_implementation
 from automation.tools.base import (
     WorkflowToolDefinition,
     WorkflowToolExecutionContext,
@@ -98,3 +99,5 @@ TOOL_DEFINITION = WorkflowToolDefinition(
     validator=_validate_prometheus_query_tool,
     executor=_execute_prometheus_query_tool,
 )
+
+NODE_IMPLEMENTATION = tool_definition_as_node_implementation(TOOL_DEFINITION)

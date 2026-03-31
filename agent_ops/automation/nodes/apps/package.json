@@ -10,6 +10,7 @@
       "github.webhook",
       "observability.alertmanager_webhook",
       "observability.kibana_webhook",
+      "openai.chat",
       "observability.prometheus_query",
       "observability.elasticsearch_search",
       "infrastructure.kubectl",

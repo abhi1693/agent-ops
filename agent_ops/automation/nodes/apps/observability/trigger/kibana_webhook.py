@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from automation.nodes.adapters import trigger_definition_as_node_implementation
 from automation.triggers.base import (
     WorkflowTriggerDefinition,
     WorkflowTriggerRequestContext,
@@ -55,3 +56,5 @@ TRIGGER_DEFINITION = WorkflowTriggerDefinition(
     validator=_validate_kibana_webhook_trigger,
     webhook_handler=_handle_kibana_webhook,
 )
+
+NODE_IMPLEMENTATION = trigger_definition_as_node_implementation(TRIGGER_DEFINITION)
