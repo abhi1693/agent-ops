@@ -30,8 +30,6 @@ import type {
   WorkflowNodeTemplate,
   WorkflowNodeTemplateField,
   WorkflowPersistedDefinition,
-  WorkflowToolDefinition,
-  WorkflowTriggerDefinition,
 } from './workflowDesigner/types';
 import {
   clamp,
@@ -42,10 +40,9 @@ import {
   getConfigString,
   getNodeStatusLabel,
   getNodeSubtitle,
+  getTemplateFieldOptions,
   getNodeTitle,
   getTemplateFieldValue,
-  getToolName,
-  getTriggerType,
   isNodeDisabled,
   parseJsonScript,
 } from './workflowDesigner/utils';
@@ -67,20 +64,6 @@ function initWorkflowDesigner(): void {
   );
   const nodeTemplates = parseJsonScript<WorkflowNodeTemplate[]>('workflow-node-templates-data', []);
   const nodeRegistry = buildNodeRegistry(nodeTemplates);
-  const triggerDefinitions = parseJsonScript<WorkflowTriggerDefinition[]>(
-    'workflow-trigger-definitions-data',
-    [],
-  );
-  const toolDefinitions = parseJsonScript<WorkflowToolDefinition[]>(
-    'workflow-tool-definitions-data',
-    [],
-  );
-  const triggerDefinitionMap = new Map(
-    triggerDefinitions.map((triggerDefinition) => [triggerDefinition.name, triggerDefinition]),
-  );
-  const toolDefinitionMap = new Map(
-    toolDefinitions.map((toolDefinition) => [toolDefinition.name, toolDefinition]),
-  );
 
   let selectedNodeId: string | null = definition.nodes[0]?.id ?? null;
   let dragState:
@@ -114,24 +97,6 @@ function initWorkflowDesigner(): void {
 
   function getNodeTemplate(node: WorkflowNode | undefined): WorkflowNodeDefinition | undefined {
     return getNodeDefinition(nodeRegistry, node);
-  }
-
-  function getTriggerDefinition(
-    node: WorkflowNode | undefined,
-  ): WorkflowTriggerDefinition | undefined {
-    if (!node || node.kind !== 'trigger') {
-      return undefined;
-    }
-
-    return triggerDefinitionMap.get(getTriggerType(node.config));
-  }
-
-  function getToolDefinition(node: WorkflowNode | undefined): WorkflowToolDefinition | undefined {
-    if (!node || node.kind !== 'tool') {
-      return undefined;
-    }
-
-    return toolDefinitionMap.get(getToolName(node.config));
   }
 
   function updateSurfaceSize(): void {
@@ -193,6 +158,47 @@ function initWorkflowDesigner(): void {
     });
   }
 
+  function synchronizeTemplateDrivenConfig(
+    node: WorkflowNode,
+    template: WorkflowNodeDefinition,
+  ): void {
+    const nextConfig = { ...(node.config ?? {}) };
+    let didChange = false;
+
+    template.fields.forEach((field) => {
+      if (field.type !== 'select' || !field.options_by_field) {
+        return;
+      }
+
+      const options = getTemplateFieldOptions({ ...node, config: nextConfig }, field);
+      if (!options.length) {
+        return;
+      }
+
+      const currentValue =
+        typeof nextConfig[field.key] === 'string' ? String(nextConfig[field.key]) : '';
+      const optionValues = options.map((option) => option.value);
+      if (!currentValue || !optionValues.includes(currentValue)) {
+        nextConfig[field.key] = options[0]?.value ?? '';
+        didChange = true;
+      }
+    });
+
+    if (didChange) {
+      node.config = nextConfig;
+    }
+  }
+
+  function synchronizeTemplateConfigs(): void {
+    definition.nodes.forEach((node) => {
+      const template = getNodeTemplate(node);
+      if (!template) {
+        return;
+      }
+      synchronizeTemplateDrivenConfig(node, template);
+    });
+  }
+
   function renderTemplateFields(
     node: WorkflowNode | undefined,
     template: WorkflowNodeDefinition | undefined,
@@ -202,26 +208,13 @@ function initWorkflowDesigner(): void {
       return;
     }
 
-    const toolDefinition = getToolDefinition(node);
-    const triggerDefinition = getTriggerDefinition(node);
-    const specializedDefinition =
-      node.kind === 'tool'
-        ? toolDefinition
-        : node.kind === 'trigger'
-          ? triggerDefinition
-          : undefined;
-
     elements.nodeTemplateFields.innerHTML = renderTemplateFieldsMarkup({
       node,
       nodes: definition.nodes,
-      specializedDefinition,
       template,
     });
 
     syncRenderedFieldValues(template.fields, node);
-    if (specializedDefinition) {
-      syncRenderedFieldValues(specializedDefinition.fields, node);
-    }
   }
 
   function renderNodeInspector(): void {
@@ -372,7 +365,7 @@ function initWorkflowDesigner(): void {
 
     definition.nodes.forEach((node) => {
       const template = getNodeTemplate(node);
-      const subtitle = getNodeSubtitle(node, triggerDefinitionMap, toolDefinitionMap);
+      const subtitle = getNodeSubtitle(node, template);
       const statusLabel = getNodeStatusLabel(node, runningNodeId === node.id);
       const isSelected = node.id === selectedNodeId;
       const isDisabled = isNodeDisabled(node);
@@ -466,6 +459,7 @@ function initWorkflowDesigner(): void {
   }
 
   function render(): void {
+    synchronizeTemplateConfigs();
     updateSurfaceSize();
     syncDefinition();
     renderNodePalette();
@@ -521,11 +515,14 @@ function initWorkflowDesigner(): void {
     const previousKind = selectedNode.kind;
     const previousTemplate = getNodeTemplate(selectedNode);
     const authSecretGroupId = getConfigString(selectedNode.config, 'auth_secret_group_id');
+    const supportsAuthSecretGroup = nextTemplate.fields.some(
+      (field) => field.key === 'auth_secret_group_id',
+    );
     selectedNode.type = nextTemplate.type;
     selectedNode.typeVersion = nextTemplate.typeVersion;
     selectedNode.kind = nextTemplate.kind;
     selectedNode.config = cloneValue(nextTemplate.config ?? {});
-    if (authSecretGroupId && (nextTemplate.kind === 'tool' || nextTemplate.kind === 'trigger')) {
+    if (authSecretGroupId && supportsAuthSecretGroup) {
       selectedNode.config = {
         ...(selectedNode.config ?? {}),
         auth_secret_group_id: authSecretGroupId,
@@ -583,41 +580,13 @@ function initWorkflowDesigner(): void {
     }
   }
 
-  function updateSelectedTemplateField(fieldKey: string, value: string): void {
+  function updateSelectedTemplateField(fieldKey: string, value: string, rerender = false): void {
     const selectedNode = getNode(selectedNodeId);
     if (!selectedNode) {
       return;
     }
 
-    if (selectedNode.kind === 'trigger' && fieldKey === 'type') {
-      const triggerDefinition = triggerDefinitionMap.get(value);
-      const authSecretGroupId = getConfigString(selectedNode.config, 'auth_secret_group_id');
-      selectedNode.config = {
-        ...(authSecretGroupId ? { auth_secret_group_id: authSecretGroupId } : {}),
-        ...(triggerDefinition?.config ?? {}),
-        type: value || 'manual',
-      };
-      render();
-      return;
-    }
-
-    if (selectedNode.kind === 'tool' && fieldKey === 'tool_name') {
-      const toolDefinition = toolDefinitionMap.get(value);
-      const authSecretGroupId = getConfigString(selectedNode.config, 'auth_secret_group_id');
-      selectedNode.config = {
-        ...(authSecretGroupId ? { auth_secret_group_id: authSecretGroupId } : {}),
-        ...(toolDefinition?.config ?? {}),
-        tool_name: value || 'passthrough',
-      };
-      render();
-      return;
-    }
-
     const nextConfig = { ...(selectedNode.config ?? {}) };
-    if (selectedNode.kind === 'tool' && !getConfigString(nextConfig, 'tool_name')) {
-      nextConfig.tool_name = getToolName(selectedNode.config);
-    }
-    delete nextConfig.operation;
     if (value === '') {
       delete nextConfig[fieldKey];
     } else {
@@ -625,6 +594,11 @@ function initWorkflowDesigner(): void {
     }
 
     selectedNode.config = nextConfig;
+    if (rerender) {
+      render();
+      return;
+    }
+
     syncDefinition();
     syncAdvancedConfigEditor();
   }
@@ -830,7 +804,7 @@ function initWorkflowDesigner(): void {
       return;
     }
 
-    updateSelectedTemplateField(field.dataset.configField ?? '', field.value);
+    updateSelectedTemplateField(field.dataset.configField ?? '', field.value, true);
   });
 
   elements.nodeConfig.addEventListener('change', () => {

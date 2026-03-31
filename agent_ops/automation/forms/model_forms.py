@@ -1,6 +1,7 @@
 from django import forms
 
 from automation.models import Workflow
+from automation.primitives import normalize_workflow_definition_nodes
 from core.form_widgets import apply_standard_widget_classes
 from tenancy.models import Environment, Organization, Workspace
 from users.restrictions import restrict_queryset
@@ -76,6 +77,8 @@ class WorkflowDesignerForm(forms.ModelForm):
 
     def __init__(self, *args, request=None, **kwargs):
         super().__init__(*args, **kwargs)
+        if not self.is_bound and getattr(self.instance, "pk", None):
+            self.initial["definition"] = normalize_workflow_definition_nodes(self.instance.definition)
         apply_standard_widget_classes(self)
 
 

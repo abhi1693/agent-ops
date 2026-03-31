@@ -4,11 +4,12 @@ import type {
   WorkflowNode,
   WorkflowNodeTemplateField,
   WorkflowPaletteSection,
-  WorkflowSpecializedDefinition,
 } from './types';
 import {
   escapeHtml,
   formatKindLabel,
+  getTemplateFieldOptions,
+  isTemplateFieldVisible,
   getNodeTitle,
   getTemplateFieldValue,
 } from './utils';
@@ -55,6 +56,10 @@ export function renderFieldMarkup(
 
   return fields
     .map((field) => {
+      if (!isTemplateFieldVisible(node, field)) {
+        return '';
+      }
+
       const fieldValue = getTemplateFieldValue(node, field);
       const currentValue = escapeHtml(fieldValue);
       const helpText = field.help_text
@@ -78,7 +83,7 @@ export function renderFieldMarkup(
       }
 
       if (field.type === 'select') {
-        const options = (field.options ?? [])
+        const options = getTemplateFieldOptions(node, field)
           .map((option) => {
             const selected = option.value === fieldValue ? ' selected' : '';
             return `<option value="${escapeHtml(option.value)}"${selected}>${escapeHtml(option.label)}</option>`;
@@ -138,39 +143,14 @@ export function renderFieldMarkup(
 export function renderTemplateFieldsMarkup(params: {
   node: WorkflowNode;
   nodes: WorkflowNode[];
-  specializedDefinition?: WorkflowSpecializedDefinition;
   template: WorkflowNodeDefinition;
 }): string {
-  const { node, nodes, specializedDefinition, template } = params;
-  const specializedSection =
-    node.kind === 'tool' || node.kind === 'trigger'
-      ? specializedDefinition
-        ? `
-          <div class="workflow-selected-template-card workflow-tool-definition-card mt-3">
-            <span class="workflow-selected-template-icon">
-              <i class="mdi ${escapeHtml(specializedDefinition.icon ?? 'mdi-tools')}"></i>
-            </span>
-            <div class="workflow-selected-template-copy">
-              <div class="workflow-selected-template-title">${escapeHtml(specializedDefinition.label)}</div>
-              <div class="workflow-selected-template-description">${escapeHtml(specializedDefinition.description)}</div>
-            </div>
-          </div>
-          <div class="stack-sm mt-3">
-            ${renderFieldMarkup(specializedDefinition.fields, node, nodes)}
-          </div>
-        `
-        : `
-          <div class="workflow-empty-copy mt-3">
-            Choose a ${node.kind === 'tool' ? 'tool' : 'trigger'} definition to configure its fields.
-          </div>
-        `
-      : '';
+  const { node, nodes, template } = params;
 
   return `
     <div class="stack-sm">
       ${renderFieldMarkup(template.fields, node, nodes)}
     </div>
-    ${specializedSection}
   `;
 }
 
@@ -296,7 +276,14 @@ export function renderNodePaletteMarkup(sections: WorkflowPaletteSection[]): str
       (section) => `
         <div class="workflow-block-group">
           <div class="workflow-block-group-heading">
-            <div class="workflow-block-group-title">${escapeHtml(section.label)}</div>
+            <div class="workflow-block-group-title">
+              ${
+                section.icon
+                  ? `<i class="mdi ${escapeHtml(section.icon)}"></i>`
+                  : ''
+              }
+              <span>${escapeHtml(section.label)}</span>
+            </div>
             <div class="workflow-block-group-copy">${escapeHtml(section.description)}</div>
           </div>
           <div class="workflow-block-grid">

@@ -9,14 +9,13 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
+from automation.app_nodes import prepare_workflow_app_webhook_request
 from automation.auth import list_workflow_secret_group_options
 from automation import filtersets, tables
 from automation.forms import WorkflowDesignerForm, WorkflowForm, WorkflowRunForm
 from automation.models import Workflow, WorkflowRun
-from automation.primitives import WORKFLOW_NODE_TEMPLATES
+from automation.primitives import WORKFLOW_NODE_TEMPLATES, normalize_workflow_definition_nodes
 from automation.runtime import execute_workflow
-from automation.tools import WORKFLOW_TOOL_DEFINITIONS, normalize_workflow_definition_tools
-from automation.triggers import WORKFLOW_TRIGGER_DEFINITIONS, normalize_workflow_definition_triggers, prepare_webhook_trigger_request
 from core.generic_views import (
     ObjectChangeLogView,
     ObjectDeleteView,
@@ -65,6 +64,28 @@ def _hydrate_workflow_node_templates(*, secret_group_options):
     return hydrated_templates
 
 
+def _group_workflow_node_templates_by_app(*, node_templates):
+    grouped_templates = []
+    app_index = {}
+
+    for template in node_templates:
+        app_id = template.get("app_id") or "core"
+        app_group = app_index.get(app_id)
+        if app_group is None:
+            app_group = {
+                "id": app_id,
+                "label": template.get("app_label") or "Core",
+                "description": template.get("app_description") or "",
+                "icon": template.get("app_icon") or "mdi-vector-square",
+                "templates": [],
+            }
+            app_index[app_id] = app_group
+            grouped_templates.append(app_group)
+        app_group["templates"].append(template)
+
+    return grouped_templates
+
+
 class WorkflowListView(RestrictedObjectListMixin, ObjectListView):
     queryset = Workflow.objects.select_related("organization", "workspace", "environment")
     table = tables.WorkflowTable
@@ -90,12 +111,13 @@ class WorkflowDetailView(RestrictedObjectViewMixin, ObjectView):
     def get_context_data(self, **kwargs):
         run_form = kwargs.pop("run_form", None) or WorkflowRunForm(initial={"input_data": {}})
         context = super().get_context_data(**kwargs)
+        normalized_definition = normalize_workflow_definition_nodes(self.object.definition)
         recent_runs = list(self.object.runs.order_by("-created")[:5])
         context["show_side_panel"] = True
         context["can_design"] = context["can_edit"]
         context["can_execute"] = context["can_edit"]
-        context["workflow_nodes"] = self.object.definition.get("nodes", [])
-        context["workflow_edges"] = self.object.definition.get("edges", [])
+        context["workflow_nodes"] = normalized_definition.get("nodes", [])
+        context["workflow_edges"] = normalized_definition.get("edges", [])
         context["workflow_designer_url"] = reverse("workflow_designer", args=[self.object.pk])
         context["run_form"] = run_form
         context["latest_run"] = _build_run_display(recent_runs[0]) if recent_runs else None
@@ -165,18 +187,19 @@ class WorkflowDesignerView(RestrictedObjectEditMixin, ObjectEditView):
 
     def get_context_data(self, request, form):
         context = super().get_context_data(request, form)
-        normalized_definition = normalize_workflow_definition_triggers(self.object.definition)
-        normalized_definition = normalize_workflow_definition_tools(normalized_definition)
+        normalized_definition = normalize_workflow_definition_nodes(self.object.definition)
         secret_group_options = list_workflow_secret_group_options(self.object)
+        hydrated_templates = _hydrate_workflow_node_templates(
+            secret_group_options=secret_group_options,
+        )
         context.update(
             {
                 "workflow_definition": normalized_definition,
                 "workflow_nodes": normalized_definition.get("nodes", []),
-                "workflow_node_templates": _hydrate_workflow_node_templates(
-                    secret_group_options=secret_group_options,
+                "workflow_node_templates": hydrated_templates,
+                "workflow_node_template_groups": _group_workflow_node_templates_by_app(
+                    node_templates=hydrated_templates,
                 ),
-                "workflow_trigger_definitions": WORKFLOW_TRIGGER_DEFINITIONS,
-                "workflow_tool_definitions": WORKFLOW_TOOL_DEFINITIONS,
                 "workflow_list_url": reverse("workflow_list"),
                 "workflow_detail_url": self.object.get_absolute_url(),
                 "workflow_edit_url": reverse("workflow_edit", args=[self.object.pk]),
@@ -204,13 +227,13 @@ class WorkflowWebhookTriggerView(View):
         if workflow is None:
             return JsonResponse({"detail": "Workflow not found."}, status=404)
 
-        nodes = (workflow.definition or {}).get("nodes", [])
+        nodes = normalize_workflow_definition_nodes(workflow.definition or {}).get("nodes", [])
         trigger_node = next((node for node in nodes if node.get("kind") == "trigger"), None)
         if trigger_node is None:
             return JsonResponse({"detail": "Workflow has no trigger node."}, status=400)
 
         try:
-            trigger_mode, input_data, trigger_metadata = prepare_webhook_trigger_request(
+            trigger_mode, input_data, trigger_metadata = prepare_workflow_app_webhook_request(
                 workflow=workflow,
                 node=trigger_node,
                 request=request,

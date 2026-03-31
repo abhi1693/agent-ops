@@ -4,7 +4,11 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.urls import reverse
 
-from automation.primitives import validate_workflow_runtime_definition
+from automation.primitives import (
+    get_workflow_node_template,
+    normalize_workflow_definition_nodes,
+    validate_workflow_runtime_definition,
+)
 from core.models import PrimaryModel
 
 
@@ -117,6 +121,32 @@ def _validate_workflow_nodes(nodes):
         if config is not None and not isinstance(config, dict):
             raise ValidationError({"definition": f'Node "{node_id}" config must be a JSON object.'})
 
+        node_type = node.get("type")
+        if node_type is not None and (not isinstance(node_type, str) or not node_type.strip()):
+            raise ValidationError({"definition": f'Node "{node_id}" type must be a non-empty string when provided.'})
+
+        resolved_template = get_workflow_node_template(
+            kind=kind,
+            node_type=node_type,
+            config=config if isinstance(config, dict) else None,
+        )
+        if resolved_template is None:
+            raise ValidationError(
+                {
+                    "definition": (
+                        f'Node "{node_id}" kind "{kind}" does not resolve to a supported node type.'
+                    )
+                }
+            )
+        if resolved_template["kind"] != kind:
+            raise ValidationError(
+                {
+                    "definition": (
+                        f'Node "{node_id}" type "{resolved_template["type"]}" does not match kind "{kind}".'
+                    )
+                }
+            )
+
         label = node.get("label")
         if label is not None and not isinstance(label, str):
             raise ValidationError({"definition": f'Node "{node_id}" label must be a string.'})
@@ -162,12 +192,16 @@ def _validate_workflow_edges(edges, *, node_ids):
 
 def _validate_workflow_definition(definition):
     _validate_json_object(definition, field_name="definition")
-    nodes = definition.get("nodes")
-    edges = definition.get("edges")
+    normalized_definition = normalize_workflow_definition_nodes(definition)
+    nodes = normalized_definition.get("nodes")
+    edges = normalized_definition.get("edges")
     node_ids = _validate_workflow_nodes(nodes)
     _validate_workflow_edges(edges, node_ids=node_ids)
     if nodes or edges:
-        validate_workflow_runtime_definition(nodes=nodes, edges=edges)
+        validate_workflow_runtime_definition(
+            nodes=normalized_definition.get("nodes", []),
+            edges=edges,
+        )
 
     viewport = definition.get("viewport")
     if viewport is not None:

@@ -8,15 +8,10 @@ from django.db import transaction
 from django.template import Context, Engine
 from django.utils import timezone
 
+from automation.app_nodes import execute_workflow_app_node
 from automation.auth import resolve_workflow_secret
 from automation.models.runs import WorkflowRun
-from automation.primitives import validate_workflow_runtime_definition
-from automation.tools import (
-    WorkflowToolExecutionContext,
-    execute_workflow_tool,
-    normalize_workflow_tool_config,
-)
-from automation.triggers import normalize_workflow_trigger_config
+from automation.primitives import normalize_workflow_definition_nodes, validate_workflow_runtime_definition
 
 
 _TEMPLATE_ENGINE = Engine(debug=False)
@@ -199,15 +194,20 @@ def _execute_node(
     config = node.get("config") or {}
     kind = node["kind"]
 
-    if kind == "trigger":
-        normalized_trigger_config = normalize_workflow_trigger_config(config)
+    app_node_output = execute_workflow_app_node(
+        workflow=workflow,
+        node=node,
+        context=context,
+        secret_paths=secret_paths,
+        secret_values=secret_values,
+        render_template=_render_template,
+        set_path_value=_set_path_value,
+        resolve_scoped_secret=_resolve_scoped_secret,
+    )
+    if app_node_output is not None:
         return _NodeExecutionResult(
             next_node_id=next_node_id,
-            output={
-                "payload": context["trigger"]["payload"],
-                "trigger_type": normalized_trigger_config.get("type", "manual"),
-                "trigger_meta": context["trigger"].get("meta", {}),
-            },
+            output=app_node_output,
         )
 
     if kind == "agent":
@@ -228,26 +228,6 @@ def _execute_node(
                 "message": rendered,
                 "output_key": output_key,
             },
-        )
-
-    if kind == "tool":
-        normalized_config = normalize_workflow_tool_config(config)
-        output = execute_workflow_tool(
-            WorkflowToolExecutionContext(
-                workflow=workflow,
-                node=node,
-                config=normalized_config,
-                context=context,
-                secret_paths=secret_paths,
-                secret_values=secret_values,
-                render_template=_render_template,
-                set_path_value=_set_path_value,
-                resolve_scoped_secret=_resolve_scoped_secret,
-            )
-        )
-        return _NodeExecutionResult(
-            next_node_id=next_node_id,
-            output=output,
         )
 
     if kind == "condition":
@@ -299,7 +279,7 @@ def execute_workflow(
     actor=None,
 ) -> WorkflowRun:
     input_data = input_data or {}
-    definition = workflow.definition or {}
+    definition = normalize_workflow_definition_nodes(workflow.definition or {})
     nodes = definition.get("nodes", [])
     edges = definition.get("edges", [])
     nodes_by_id = {node["id"]: node for node in nodes}
@@ -354,6 +334,7 @@ def execute_workflow(
                     {
                         "node_id": node["id"],
                         "kind": node["kind"],
+                        "type": node.get("type"),
                         "label": node.get("label") or node["id"],
                         "result": result.output or {},
                     }

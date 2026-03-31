@@ -1,8 +1,8 @@
 import type {
   WorkflowNode,
+  WorkflowNodeDefinition,
+  WorkflowNodeTemplateOption,
   WorkflowNodeTemplateField,
-  WorkflowToolDefinition,
-  WorkflowTriggerDefinition,
 } from './types';
 
 export function parseJsonScript<T>(scriptId: string, fallback: T): T {
@@ -80,28 +80,6 @@ export function getConfigString(
   return stringifyConfigValue(value, prettyJson);
 }
 
-export function getTriggerType(config: Record<string, unknown> | undefined): string {
-  const triggerType = getConfigString(config, 'type');
-  if (triggerType) {
-    return triggerType;
-  }
-  return 'manual';
-}
-
-export function getToolName(config: Record<string, unknown> | undefined): string {
-  const toolName = getConfigString(config, 'tool_name');
-  if (toolName) {
-    return toolName;
-  }
-
-  const legacyOperation = getConfigString(config, 'operation');
-  if (legacyOperation) {
-    return legacyOperation;
-  }
-
-  return 'passthrough';
-}
-
 export function formatCount(value: number, singular: string, plural = `${singular}s`): string {
   return `${value} ${value === 1 ? singular : plural}`;
 }
@@ -125,15 +103,24 @@ export function getNodeStatusLabel(node: WorkflowNode | undefined, isRunning = f
 
 export function getNodeSubtitle(
   node: WorkflowNode,
-  triggerDefinitionMap: Map<string, WorkflowTriggerDefinition>,
-  toolDefinitionMap: Map<string, WorkflowToolDefinition>,
+  template?: WorkflowNodeDefinition,
 ): string {
   if (node.kind === 'trigger') {
-    return triggerDefinitionMap.get(getTriggerType(node.config))?.label ?? 'Workflow entry point';
+    const resource = getConfigString(node.config, 'resource');
+    const operation = getConfigString(node.config, 'operation');
+    if (resource && operation) {
+      return `${formatKindLabel(resource)} • ${formatKindLabel(operation)}`;
+    }
+    return template?.label ?? 'Workflow entry point';
   }
 
   if (node.kind === 'tool') {
-    return toolDefinitionMap.get(getToolName(node.config))?.label ?? 'Runs a workflow tool';
+    const resource = getConfigString(node.config, 'resource');
+    const operation = getConfigString(node.config, 'operation');
+    if (resource && operation) {
+      return `${formatKindLabel(resource)} • ${formatKindLabel(operation)}`;
+    }
+    return template?.label ?? 'Runs a workflow tool';
   }
 
   if (node.kind === 'condition') {
@@ -154,6 +141,11 @@ export function getNodeSubtitle(
   }
 
   if (node.kind === 'agent') {
+    const resource = getConfigString(node.config, 'resource');
+    const operation = getConfigString(node.config, 'operation');
+    if (resource && operation) {
+      return `${formatKindLabel(resource)} • ${formatKindLabel(operation)}`;
+    }
     const outputKey = getConfigString(node.config, 'output_key');
     return outputKey ? `Writes to ${outputKey}` : 'Writes a message into workflow context';
   }
@@ -161,16 +153,42 @@ export function getNodeSubtitle(
   return 'Custom workflow node';
 }
 
+export function isTemplateFieldVisible(
+  node: WorkflowNode,
+  field: WorkflowNodeTemplateField,
+): boolean {
+  if (!field.visible_when) {
+    return true;
+  }
+
+  return Object.entries(field.visible_when).every(([configKey, allowedValues]) => {
+    const currentValue = getConfigString(node.config, configKey);
+    return allowedValues.includes(currentValue);
+  });
+}
+
+export function getTemplateFieldOptions(
+  node: WorkflowNode,
+  field: WorkflowNodeTemplateField,
+): WorkflowNodeTemplateOption[] {
+  if (!field.options_by_field) {
+    return field.options ?? [];
+  }
+
+  for (const [configKey, optionMap] of Object.entries(field.options_by_field)) {
+    const configValue = getConfigString(node.config, configKey);
+    const fieldOptions = optionMap[configValue];
+    if (fieldOptions) {
+      return fieldOptions;
+    }
+  }
+
+  return field.options ?? [];
+}
+
 export function getTemplateFieldValue(
   node: WorkflowNode,
   field: WorkflowNodeTemplateField,
 ): string {
-  if (node.kind === 'trigger' && field.key === 'type') {
-    return getTriggerType(node.config);
-  }
-  if (node.kind === 'tool' && field.key === 'tool_name') {
-    return getToolName(node.config);
-  }
-
   return getConfigString(node.config, field.key, field.type === 'textarea');
 }

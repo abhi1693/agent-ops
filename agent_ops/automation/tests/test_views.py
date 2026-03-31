@@ -177,8 +177,16 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Workflow canvas")
         self.assertContains(response, "Add node")
-        self.assertContains(response, "Trigger")
-        self.assertContains(response, "Tool")
+        self.assertContains(response, '<optgroup label="Core">')
+        self.assertContains(response, '<optgroup label="OpenAI-compatible">')
+        self.assertContains(response, '<optgroup label="GitHub">')
+        self.assertContains(response, '<optgroup label="Observability">')
+        self.assertContains(response, '<option value="trigger.manual">Manual</option>', html=True)
+        self.assertContains(response, '<option value="agent.openai">OpenAI-compatible</option>', html=True)
+        self.assertContains(response, '<option value="trigger.github">GitHub</option>', html=True)
+        self.assertContains(response, '<option value="tool.observability">Observability</option>', html=True)
+        self.assertContains(response, '<option value="tool.template">Render template</option>', html=True)
+        self.assertContains(response, '&quot;type&quot;: &quot;trigger.manual&quot;')
         self.assertContains(response, '<option value="trigger-1">New task</option>', html=True)
         self.assertContains(response, '<option value="agent-1">Triage agent</option>', html=True)
         self.assertContains(response, "Add at least two nodes before creating a connection.")
@@ -320,9 +328,11 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "trigger.observability",
                         "label": "Alertmanager",
                         "config": {
-                            "type": "alertmanager_webhook",
+                            "resource": "alertmanager",
+                            "operation": "webhook",
                             "webhook_secret_name": "ALERTMANAGER_WEBHOOK_SECRET",
                             "webhook_secret_provider": "environment-variable",
                         },
@@ -374,9 +384,11 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "trigger.observability",
                         "label": "Kibana",
                         "config": {
-                            "type": "kibana_webhook",
+                            "resource": "kibana",
+                            "operation": "webhook",
                             "webhook_secret_name": "KIBANA_WEBHOOK_SECRET",
                             "webhook_secret_provider": "environment-variable",
                         },
@@ -426,9 +438,11 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "trigger.github",
                         "label": "GitHub",
                         "config": {
-                            "type": "github_webhook",
+                            "resource": "webhook",
+                            "operation": "receive",
                             "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
                             "signature_secret_provider": "environment-variable",
                             "events": "push",
@@ -489,9 +503,11 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "trigger.github",
                         "label": "GitHub",
                         "config": {
-                            "type": "github_webhook",
+                            "resource": "webhook",
+                            "operation": "receive",
                             "auth_secret_group_id": "",
                             "signature_secret_name": "webhook_secret",
                             "events": "push",
@@ -561,9 +577,11 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "trigger.github",
                         "label": "GitHub",
                         "config": {
-                            "type": "github_webhook",
+                            "resource": "webhook",
+                            "operation": "receive",
                             "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
                             "signature_secret_provider": "environment-variable",
                         },

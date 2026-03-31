@@ -227,9 +227,11 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "tool-1",
                         "kind": "tool",
+                        "type": "tool.observability",
                         "label": "Prometheus query",
                         "config": {
-                            "tool_name": "prometheus_query",
+                            "resource": "prometheus",
+                            "operation": "query",
                             "auth_secret_group_id": "",
                             "base_url": "https://prometheus.example.com",
                             "bearer_token_name": "api_token",
@@ -595,9 +597,11 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "tool-1",
                         "kind": "tool",
+                        "type": "tool.observability",
                         "label": "Prometheus query",
                         "config": {
-                            "tool_name": "prometheus_query",
+                            "resource": "prometheus",
+                            "operation": "query",
                             "base_url": "https://{{ trigger.payload.base_url }}",
                             "query": "up",
                             "output_key": "prometheus.query",
@@ -644,9 +648,11 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "tool-1",
                         "kind": "tool",
+                        "type": "tool.observability",
                         "label": "Prometheus query",
                         "config": {
-                            "tool_name": "prometheus_query",
+                            "resource": "prometheus",
+                            "operation": "query",
                             "base_url": "https://prometheus.example.com",
                             "bearer_token_name": "PROMETHEUS_API_TOKEN",
                             "bearer_token_provider": "environment-variable",
@@ -719,9 +725,11 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "tool-1",
                         "kind": "tool",
+                        "type": "tool.observability",
                         "label": "Elasticsearch search",
                         "config": {
-                            "tool_name": "elasticsearch_search",
+                            "resource": "elasticsearch",
+                            "operation": "search",
                             "base_url": "https://elastic.example.com",
                             "index": "logs-*",
                             "auth_token_name": "ELASTICSEARCH_API_KEY",
@@ -798,11 +806,13 @@ class WorkflowRuntimeTests(TestCase):
                         "position": {"x": 32, "y": 40},
                     },
                     {
-                        "id": "tool-1",
-                        "kind": "tool",
+                        "id": "agent-1",
+                        "kind": "agent",
+                        "type": "agent.openai",
                         "label": "OpenAI-compatible chat",
                         "config": {
-                            "tool_name": "openai_compatible_chat",
+                            "resource": "chat",
+                            "operation": "complete",
                             "base_url": "https://llm.example.com/v1",
                             "api_key_name": "OPENAI_COMPATIBLE_API_KEY",
                             "api_key_provider": "environment-variable",
@@ -827,8 +837,8 @@ class WorkflowRuntimeTests(TestCase):
                     },
                 ],
                 "edges": [
-                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
-                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
+                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                    {"id": "edge-2", "source": "agent-1", "target": "response-1"},
                 ],
             },
         )
@@ -873,5 +883,7 @@ class WorkflowRuntimeTests(TestCase):
 
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.step_results[1]["result"]["tool_name"], "openai_compatible_chat")
+        self.assertEqual(run.step_results[1]["result"]["resource"], "chat")
+        self.assertEqual(run.step_results[1]["result"]["operation"], "complete")
         self.assertEqual(run.output_data["response"]["text"], "{\"summary\":\"Investigate the failing deployment.\"}")
         self.assertEqual(run.context_data["llm"]["response"]["usage"]["total_tokens"], 46)

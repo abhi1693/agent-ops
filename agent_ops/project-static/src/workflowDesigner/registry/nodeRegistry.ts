@@ -1,8 +1,4 @@
-import {
-  WORKFLOW_NODE_CATEGORIES,
-  WORKFLOW_NODE_CATEGORY_ORDER,
-  getNodeCategoryForKind,
-} from './categories';
+import { getNodeCategoryForKind } from './categories';
 import type {
   WorkflowDefinition,
   WorkflowNode,
@@ -19,6 +15,10 @@ export type WorkflowNodeRegistry = {
 
 function createNodeDefinition(template: WorkflowNodeTemplate): WorkflowNodeDefinition {
   return {
+    app_description: template.app_description,
+    app_icon: template.app_icon,
+    app_id: template.app_id,
+    app_label: template.app_label,
     category: getNodeCategoryForKind(template.kind),
     config: template.config,
     description: template.description,
@@ -26,18 +26,32 @@ function createNodeDefinition(template: WorkflowNodeTemplate): WorkflowNodeDefin
     icon: template.icon,
     kind: template.kind,
     label: template.label,
-    type: template.kind,
-    typeVersion: 1,
+    operation: template.operation,
+    resource: template.resource,
+    type: template.type,
+    typeVersion: template.typeVersion ?? 1,
   };
 }
 
 export function buildNodeRegistry(nodeTemplates: WorkflowNodeTemplate[]): WorkflowNodeRegistry {
   const definitions = nodeTemplates.map(createNodeDefinition);
   const definitionMap = new Map(definitions.map((definition) => [definition.type, definition]));
-  const paletteSections = WORKFLOW_NODE_CATEGORY_ORDER.map((categoryId) => ({
-    ...WORKFLOW_NODE_CATEGORIES[categoryId],
-    definitions: definitions.filter((definition) => definition.category === categoryId),
-  })).filter((section) => section.definitions.length > 0);
+  const paletteSections = definitions.reduce<WorkflowPaletteSection[]>((sections, definition) => {
+    const appId = definition.app_id ?? 'core';
+    let section = sections.find((item) => item.id === appId);
+    if (!section) {
+      section = {
+        definitions: [],
+        description: definition.app_description ?? '',
+        icon: definition.app_icon,
+        id: appId,
+        label: definition.app_label ?? definition.label,
+      };
+      sections.push(section);
+    }
+    section.definitions.push(definition);
+    return sections;
+  }, []);
 
   return {
     definitions,

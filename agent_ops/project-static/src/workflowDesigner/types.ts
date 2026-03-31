@@ -8,12 +8,18 @@ export type WorkflowNodeTemplateField = {
   key: string;
   label: string;
   options?: WorkflowNodeTemplateOption[];
+  options_by_field?: Record<string, Record<string, WorkflowNodeTemplateOption[]>>;
   placeholder?: string;
   rows?: number;
   type: 'text' | 'textarea' | 'select' | 'node_target';
+  visible_when?: Record<string, string[]>;
 };
 
 export type WorkflowNodeTemplate = {
+  app_description?: string;
+  app_icon?: string;
+  app_id?: string;
+  app_label?: string;
   category?: string;
   config?: Record<string, unknown>;
   description: string;
@@ -21,6 +27,10 @@ export type WorkflowNodeTemplate = {
   icon?: string;
   kind: string;
   label: string;
+  operation?: string;
+  resource?: string;
+  type: string;
+  typeVersion?: number;
 };
 
 export type WorkflowNodeKind = 'trigger' | 'agent' | 'tool' | 'condition' | 'response';
@@ -38,6 +48,10 @@ export type WorkflowNodeCategory = {
 };
 
 export type WorkflowNodeDefinition = {
+  app_description?: string;
+  app_icon?: string;
+  app_id?: string;
+  app_label?: string;
   category: WorkflowNodeCategoryId;
   config?: Record<string, unknown>;
   description: string;
@@ -45,6 +59,8 @@ export type WorkflowNodeDefinition = {
   icon?: string;
   kind: WorkflowNodeKind | string;
   label: string;
+  operation?: string;
+  resource?: string;
   type: string;
   typeVersion: number;
 };
@@ -52,28 +68,9 @@ export type WorkflowNodeDefinition = {
 export type WorkflowPaletteSection = {
   definitions: WorkflowNodeDefinition[];
   description: string;
-  id: WorkflowNodeCategoryId;
-  label: string;
-};
-
-export type WorkflowTriggerDefinition = {
-  category?: string;
-  config?: Record<string, unknown>;
-  description: string;
-  fields: WorkflowNodeTemplateField[];
   icon?: string;
+  id: string;
   label: string;
-  name: string;
-};
-
-export type WorkflowToolDefinition = {
-  category?: string;
-  config?: Record<string, unknown>;
-  description: string;
-  fields: WorkflowNodeTemplateField[];
-  icon?: string;
-  label: string;
-  name: string;
 };
 
 export type WorkflowPersistedNode = {
@@ -120,10 +117,6 @@ export type WorkflowDefinition = {
   nodes: WorkflowNode[];
   viewport?: WorkflowPersistedDefinition['viewport'];
 };
-
-export type WorkflowSpecializedDefinition =
-  | WorkflowToolDefinition
-  | WorkflowTriggerDefinition;
 
 export type DesignerElements = {
   advancedPanel: HTMLDetailsElement;

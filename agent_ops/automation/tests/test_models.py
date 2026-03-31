@@ -243,6 +243,52 @@ class WorkflowModelTests(TestCase):
 
         workflow.full_clean()
 
+    def test_workflow_rejects_concrete_tool_type_with_mismatched_config_tool_name(self):
+        workflow = Workflow(
+            environment=self.environment,
+            name="Mismatched concrete tool workflow",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "tool.template",
+                        "label": "Render summary",
+                        "config": {
+                            "tool_name": "secret",
+                            "template": "Org {{ workflow.scope_label }}",
+                            "output_key": "summary",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "summary",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            workflow.full_clean()
+
+        self.assertIn("config.tool_name must match concrete node type", str(context.exception))
+
     def test_workflow_accepts_webhook_trigger_and_external_tool_nodes(self):
         workflow = Workflow(
             environment=self.environment,
@@ -252,9 +298,11 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
+                        "type": "trigger.github",
                         "label": "GitHub webhook",
                         "config": {
-                            "type": "github_webhook",
+                            "resource": "webhook",
+                            "operation": "receive",
                             "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
                             "events": "push,pull_request",
                         },
@@ -263,9 +311,11 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "tool-1",
                         "kind": "tool",
+                        "type": "tool.observability",
                         "label": "Prometheus query",
                         "config": {
-                            "tool_name": "prometheus_query",
+                            "resource": "prometheus",
+                            "operation": "query",
                             "base_url": "https://prometheus.example.com",
                             "query": "up",
                             "output_key": "prometheus.query",
@@ -353,11 +403,13 @@ class WorkflowModelTests(TestCase):
                         "position": {"x": 32, "y": 40},
                     },
                     {
-                        "id": "tool-1",
-                        "kind": "tool",
+                        "id": "agent-1",
+                        "kind": "agent",
+                        "type": "agent.openai",
                         "label": "LLM chat",
                         "config": {
-                            "tool_name": "openai_compatible_chat",
+                            "resource": "chat",
+                            "operation": "complete",
                             "base_url": "https://user:password@llm.example.com/v1",
                             "api_key_name": "OPENAI_API_KEY",
                             "model": "gpt-4.1-mini",
@@ -377,8 +429,8 @@ class WorkflowModelTests(TestCase):
                     },
                 ],
                 "edges": [
-                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
-                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
+                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                    {"id": "edge-2", "source": "agent-1", "target": "response-1"},
                 ],
             },
         )

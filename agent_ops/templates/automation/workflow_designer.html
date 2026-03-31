@@ -55,8 +55,6 @@
 {% block content %}
   {{ workflow_definition|json_script:"workflow-definition-data" }}
   {{ workflow_node_templates|json_script:"workflow-node-templates-data" }}
-  {{ workflow_trigger_definitions|json_script:"workflow-trigger-definitions-data" }}
-  {{ workflow_tool_definitions|json_script:"workflow-tool-definitions-data" }}
 
   <form
     action=""
@@ -167,8 +165,12 @@
                 <div class="mb-0">
                   <label class="form-label" for="workflow-node-kind">Node type</label>
                   <select id="workflow-node-kind" class="form-select" data-field="kind">
-                    {% for template in workflow_node_templates %}
-                      <option value="{{ template.kind }}">{{ template.label }}</option>
+                    {% for app_group in workflow_node_template_groups %}
+                      <optgroup label="{{ app_group.label }}">
+                        {% for template in app_group.templates %}
+                          <option value="{{ template.type }}">{{ template.label }}</option>
+                        {% endfor %}
+                      </optgroup>
                     {% endfor %}
                   </select>
                 </div>
