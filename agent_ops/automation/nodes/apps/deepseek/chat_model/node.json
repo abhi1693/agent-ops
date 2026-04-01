@@ -1,35 +1,38 @@
 {
-  "node": "tool.openai_compatible_chat",
-  "details": "Call an OpenAI-compatible /chat/completions endpoint with a model, prompts, and API key.",
+  "node": "tool.deepseek_chat_model",
+  "details": "Provide a DeepSeek chat model configuration that can be attached to an agent node.",
   "agentOps": {
     "kind": "tool",
-    "displayName": "LLM chat (OpenAI-compatible)",
-    "icon": "mdi-robot-happy-outline",
-    "appId": "openai",
-    "appLabel": "OpenAI-compatible APIs",
-    "appDescription": "LLM and inference nodes that talk to OpenAI-compatible chat completion APIs.",
+    "displayName": "DeepSeek chat model",
+    "icon": "mdi-robot-outline",
+    "appId": "deepseek",
+    "appLabel": "DeepSeek",
+    "appDescription": "Attach a DeepSeek OpenAI-compatible chat completion model to an agent.",
     "appIcon": "mdi-robot-happy-outline",
     "config": {
-      "output_key": "llm.response"
+      "api_key_name": "DEEPSEEK_API_KEY",
+      "base_url": "https://api.deepseek.com/v1",
+      "model": "deepseek-chat",
+      "auth_secret_group_id": ""
     },
     "fields": [
       {
-        "key": "output_key",
-        "label": "Save result as",
-        "type": "text",
-        "placeholder": "llm.response"
+        "key": "auth_secret_group_id",
+        "label": "Auth secret group",
+        "type": "select",
+        "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
       },
       {
         "key": "base_url",
         "label": "API base URL",
         "type": "text",
-        "placeholder": "https://api.openai.com/v1"
+        "placeholder": "https://api.deepseek.com/v1"
       },
       {
         "key": "api_key_name",
         "label": "API key secret name",
         "type": "text",
-        "placeholder": "OPENAI_API_KEY"
+        "placeholder": "DEEPSEEK_API_KEY"
       },
       {
         "key": "api_key_provider",
@@ -42,21 +45,7 @@
         "key": "model",
         "label": "Model",
         "type": "text",
-        "placeholder": "gpt-4.1-mini"
-      },
-      {
-        "key": "system_prompt",
-        "label": "System prompt",
-        "type": "textarea",
-        "rows": 4,
-        "placeholder": "You are an incident response assistant."
-      },
-      {
-        "key": "user_prompt",
-        "label": "User prompt",
-        "type": "textarea",
-        "rows": 6,
-        "placeholder": "Summarize incident {{ trigger.payload.incident_id }} and propose next steps."
+        "placeholder": "deepseek-chat"
       },
       {
         "key": "temperature",

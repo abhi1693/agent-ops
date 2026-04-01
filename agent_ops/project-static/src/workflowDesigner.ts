@@ -124,7 +124,15 @@ const NODE_CONTEXT_MENU_HEIGHT = 142;
 const NODE_CONTEXT_MENU_MARGIN = 12;
 const NODE_CONTEXT_MENU_OFFSET_X = 10;
 const NODE_CONTEXT_MENU_OFFSET_Y = 6;
-const AGENT_LANGUAGE_MODEL_NODE_TYPES = new Set<string>(['tool.openai_chat_model']);
+const AGENT_LANGUAGE_MODEL_NODE_TYPES = new Set<string>([
+  'tool.deepseek_chat_model',
+  'tool.fireworks_chat_model',
+  'tool.groq_chat_model',
+  'tool.mistral_chat_model',
+  'tool.openai_chat_model',
+  'tool.openrouter_chat_model',
+  'tool.xai_chat_model',
+]);
 
 function isAgentLanguageModelNodeType(nodeType: string | null | undefined): boolean {
   return Boolean(nodeType && AGENT_LANGUAGE_MODEL_NODE_TYPES.has(nodeType));

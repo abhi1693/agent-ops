@@ -106,18 +106,21 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
             ).serialize(),
         )
 
-    def test_openai_tool_node_template_serializes_expected_fields(self):
-        openai_tool = get_workflow_node_template(node_type="tool.openai_compatible_chat")
+    def test_chat_model_tool_templates_serialize_expected_fields(self):
         chat_model_tool = get_workflow_node_template(node_type="tool.openai_chat_model")
+        deepseek_chat_model_tool = get_workflow_node_template(node_type="tool.deepseek_chat_model")
+        groq_chat_model_tool = get_workflow_node_template(node_type="tool.groq_chat_model")
 
-        self.assertEqual(openai_tool["label"], "LLM chat (OpenAI-compatible)")
-        self.assertEqual(openai_tool["config"]["output_key"], "llm.response")
-        self.assertEqual(openai_tool["fields"][0]["key"], "output_key")
-        self.assertEqual(openai_tool["fields"][1]["key"], "base_url")
         self.assertEqual(chat_model_tool["label"], "OpenAI chat model")
         self.assertEqual(chat_model_tool["config"]["api_key_name"], "OPENAI_API_KEY")
         self.assertEqual(chat_model_tool["fields"][0]["key"], "auth_secret_group_id")
         self.assertEqual(chat_model_tool["fields"][1]["key"], "base_url")
+        self.assertEqual(deepseek_chat_model_tool["label"], "DeepSeek chat model")
+        self.assertEqual(deepseek_chat_model_tool["config"]["api_key_name"], "DEEPSEEK_API_KEY")
+        self.assertEqual(deepseek_chat_model_tool["config"]["base_url"], "https://api.deepseek.com/v1")
+        self.assertEqual(deepseek_chat_model_tool["fields"][1]["key"], "base_url")
+        self.assertEqual(groq_chat_model_tool["label"], "Groq chat model")
+        self.assertEqual(groq_chat_model_tool["config"]["model"], "llama-3.3-70b-versatile")
 
     def test_tool_node_validation_requires_base_url(self):
         with self.assertRaises(ValidationError) as exc_info:
@@ -125,12 +128,10 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
                 node={
                     "id": "tool-1",
                     "kind": "tool",
-                    "type": "tool.openai_compatible_chat",
+                    "type": "tool.openai_chat_model",
                     "config": {
-                        "output_key": "llm.response",
                         "api_key_name": "OPENAI_API_KEY",
                         "model": "gpt-4.1-mini",
-                        "user_prompt": "Hello",
                     },
                 },
                 outgoing_targets=["done"],

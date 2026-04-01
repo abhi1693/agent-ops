@@ -7,7 +7,17 @@ SUPPORTED_AGENT_API_TYPES = frozenset({"openai"})
 DEFAULT_AGENT_API_TYPE = "openai"
 AGENT_LANGUAGE_MODEL_INPUT_PORT = "ai_languageModel"
 AGENT_TOOL_INPUT_PORT = "ai_tool"
-AGENT_LANGUAGE_MODEL_NODE_TYPES = frozenset({"tool.openai_chat_model"})
+AGENT_LANGUAGE_MODEL_NODE_TYPES = frozenset(
+    {
+        "tool.deepseek_chat_model",
+        "tool.fireworks_chat_model",
+        "tool.groq_chat_model",
+        "tool.mistral_chat_model",
+        "tool.openai_chat_model",
+        "tool.openrouter_chat_model",
+        "tool.xai_chat_model",
+    }
+)
 SUPPORTED_AGENT_AUXILIARY_PORTS = frozenset(
     {
         AGENT_LANGUAGE_MODEL_INPUT_PORT,

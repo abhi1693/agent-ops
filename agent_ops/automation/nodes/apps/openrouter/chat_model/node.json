@@ -1,0 +1,72 @@
+{
+  "node": "tool.openrouter_chat_model",
+  "details": "Provide an OpenRouter chat model configuration that can be attached to an agent node.",
+  "agentOps": {
+    "kind": "tool",
+    "displayName": "OpenRouter chat model",
+    "icon": "mdi-robot-outline",
+    "appId": "openrouter",
+    "appLabel": "OpenRouter",
+    "appDescription": "Attach an OpenRouter OpenAI-compatible chat completion model to an agent.",
+    "appIcon": "mdi-robot-happy-outline",
+    "config": {
+      "api_key_name": "OPENROUTER_API_KEY",
+      "base_url": "https://openrouter.ai/api/v1",
+      "model": "openai/gpt-5.2",
+      "auth_secret_group_id": ""
+    },
+    "fields": [
+      {
+        "key": "auth_secret_group_id",
+        "label": "Auth secret group",
+        "type": "select",
+        "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
+      },
+      {
+        "key": "base_url",
+        "label": "API base URL",
+        "type": "text",
+        "placeholder": "https://openrouter.ai/api/v1"
+      },
+      {
+        "key": "api_key_name",
+        "label": "API key secret name",
+        "type": "text",
+        "placeholder": "OPENROUTER_API_KEY"
+      },
+      {
+        "key": "api_key_provider",
+        "label": "API key provider",
+        "type": "text",
+        "placeholder": "environment-variable",
+        "help_text": "Optional. Leave blank to search all enabled providers in scope."
+      },
+      {
+        "key": "model",
+        "label": "Model",
+        "type": "text",
+        "placeholder": "openai/gpt-5.2"
+      },
+      {
+        "key": "temperature",
+        "label": "Temperature",
+        "type": "text",
+        "placeholder": "0.2"
+      },
+      {
+        "key": "max_tokens",
+        "label": "Max tokens",
+        "type": "text",
+        "placeholder": "800"
+      },
+      {
+        "key": "extra_body_json",
+        "label": "Extra body JSON",
+        "type": "textarea",
+        "rows": 5,
+        "placeholder": "{\"response_format\": {\"type\": \"json_object\"}}",
+        "help_text": "Optional provider-specific fields merged into the request body after prompts and model."
+      }
+    ]
+  }
+}

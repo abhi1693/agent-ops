@@ -36,8 +36,13 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
                 "trigger.github_webhook",
                 "trigger.alertmanager_webhook",
                 "trigger.kibana_webhook",
-                "tool.openai_compatible_chat",
                 "tool.openai_chat_model",
+                "tool.deepseek_chat_model",
+                "tool.fireworks_chat_model",
+                "tool.groq_chat_model",
+                "tool.mistral_chat_model",
+                "tool.openrouter_chat_model",
+                "tool.xai_chat_model",
                 "tool.prometheus_query",
                 "tool.elasticsearch_search",
                 "tool.kubectl",
@@ -67,8 +72,13 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
                 "trigger.github_webhook",
                 "trigger.alertmanager_webhook",
                 "trigger.kibana_webhook",
-                "tool.openai_compatible_chat",
                 "tool.openai_chat_model",
+                "tool.deepseek_chat_model",
+                "tool.fireworks_chat_model",
+                "tool.groq_chat_model",
+                "tool.mistral_chat_model",
+                "tool.openrouter_chat_model",
+                "tool.xai_chat_model",
                 "tool.prometheus_query",
                 "tool.elasticsearch_search",
                 "tool.kubectl",
@@ -86,6 +96,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
         self.assertEqual(get_workflow_node_definition("agent").type, "agent")
         self.assertEqual(get_workflow_node_definition("response").type, "response")
         self.assertIsNone(get_workflow_node_definition("condition"))
+        self.assertIsNone(get_workflow_node_template(node_type="tool.openai_compatible_chat"))
 
         set_template = templates_by_type["n8n-nodes-base.set"]
         self.assertEqual(set_template["label"], "Set")
@@ -98,15 +109,19 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
         self.assertEqual(set_template["config"]["output_key"], "tool.output")
         self.assertEqual(set_template["fields"][0]["key"], "output_key")
 
-        openai_template = templates_by_type["tool.openai_compatible_chat"]
-        self.assertEqual(openai_template["label"], "LLM chat (OpenAI-compatible)")
-        self.assertEqual(openai_template["config"]["output_key"], "llm.response")
-        self.assertEqual(openai_template["fields"][1]["key"], "base_url")
-
         chat_model_template = templates_by_type["tool.openai_chat_model"]
         self.assertEqual(chat_model_template["label"], "OpenAI chat model")
         self.assertEqual(chat_model_template["config"]["api_key_name"], "OPENAI_API_KEY")
         self.assertEqual(chat_model_template["fields"][1]["key"], "base_url")
+
+        deepseek_template = templates_by_type["tool.deepseek_chat_model"]
+        self.assertEqual(deepseek_template["label"], "DeepSeek chat model")
+        self.assertEqual(deepseek_template["config"]["api_key_name"], "DEEPSEEK_API_KEY")
+        self.assertEqual(deepseek_template["config"]["model"], "deepseek-chat")
+
+        groq_template = templates_by_type["tool.groq_chat_model"]
+        self.assertEqual(groq_template["label"], "Groq chat model")
+        self.assertEqual(groq_template["config"]["base_url"], "https://api.groq.com/openai/v1")
 
     def test_manifest_field_schema_supports_visibility_and_dynamic_options(self):
         definition = WorkflowNodeDefinition.from_manifest(
