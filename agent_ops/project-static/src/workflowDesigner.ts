@@ -48,6 +48,7 @@ type CanvasElements = {
   edgeLayer: SVGSVGElement;
   emptyState: HTMLElement;
   nodeLayer: HTMLElement;
+  nodeMenu: HTMLElement;
   settingsDescription: HTMLElement;
   settingsFields: HTMLElement;
   settingsPanel: HTMLElement;
@@ -81,12 +82,21 @@ type InsertDraft = {
   sourceId: string;
 };
 
+type ContextMenuState = {
+  nodeId: string;
+  x: number;
+  y: number;
+};
+
 type Point = {
   x: number;
   y: number;
 };
 
 const CONNECTOR_SIDES: ConnectorSide[] = ['top', 'right', 'bottom', 'left'];
+const NODE_CONTEXT_MENU_WIDTH = 172;
+const NODE_CONTEXT_MENU_HEIGHT = 104;
+const NODE_CONTEXT_MENU_MARGIN = 12;
 
 function getBrowserElements(root: ParentNode): BrowserElements | null {
   const browser = root.querySelector<HTMLElement>('[data-node-browser]');
@@ -127,6 +137,7 @@ function getCanvasElements(root: ParentNode): CanvasElements | null {
   const edgeLayer = root.querySelector<SVGSVGElement>('[data-workflow-edge-layer]');
   const emptyState = root.querySelector<HTMLElement>('[data-workflow-empty-state]');
   const nodeLayer = root.querySelector<HTMLElement>('[data-workflow-node-layer]');
+  const nodeMenu = root.querySelector<HTMLElement>('[data-workflow-node-menu]');
   const settingsDescription = root.querySelector<HTMLElement>('[data-workflow-settings-description]');
   const settingsFields = root.querySelector<HTMLElement>('[data-workflow-settings-fields]');
   const settingsPanel = root.querySelector<HTMLElement>('[data-workflow-settings-panel]');
@@ -139,6 +150,7 @@ function getCanvasElements(root: ParentNode): CanvasElements | null {
     !edgeLayer ||
     !emptyState ||
     !nodeLayer ||
+    !nodeMenu ||
     !settingsDescription ||
     !settingsFields ||
     !settingsPanel ||
@@ -154,6 +166,7 @@ function getCanvasElements(root: ParentNode): CanvasElements | null {
     edgeLayer,
     emptyState,
     nodeLayer,
+    nodeMenu,
     settingsDescription,
     settingsFields,
     settingsPanel,
@@ -586,6 +599,7 @@ export function initWorkflowDesigner(): void {
   let settingsNodeId: string | null = null;
   let dragState: DragState | null = null;
   let connectionDraft: ConnectionDraft | null = null;
+  let contextMenuState: ContextMenuState | null = null;
   let hoveredEdgeId: string | null = null;
   let insertDraft: InsertDraft | null = null;
 
@@ -710,6 +724,7 @@ export function initWorkflowDesigner(): void {
   function openNodeSettings(nodeId: string): void {
     selectedNodeId = nodeId;
     settingsNodeId = nodeId;
+    contextMenuState = null;
     renderCanvas();
     renderSettingsPanel();
   }
@@ -830,14 +845,88 @@ export function initWorkflowDesigner(): void {
         >
       </div>
       ${fieldMarkup || '<div class="workflow-editor-settings-empty">No editable settings for this node yet.</div>'}
-      <div class="workflow-editor-settings-actions">
+    `;
+  }
+
+  function getNodeContextMenuPosition(clientX: number, clientY: number): { x: number; y: number } {
+    const boardRect = canvas.board.getBoundingClientRect();
+    const rawX = clientX - boardRect.left + canvas.board.scrollLeft;
+    const rawY = clientY - boardRect.top + canvas.board.scrollTop;
+    const minX = canvas.board.scrollLeft + NODE_CONTEXT_MENU_MARGIN;
+    const minY = canvas.board.scrollTop + NODE_CONTEXT_MENU_MARGIN;
+    const maxX = Math.max(
+      minX,
+      canvas.board.scrollLeft + canvas.board.clientWidth - NODE_CONTEXT_MENU_WIDTH - NODE_CONTEXT_MENU_MARGIN,
+    );
+    const maxY = Math.max(
+      minY,
+      canvas.board.scrollTop + canvas.board.clientHeight - NODE_CONTEXT_MENU_HEIGHT - NODE_CONTEXT_MENU_MARGIN,
+    );
+
+    return {
+      x: clamp(Math.round(rawX), minX, maxX),
+      y: clamp(Math.round(rawY), minY, maxY),
+    };
+  }
+
+  function closeNodeContextMenu(): void {
+    contextMenuState = null;
+    renderNodeContextMenu();
+  }
+
+  function openNodeContextMenu(nodeId: string, clientX: number, clientY: number): void {
+    const node = getNode(nodeId);
+    if (!node) {
+      return;
+    }
+
+    selectedNodeId = nodeId;
+    settingsNodeId = null;
+    contextMenuState = {
+      nodeId,
+      ...getNodeContextMenuPosition(clientX, clientY),
+    };
+    renderCanvas();
+    renderSettingsPanel();
+  }
+
+  function renderNodeContextMenu(): void {
+    if (!contextMenuState) {
+      canvas.nodeMenu.hidden = true;
+      canvas.nodeMenu.innerHTML = '';
+      return;
+    }
+
+    const node = getNode(contextMenuState.nodeId);
+    if (!node) {
+      contextMenuState = null;
+      canvas.nodeMenu.hidden = true;
+      canvas.nodeMenu.innerHTML = '';
+      return;
+    }
+
+    const title = node.label || formatKindLabel(node.kind) || node.type;
+    canvas.nodeMenu.hidden = false;
+    canvas.nodeMenu.style.left = `${contextMenuState.x}px`;
+    canvas.nodeMenu.style.top = `${contextMenuState.y}px`;
+    canvas.nodeMenu.innerHTML = `
+      <div class="workflow-editor-node-menu-sheet">
+        <div class="workflow-editor-node-menu-label">${escapeHtml(title)}</div>
         <button
           type="button"
-          class="btn btn-outline-danger"
-          data-delete-selected-node="${escapeHtml(settingsNode.id)}"
+          class="workflow-editor-node-menu-action"
+          data-node-menu-action="settings"
+        >
+          <i class="mdi mdi-tune-variant"></i>
+          <span>Settings</span>
+        </button>
+        <button
+          type="button"
+          class="workflow-editor-node-menu-action is-danger"
+          data-node-menu-action="delete"
         >
           <i class="mdi mdi-trash-can-outline"></i>
-          <span class="ms-1">Delete node</span>
+          <span>Delete</span>
         </button>
       </div>
     `;
@@ -970,15 +1059,6 @@ export function initWorkflowDesigner(): void {
           >
             ${connectors}
             <span class="workflow-editor-node-card">
-              <span class="workflow-editor-node-card-glow" aria-hidden="true"></span>
-              <button
-                type="button"
-                class="workflow-editor-node-settings-trigger"
-                data-open-node-settings="${escapeHtml(node.id)}"
-                aria-label="Open ${escapeHtml(title)} settings"
-              >
-                <i class="mdi mdi-tune-variant"></i>
-              </button>
               <span class="workflow-editor-node-icon">
                 <i class="mdi ${escapeHtml(icon)}"></i>
               </span>
@@ -1132,12 +1212,15 @@ export function initWorkflowDesigner(): void {
     renderEdges();
     renderEdgeControls();
     renderEmptyState();
+    renderNodeContextMenu();
   }
 
   function closeBrowser(): void {
     isBrowserOpen = false;
     insertDraft = null;
+    contextMenuState = null;
     renderBrowser();
+    renderNodeContextMenu();
   }
 
   function cancelConnection(): void {
@@ -1147,7 +1230,9 @@ export function initWorkflowDesigner(): void {
 
   function openBrowser(): void {
     isBrowserOpen = true;
+    contextMenuState = null;
     renderBrowser();
+    renderNodeContextMenu();
     window.setTimeout(() => {
       browser.searchInput.focus();
     }, 0);
@@ -1363,6 +1448,9 @@ export function initWorkflowDesigner(): void {
     if (settingsNodeId === nodeId) {
       settingsNodeId = null;
     }
+    if (contextMenuState?.nodeId === nodeId) {
+      contextMenuState = null;
+    }
     if (connectionDraft?.sourceId === nodeId) {
       connectionDraft = null;
     }
@@ -1439,11 +1527,8 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
-    const settingsTrigger = target.closest<HTMLElement>('[data-open-node-settings]');
-    if (settingsTrigger?.dataset.openNodeSettings) {
-      closeBrowser();
-      openNodeSettings(settingsTrigger.dataset.openNodeSettings);
-      return;
+    if (contextMenuState && !target.closest('[data-workflow-node-menu]')) {
+      closeNodeContextMenu();
     }
 
     if (target.closest('[data-close-node-settings]')) {
@@ -1457,10 +1542,19 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
-    const deleteNodeButton = target.closest<HTMLElement>('[data-delete-selected-node]');
-    if (deleteNodeButton?.dataset.deleteSelectedNode) {
-      deleteNode(deleteNodeButton.dataset.deleteSelectedNode);
-      return;
+    const nodeMenuAction = target.closest<HTMLElement>('[data-node-menu-action]');
+    if (nodeMenuAction?.dataset.nodeMenuAction && contextMenuState) {
+      const nodeId = contextMenuState.nodeId;
+      const action = nodeMenuAction.dataset.nodeMenuAction;
+      closeNodeContextMenu();
+      if (action === 'settings') {
+        openNodeSettings(nodeId);
+        return;
+      }
+      if (action === 'delete') {
+        deleteNode(nodeId);
+        return;
+      }
     }
 
     const browserItem = target.closest<HTMLElement>('[data-node-browser-item]');
@@ -1470,9 +1564,14 @@ export function initWorkflowDesigner(): void {
   });
 
   canvas.board.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+
     const target = event.target as HTMLElement;
     if (
       target.closest('[data-workflow-node-id]') ||
+      target.closest('[data-workflow-node-menu]') ||
       target.closest('[data-node-browser]') ||
       target.closest('[data-open-node-browser]') ||
       target.closest('[data-remove-edge]') ||
@@ -1496,7 +1595,14 @@ export function initWorkflowDesigner(): void {
   });
 
   canvas.nodeLayer.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+
     const target = event.target as HTMLElement;
+    if (contextMenuState) {
+      closeNodeContextMenu();
+    }
     const connector = target.closest<HTMLElement>('[data-workflow-node-connector]');
     if (connector?.dataset.workflowNodeConnector) {
       const connectorNode = getNode(connector.dataset.workflowNodeConnector);
@@ -1510,10 +1616,6 @@ export function initWorkflowDesigner(): void {
         event.preventDefault();
         return;
       }
-    }
-
-    if (target.closest('[data-open-node-settings]')) {
-      return;
     }
 
     const nodeElement = target.closest<HTMLElement>('[data-workflow-node-id]');
@@ -1558,6 +1660,18 @@ export function initWorkflowDesigner(): void {
     activeNodeElement.classList.add('is-dragging');
     activeNodeElement.setPointerCapture(event.pointerId);
     event.preventDefault();
+  });
+
+  canvas.nodeLayer.addEventListener('contextmenu', (event) => {
+    const target = event.target as HTMLElement;
+    const nodeElement = target.closest<HTMLElement>('[data-workflow-node-id]');
+    const nodeId = nodeElement?.dataset.workflowNodeId;
+    if (!nodeId) {
+      return;
+    }
+
+    event.preventDefault();
+    openNodeContextMenu(nodeId, event.clientX, event.clientY);
   });
 
   canvas.board.addEventListener('pointermove', (event) => {
@@ -1705,6 +1819,11 @@ export function initWorkflowDesigner(): void {
 
     if (isBrowserOpen) {
       closeBrowser();
+      return;
+    }
+
+    if (contextMenuState) {
+      closeNodeContextMenu();
       return;
     }
 
