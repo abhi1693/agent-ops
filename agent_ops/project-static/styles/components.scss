@@ -1299,9 +1299,9 @@ tr[data-virtual='true'] {
 
 .workflow-editor-node {
   position: absolute;
-  width: 9rem;
-  min-height: 8.25rem;
-  --workflow-editor-node-card-height: 5.125rem;
+  width: 144px;
+  min-height: 132px;
+  --workflow-editor-node-card-height: 82px;
   --workflow-editor-node-accent: #64748b;
   --workflow-editor-node-accent-soft: rgba(100, 116, 139, 0.14);
   --workflow-editor-node-icon-bg: #f8fafc;
