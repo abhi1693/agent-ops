@@ -15,6 +15,7 @@ import type {
   WorkflowNode,
   WorkflowNodeDefinition,
   WorkflowNodeTemplateField,
+  WorkflowNodeTemplateOption,
   WorkflowNodeTemplate,
   WorkflowPaletteSection,
   WorkflowPersistedDefinition,
@@ -25,6 +26,7 @@ import {
   createId,
   escapeHtml,
   formatKindLabel,
+  getConfigString,
   getTemplateFieldOptions,
   getTemplateFieldValue,
   isTemplateFieldVisible,
@@ -233,6 +235,93 @@ function parsePersistedDefinition(
   }
 }
 
+function getProviderMonogram(label: string, appId?: string): string {
+  const normalizedAppId = (appId ?? '').trim().toLowerCase();
+  if (normalizedAppId === 'openai') {
+    return 'OA';
+  }
+  if (normalizedAppId === 'deepseek') {
+    return 'DS';
+  }
+  if (normalizedAppId === 'fireworks') {
+    return 'FW';
+  }
+  if (normalizedAppId === 'groq') {
+    return 'GQ';
+  }
+  if (normalizedAppId === 'mistral') {
+    return 'MS';
+  }
+  if (normalizedAppId === 'openrouter') {
+    return 'OR';
+  }
+  if (normalizedAppId === 'xai') {
+    return 'XA';
+  }
+
+  const compactLabel = label.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  return compactLabel.slice(0, 2) || 'AI';
+}
+
+function getDefinitionField(
+  definition: WorkflowNodeDefinition | undefined,
+  key: string,
+): WorkflowNodeTemplateField | undefined {
+  return definition?.fields.find((field) => field.key === key);
+}
+
+function getFieldOptionsWithCurrentValue(
+  node: WorkflowNode,
+  field: WorkflowNodeTemplateField,
+): WorkflowNodeTemplateOption[] {
+  const options = getTemplateFieldOptions(node, field);
+  if (field.type !== 'select') {
+    return options;
+  }
+
+  const currentValue = getTemplateFieldValue(node, field);
+  if (!currentValue || options.some((option) => option.value === currentValue)) {
+    return options;
+  }
+
+  return [
+    {
+      label: `Current custom (${currentValue})`,
+      value: currentValue,
+    },
+    ...options,
+  ];
+}
+
+function getEffectiveModelLabel(
+  node: WorkflowNode | undefined,
+  definition: WorkflowNodeDefinition | undefined,
+): string {
+  if (!node) {
+    return '';
+  }
+
+  const customModel = getConfigString(node.config, 'custom_model').trim();
+  if (customModel) {
+    return customModel;
+  }
+
+  const configuredModel = getConfigString(node.config, 'model').trim();
+  if (!configuredModel) {
+    return '';
+  }
+
+  const modelField = getDefinitionField(definition, 'model');
+  if (!modelField) {
+    return configuredModel;
+  }
+
+  const matchedOption = getFieldOptionsWithCurrentValue(node, modelField).find(
+    (option) => option.value === configuredModel,
+  );
+  return matchedOption?.label ?? configuredModel;
+}
+
 function filterNodeDefinitions(
   definitions: WorkflowNodeDefinition[],
   query: string,
@@ -243,12 +332,22 @@ function filterNodeDefinitions(
   }
 
   return definitions.filter((definition) => {
+    const fieldTerms = definition.fields.reduce<string[]>((terms, field) => {
+      terms.push(field.key, field.label);
+      (field.options ?? []).forEach((option) => {
+        terms.push(option.label, option.value);
+      });
+      return terms;
+    }, []);
     const haystack = [
       definition.label,
       definition.description,
       definition.type,
       definition.kind,
       definition.app_label ?? '',
+      definition.app_description ?? '',
+      typeof definition.config?.model === 'string' ? definition.config.model : '',
+      ...fieldTerms,
     ]
       .join(' ')
       .toLowerCase();
@@ -264,23 +363,37 @@ function renderPaletteDefinitions(
   return definitions
     .map((definition) => {
       const icon = definition.icon ?? 'mdi-vector-square';
-      const meta = definition.app_label && definition.app_label !== definition.label
-        ? definition.app_label
-        : formatKindLabel(definition.kind) || definition.kind;
+      const appId = definition.app_id ?? '';
+      const isModelProvider = isAgentLanguageModelNodeType(definition.type);
+      const meta = isModelProvider
+        ? 'Model provider'
+        : definition.app_label && definition.app_label !== definition.label
+          ? definition.app_label
+          : formatKindLabel(definition.kind) || definition.kind;
+      const description = isModelProvider
+        ? definition.app_description || definition.description
+        : definition.description;
+      const iconMarkup = isModelProvider
+        ? `<span class="workflow-node-browser-item-monogram">${escapeHtml(
+            getProviderMonogram(definition.label, appId),
+          )}</span>`
+        : `<i class="mdi ${escapeHtml(icon)}"></i>`;
 
       return `
         <button
           type="button"
           class="workflow-node-browser-item${mode === 'starter' ? ' workflow-node-browser-item--starter' : ''}"
           data-node-browser-item="${escapeHtml(definition.type)}"
+          data-app-id="${escapeHtml(appId)}"
+          data-model-provider="${isModelProvider ? 'true' : 'false'}"
           aria-label="${escapeHtml(definition.label)}"
         >
-          <span class="workflow-node-browser-item-icon">
-            <i class="mdi ${escapeHtml(icon)}"></i>
+          <span class="workflow-node-browser-item-icon${isModelProvider ? ' is-model-provider' : ''}">
+            ${iconMarkup}
           </span>
           <span class="workflow-node-browser-item-copy">
             <span class="workflow-node-browser-item-title">${escapeHtml(definition.label)}</span>
-            <span class="workflow-node-browser-item-description">${escapeHtml(definition.description)}</span>
+            <span class="workflow-node-browser-item-description">${escapeHtml(description)}</span>
             <span class="workflow-node-browser-item-meta">${escapeHtml(meta)}</span>
           </span>
         </button>
@@ -299,8 +412,24 @@ function renderPaletteSections(sections: WorkflowPaletteSection[], query: string
 
   return filteredSections
     .map((section) => `
-      <section class="workflow-node-browser-section">
-        <div class="workflow-node-browser-section-title">${escapeHtml(section.label)}</div>
+      <section class="workflow-node-browser-section" data-app-id="${escapeHtml(section.id)}">
+        <div class="workflow-node-browser-section-head">
+          <span class="workflow-node-browser-section-badge" aria-hidden="true">
+            ${
+              section.icon
+                ? `<i class="mdi ${escapeHtml(section.icon)}"></i>`
+                : escapeHtml(getProviderMonogram(section.label, section.id))
+            }
+          </span>
+          <span class="workflow-node-browser-section-copy">
+            <span class="workflow-node-browser-section-title">${escapeHtml(section.label)}</span>
+            ${
+              section.description
+                ? `<span class="workflow-node-browser-section-description">${escapeHtml(section.description)}</span>`
+                : ''
+            }
+          </span>
+        </div>
         <div class="workflow-node-browser-grid">
           ${renderPaletteDefinitions(section.definitions, 'default')}
         </div>
@@ -1006,7 +1135,7 @@ export function initWorkflowDesigner(): void {
         if (field.type === 'select' || field.type === 'node_target') {
           const options = (field.type === 'node_target'
             ? getNodeTargetOptions(settingsNode, workflowDefinition)
-            : getTemplateFieldOptions(settingsNode, field)
+            : getFieldOptionsWithCurrentValue(settingsNode, field)
           )
             .map(
               (option) => `
@@ -1206,11 +1335,20 @@ export function initWorkflowDesigner(): void {
     } else if (insertPort) {
       title = insertPort.id === 'ai_languageModel' ? 'Attach model provider' : 'Attach tool';
       description = insertPort.id === 'ai_languageModel'
-        ? 'Choose a provider-specific model node to attach to this agent.'
+        ? 'Choose a provider-backed model node. Each one includes curated presets and an optional custom override.'
         : 'Choose any tool or integration node to attach to this agent.';
       emptyMessage = insertPort.id === 'ai_languageModel'
         ? 'No matching model providers'
         : 'No matching tools';
+      if (insertPort.id === 'ai_languageModel') {
+        const modelDefinitions = filteredSections.reduce<WorkflowNodeDefinition[]>(
+          (definitions, section) => definitions.concat(section.definitions),
+          [],
+        );
+        markup = modelDefinitions.length > 0
+          ? `<div class="workflow-node-browser-list workflow-node-browser-list--providers">${renderPaletteDefinitions(modelDefinitions, 'default')}</div>`
+          : '';
+      }
     }
 
     browser.browser.hidden = !isBrowserOpen;
@@ -1293,12 +1431,6 @@ export function initWorkflowDesigner(): void {
         const toolConnections = workflowDefinition.edges.filter(
           (edge) => edge.target === node.id && edge.targetPort === 'ai_tool',
         );
-        const connectedModelNode = modelConnections
-          .map((edge) => getNode(edge.source))
-          .find((candidate): candidate is WorkflowNode => Boolean(candidate));
-        const connectedModelTitle = connectedModelNode
-          ? connectedModelNode.label || getNodeDefinition(connectedModelNode)?.label || connectedModelNode.type
-          : null;
         const agentNeedsModel = node.kind === 'agent' && modelConnections.length === 0;
         const connectors = (canReceiveConnections || canEmitConnections)
           ? CONNECTOR_SIDES.map((side) => {
@@ -1330,21 +1462,34 @@ export function initWorkflowDesigner(): void {
                   .map((edge) => getNode(edge.source))
                   .filter((candidate): candidate is WorkflowNode => Boolean(candidate));
                 const primaryConnectedSourceNode = connectedSourceNodes[0];
+                const primaryConnectedSourceDefinition = getNodeDefinition(primaryConnectedSourceNode);
                 const connectedSourceTitle = primaryConnectedSourceNode
                   ? primaryConnectedSourceNode.label
-                    || getNodeDefinition(primaryConnectedSourceNode)?.label
+                    || primaryConnectedSourceDefinition?.label
                     || primaryConnectedSourceNode.type
                   : null;
+                const connectedProviderLabel = primaryConnectedSourceDefinition?.app_label
+                  || primaryConnectedSourceDefinition?.label
+                  || connectedSourceTitle;
+                const connectedModelLabel = port.id === 'ai_languageModel'
+                  ? getEffectiveModelLabel(primaryConnectedSourceNode, primaryConnectedSourceDefinition)
+                  : '';
+                const connectedModelStateLabel = connectedProviderLabel && connectedModelLabel
+                  ? `${connectedProviderLabel} • ${connectedModelLabel}`
+                  : connectedProviderLabel || connectedModelLabel || connectedSourceTitle;
                 const actionIcon = connectionCount > 0 && port.id === 'ai_languageModel'
-                  ? 'mdi-chevron-right'
+                  ? 'mdi-tune-variant'
                   : 'mdi-plus';
                 const stateLabel = connectionCount > 0
                   ? port.id === 'ai_languageModel'
-                    ? connectedSourceTitle ?? 'Provider attached'
+                    ? connectedModelStateLabel ?? 'Provider configured'
                     : `${connectionCount} tool${connectionCount === 1 ? '' : 's'} attached`
                   : port.id === 'ai_languageModel'
-                    ? 'No provider attached'
+                    ? 'Choose a provider and model'
                     : 'No tools attached';
+                const modelProviderAppId = port.id === 'ai_languageModel'
+                  ? primaryConnectedSourceDefinition?.app_id ?? ''
+                  : '';
 
                 return `
                   <button
@@ -1352,8 +1497,9 @@ export function initWorkflowDesigner(): void {
                     class="workflow-editor-node-auxiliary-port${isCompatibleCandidate ? ' is-candidate' : ''}${isActiveTargetPort ? ' is-active' : ''}${connectionCount > 0 ? ' is-connected' : ''}${port.id === 'ai_languageModel' && connectionCount === 0 ? ' is-warning' : ''}"
                     data-workflow-node-aux-node="${escapeHtml(node.id)}"
                     data-workflow-node-aux-port="${port.id}"
-                    title="${escapeHtml(connectionCount > 0 && port.id === 'ai_languageModel' ? `Open ${port.label}` : `Add ${port.label}`)}"
-                    aria-label="${escapeHtml(connectionCount > 0 && port.id === 'ai_languageModel' ? `Open ${port.label}` : `Add ${port.label}`)}"
+                    ${modelProviderAppId ? `data-model-provider="${escapeHtml(modelProviderAppId)}"` : ''}
+                    title="${escapeHtml(connectionCount > 0 && port.id === 'ai_languageModel' ? `${connectedModelStateLabel ?? port.label}` : `Add ${port.label}`)}"
+                    aria-label="${escapeHtml(connectionCount > 0 && port.id === 'ai_languageModel' ? `${connectedModelStateLabel ?? port.label}` : `Add ${port.label}`)}"
                   >
                     <span class="workflow-editor-node-auxiliary-handle" aria-hidden="true"></span>
                     <span class="workflow-editor-node-auxiliary-label">

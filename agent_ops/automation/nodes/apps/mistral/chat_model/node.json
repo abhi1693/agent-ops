@@ -1,18 +1,19 @@
 {
   "node": "tool.mistral_chat_model",
-  "details": "Provide a Mistral chat model configuration that can be attached to an agent node.",
+  "details": "Attach a Mistral model provider to an agent node with curated flagship, coding, and efficient presets plus an optional custom override.",
   "agentOps": {
     "kind": "tool",
-    "displayName": "Mistral chat model",
-    "icon": "mdi-robot-outline",
+    "displayName": "Mistral",
+    "icon": "mdi-weather-windy",
     "appId": "mistral",
     "appLabel": "Mistral",
-    "appDescription": "Attach a Mistral chat completion model to an agent.",
-    "appIcon": "mdi-robot-happy-outline",
+    "appDescription": "Flagship, coding, and efficient frontier models served through Mistral's chat API.",
+    "appIcon": "mdi-weather-windy",
     "config": {
       "api_key_name": "MISTRAL_API_KEY",
       "base_url": "https://api.mistral.ai/v1",
       "model": "mistral-large-latest",
+      "custom_model": "",
       "auth_secret_group_id": ""
     },
     "fields": [
@@ -43,9 +44,21 @@
       },
       {
         "key": "model",
-        "label": "Model",
+        "label": "Model preset",
+        "type": "select",
+        "options": [
+          {"value": "mistral-large-latest", "label": "Mistral Large"},
+          {"value": "devstral-latest", "label": "Devstral"},
+          {"value": "codestral-latest", "label": "Codestral"},
+          {"value": "ministral-8b-latest", "label": "Ministral 8B"}
+        ]
+      },
+      {
+        "key": "custom_model",
+        "label": "Custom model ID",
         "type": "text",
-        "placeholder": "mistral-large-latest"
+        "placeholder": "mistral-large-latest",
+        "help_text": "Optional advanced override. If set, this exact model ID is used instead of the selected preset."
       },
       {
         "key": "temperature",

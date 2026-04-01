@@ -1,18 +1,19 @@
 {
   "node": "tool.groq_chat_model",
-  "details": "Provide a Groq chat model configuration that can be attached to an agent node.",
+  "details": "Attach a Groq model provider to an agent node with curated low-latency presets and an optional custom model override.",
   "agentOps": {
     "kind": "tool",
-    "displayName": "Groq chat model",
-    "icon": "mdi-robot-outline",
+    "displayName": "Groq",
+    "icon": "mdi-lightning-bolt",
     "appId": "groq",
     "appLabel": "Groq",
-    "appDescription": "Attach a Groq OpenAI-compatible chat completion model to an agent.",
-    "appIcon": "mdi-robot-happy-outline",
+    "appDescription": "Ultra-low-latency hosted models optimized for real-time and tool-heavy agent flows.",
+    "appIcon": "mdi-lightning-bolt",
     "config": {
       "api_key_name": "GROQ_API_KEY",
       "base_url": "https://api.groq.com/openai/v1",
       "model": "llama-3.3-70b-versatile",
+      "custom_model": "",
       "auth_secret_group_id": ""
     },
     "fields": [
@@ -43,9 +44,21 @@
       },
       {
         "key": "model",
-        "label": "Model",
+        "label": "Model preset",
+        "type": "select",
+        "options": [
+          {"value": "llama-3.1-8b-instant", "label": "Llama 3.1 8B Instant"},
+          {"value": "llama-3.3-70b-versatile", "label": "Llama 3.3 70B Versatile"},
+          {"value": "openai/gpt-oss-120b", "label": "GPT-OSS 120B"},
+          {"value": "meta-llama/llama-4-scout-17b-16e-instruct", "label": "Llama 4 Scout 17B"}
+        ]
+      },
+      {
+        "key": "custom_model",
+        "label": "Custom model ID",
         "type": "text",
-        "placeholder": "llama-3.3-70b-versatile"
+        "placeholder": "llama-3.3-70b-versatile",
+        "help_text": "Optional advanced override. If set, this exact model ID is used instead of the selected preset."
       },
       {
         "key": "temperature",

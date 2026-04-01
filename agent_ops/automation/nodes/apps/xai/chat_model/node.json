@@ -1,18 +1,19 @@
 {
   "node": "tool.xai_chat_model",
-  "details": "Provide an xAI chat model configuration that can be attached to an agent node.",
+  "details": "Attach an xAI model provider to an agent node with curated Grok presets and an optional custom model override.",
   "agentOps": {
     "kind": "tool",
-    "displayName": "xAI chat model",
-    "icon": "mdi-robot-outline",
+    "displayName": "xAI",
+    "icon": "mdi-alpha-x-circle-outline",
     "appId": "xai",
     "appLabel": "xAI",
-    "appDescription": "Attach an xAI OpenAI-compatible chat completion model to an agent.",
-    "appIcon": "mdi-robot-happy-outline",
+    "appDescription": "Grok reasoning and coding models exposed through xAI's OpenAI-compatible API.",
+    "appIcon": "mdi-alpha-x-circle-outline",
     "config": {
       "api_key_name": "XAI_API_KEY",
       "base_url": "https://api.x.ai/v1",
       "model": "grok-code-fast-1",
+      "custom_model": "",
       "auth_secret_group_id": ""
     },
     "fields": [
@@ -43,9 +44,21 @@
       },
       {
         "key": "model",
-        "label": "Model",
+        "label": "Model preset",
+        "type": "select",
+        "options": [
+          {"value": "grok-code-fast-1", "label": "Grok Code Fast 1"},
+          {"value": "grok-4", "label": "Grok 4"},
+          {"value": "grok-3", "label": "Grok 3"},
+          {"value": "grok-3-mini", "label": "Grok 3 Mini"}
+        ]
+      },
+      {
+        "key": "custom_model",
+        "label": "Custom model ID",
         "type": "text",
-        "placeholder": "grok-code-fast-1"
+        "placeholder": "grok-code-fast-1",
+        "help_text": "Optional advanced override. If set, this exact model ID is used instead of the selected preset."
       },
       {
         "key": "temperature",

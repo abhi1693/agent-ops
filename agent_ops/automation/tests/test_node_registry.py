@@ -110,17 +110,20 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
         self.assertEqual(set_template["fields"][0]["key"], "output_key")
 
         chat_model_template = templates_by_type["tool.openai_chat_model"]
-        self.assertEqual(chat_model_template["label"], "OpenAI chat model")
+        self.assertEqual(chat_model_template["label"], "OpenAI")
         self.assertEqual(chat_model_template["config"]["api_key_name"], "OPENAI_API_KEY")
+        self.assertEqual(chat_model_template["config"]["custom_model"], "")
         self.assertEqual(chat_model_template["fields"][1]["key"], "base_url")
+        self.assertEqual(chat_model_template["fields"][4]["type"], "select")
+        self.assertEqual(chat_model_template["fields"][5]["key"], "custom_model")
 
         deepseek_template = templates_by_type["tool.deepseek_chat_model"]
-        self.assertEqual(deepseek_template["label"], "DeepSeek chat model")
+        self.assertEqual(deepseek_template["label"], "DeepSeek")
         self.assertEqual(deepseek_template["config"]["api_key_name"], "DEEPSEEK_API_KEY")
         self.assertEqual(deepseek_template["config"]["model"], "deepseek-chat")
 
         groq_template = templates_by_type["tool.groq_chat_model"]
-        self.assertEqual(groq_template["label"], "Groq chat model")
+        self.assertEqual(groq_template["label"], "Groq")
         self.assertEqual(groq_template["config"]["base_url"], "https://api.groq.com/openai/v1")
 
     def test_manifest_field_schema_supports_visibility_and_dynamic_options(self):

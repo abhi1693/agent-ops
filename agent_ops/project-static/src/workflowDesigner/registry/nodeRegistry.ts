@@ -13,6 +13,16 @@ export type WorkflowNodeRegistry = {
   paletteSections: WorkflowPaletteSection[];
 };
 
+const CHAT_MODEL_NODE_TYPES = new Set<string>([
+  'tool.deepseek_chat_model',
+  'tool.fireworks_chat_model',
+  'tool.groq_chat_model',
+  'tool.mistral_chat_model',
+  'tool.openai_chat_model',
+  'tool.openrouter_chat_model',
+  'tool.xai_chat_model',
+]);
+
 function createNodeDefinition(template: WorkflowNodeTemplate): WorkflowNodeDefinition {
   return {
     app_description: template.app_description,
@@ -31,19 +41,47 @@ function createNodeDefinition(template: WorkflowNodeTemplate): WorkflowNodeDefin
   };
 }
 
+function isChatModelDefinition(definition: WorkflowNodeDefinition): boolean {
+  return CHAT_MODEL_NODE_TYPES.has(definition.type);
+}
+
+function getPaletteSectionMetadata(definition: WorkflowNodeDefinition): {
+  description: string;
+  icon?: string;
+  id: string;
+  label: string;
+} {
+  if (isChatModelDefinition(definition)) {
+    return {
+      description: 'Provider-backed chat completion models for agent nodes.',
+      icon: 'mdi-message-processing-outline',
+      id: 'chat_models',
+      label: 'Chat Models',
+    };
+  }
+
+  const appId = definition.app_id ?? 'builtins';
+  return {
+    description: definition.app_description ?? '',
+    icon: definition.app_icon,
+    id: appId,
+    label: definition.app_label ?? definition.label,
+  };
+}
+
 export function buildNodeRegistry(nodeTemplates: WorkflowNodeTemplate[]): WorkflowNodeRegistry {
   const definitions = nodeTemplates.map(createNodeDefinition);
   const definitionMap = new Map(definitions.map((definition) => [definition.type, definition]));
   const paletteSections = definitions.reduce<WorkflowPaletteSection[]>((sections, definition) => {
-    const appId = definition.app_id ?? 'builtins';
-    let section = sections.find((item) => item.id === appId);
+    const sectionMeta = getPaletteSectionMetadata(definition);
+    let section = sections.find((item) => item.id === sectionMeta.id);
     if (!section) {
       section = {
         definitions: [],
-        description: definition.app_description ?? '',
-        icon: definition.app_icon,
-        id: appId,
-        label: definition.app_label ?? definition.label,
+        description: sectionMeta.description,
+        icon: sectionMeta.icon,
+        id: sectionMeta.id,
+        label: sectionMeta.label,
       };
       sections.push(section);
     }

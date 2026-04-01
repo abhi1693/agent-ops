@@ -50,6 +50,8 @@ def validate_openai_chat_model_config(config: dict[str, Any], node_id: str) -> N
     _validate_required_string(config, "api_key_name", node_id=node_id)
     _validate_optional_string(config, "api_key_provider", node_id=node_id)
     _validate_required_string(config, "model", node_id=node_id)
+    if config.get("custom_model") not in (None, ""):
+        _validate_optional_string(config, "custom_model", node_id=node_id)
     _validate_optional_json_template(config, "extra_body_json", node_id=node_id)
     _coerce_optional_float(config.get("temperature"), field_name="temperature", node_id=node_id)
     if config.get("max_tokens") not in (None, ""):
@@ -86,7 +88,8 @@ def resolve_openai_chat_model_config(
         name_key="api_key_name",
         provider_key="api_key_provider",
     )
-    model = _render_runtime_string(runtime_view, "model", required=True)
+    custom_model = _render_runtime_string(runtime_view, "custom_model")
+    model = custom_model or _render_runtime_string(runtime_view, "model", required=True)
     temperature = _coerce_optional_float(
         runtime_view.config.get("temperature"),
         field_name="temperature",
