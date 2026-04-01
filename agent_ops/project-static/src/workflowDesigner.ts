@@ -1825,7 +1825,7 @@ export function initWorkflowDesigner(): void {
     renderSettingsPanel();
   }
 
-  function updateSelectedNodeLabel(value: string): void {
+  function updateSelectedNodeLabel(value: string, options?: { rerenderSettings?: boolean }): void {
     const settingsNode = getNode(settingsNodeId);
     if (!settingsNode) {
       return;
@@ -1834,10 +1834,19 @@ export function initWorkflowDesigner(): void {
     settingsNode.label = value;
     syncDefinitionInput();
     renderCanvas();
-    renderSettingsPanel();
+    if (options?.rerenderSettings) {
+      renderSettingsPanel();
+      return;
+    }
+
+    canvas.settingsTitle.textContent = value || getNodeDefinition(settingsNode)?.label || settingsNode.type;
   }
 
-  function updateSelectedNodeField(key: string, value: string): void {
+  function updateSelectedNodeField(
+    key: string,
+    value: string,
+    options?: { rerenderSettings?: boolean },
+  ): void {
     const settingsNode = getNode(settingsNodeId);
     if (!settingsNode) {
       return;
@@ -1854,7 +1863,9 @@ export function initWorkflowDesigner(): void {
     syncNodeTargetEdges(settingsNode, getNodeDefinition(settingsNode));
     syncDefinitionInput();
     renderCanvas();
-    renderSettingsPanel();
+    if (options?.rerenderSettings) {
+      renderSettingsPanel();
+    }
   }
 
   function addEdge(
@@ -2431,7 +2442,7 @@ export function initWorkflowDesigner(): void {
   canvas.settingsFields.addEventListener('change', (event) => {
     const target = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
     if (target.matches('[data-node-setting-label]')) {
-      updateSelectedNodeLabel(target.value);
+      updateSelectedNodeLabel(target.value, { rerenderSettings: true });
       return;
     }
 
@@ -2440,7 +2451,7 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
-    updateSelectedNodeField(key, target.value);
+    updateSelectedNodeField(key, target.value, { rerenderSettings: true });
   });
 
   syncDefinitionInput();
