@@ -1,56 +1,8 @@
 {% extends "generic/_base.html" %}
 
-{% block page-header %}
-  <div class="container-fluid mt-2 d-print-none object-page-header">
-    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-start gap-2">
-      <ol class="breadcrumb mb-0" aria-label="breadcrumbs">
-        <li class="breadcrumb-item">
-          <a href="{{ workflow_list_url }}">Workflows</a>
-        </li>
-        <li class="breadcrumb-item">
-          <a href="{{ workflow_detail_url }}">{{ object }}</a>
-        </li>
-      </ol>
+{% block page-header %}{% endblock %}
 
-      <code class="d-block text-muted bg-transparent px-0 mb-0 object-page-identifier">
-        automation.workflow:{{ object.pk }}
-      </code>
-    </div>
-
-    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-start gap-3 mt-2">
-      <div>
-        <h1 class="page-title mb-0">{{ page_title }}</h1>
-      </div>
-
-      <div class="d-print-none object-page-controls">
-        <div class="btn-list object-page-actions">
-          <a href="{{ workflow_detail_url }}" class="btn btn-outline-secondary">
-            <i class="mdi mdi-eye-outline"></i>
-            <span class="ms-1">View details</span>
-          </a>
-          <a href="{{ workflow_edit_url }}" class="btn btn-outline-secondary">
-            <i class="mdi mdi-pencil"></i>
-            <span class="ms-1">Edit settings</span>
-          </a>
-        </div>
-      </div>
-    </div>
-  </div>
-{% endblock %}
-
-{% block tabs %}
-  <ul class="nav nav-tabs object-page-tabs" role="presentation">
-    <li class="nav-item" role="presentation">
-      <a class="nav-link" href="{{ workflow_detail_url }}">Workflow</a>
-    </li>
-    <li class="nav-item" role="presentation">
-      <a class="nav-link active" href="{{ return_url }}" aria-current="page">Designer</a>
-    </li>
-    <li class="nav-item" role="presentation">
-      <a class="nav-link" href="{{ workflow_changelog_url }}">Changelog</a>
-    </li>
-  </ul>
-{% endblock %}
+{% block tabs %}{% endblock %}
 
 {% block content %}
   {{ workflow_definition|json_script:"workflow-definition-data" }}
@@ -59,7 +11,7 @@
   <form
     action=""
     method="post"
-    class="workflow-designer mt-4"
+    class="workflow-editor-screen"
     data-workflow-designer
   >
     {% csrf_token %}
@@ -72,166 +24,113 @@
     {% endif %}
 
     {% if form.non_field_errors or form.definition.errors %}
-      <div class="alert alert-danger" role="alert">
+      <div class="alert alert-danger mb-3" role="alert">
         {{ form.non_field_errors }}
         {{ form.definition.errors }}
       </div>
     {% endif %}
 
-    <section class="workflow-editor-shell">
-      <aside class="workflow-editor-panel workflow-editor-panel--palette">
-        <div class="workflow-editor-panel-head">
-          <div class="workflow-panel-eyebrow">Builder blocks</div>
-          <h3 class="workflow-editor-panel-title">Add node</h3>
+    <section class="workflow-editor-screen-shell">
+      <header class="workflow-editor-toolbar">
+        <div class="workflow-editor-toolbar-leading">
+          <a href="{{ workflow_detail_url }}" class="workflow-editor-toolbar-back">
+            <i class="mdi mdi-arrow-left"></i>
+            <span class="ms-1">Workflow</span>
+          </a>
+          <h1 class="workflow-editor-toolbar-title">{{ object }}</h1>
         </div>
-        <div class="workflow-editor-panel-body stack-sm">
-          <div class="workflow-panel-copy">
-            Choose the next block and place it on the canvas.
-          </div>
-          <div class="stack-sm" data-node-palette></div>
-        </div>
-      </aside>
 
-      <section class="workflow-editor-main">
-        <div class="workflow-editor-main-head">
-          <div>
-            <div class="workflow-panel-eyebrow">Visual editor</div>
-            <h3 class="workflow-editor-main-title">Workflow canvas</h3>
-            <div class="workflow-panel-copy mt-1">
-              Add nodes to the canvas, connect them directly from node handles, and configure each step in the inspector.
-            </div>
-          </div>
-          <div class="workflow-board-summary workflow-board-summary--compact">
-            <div class="workflow-board-tip">
-              <i class="mdi mdi-cursor-move"></i>
-              <span class="ms-1">Drag to arrange. Use the plus handle to add the next step.</span>
-            </div>
-            <div class="workflow-board-stats workflow-board-stats--compact">
-              <span class="workflow-board-stat workflow-board-stat--inline">
-                <span class="workflow-board-stat-label">Nodes</span>
-                <strong data-node-count>0</strong>
-              </span>
-              <span class="workflow-board-stat workflow-board-stat--inline">
-                <span class="workflow-board-stat-label">Connections</span>
-                <strong data-edge-count>0</strong>
-              </span>
-              <span class="workflow-board-stat workflow-board-stat--inline workflow-board-stat--selected">
-                <span class="workflow-board-stat-label">Selected</span>
-                <strong data-selected-node-summary>None</strong>
-              </span>
-            </div>
-          </div>
+        <div class="workflow-editor-toolbar-actions">
+          <a href="{{ workflow_edit_url }}" class="btn btn-outline-secondary">
+            <i class="mdi mdi-cog-outline"></i>
+            <span class="ms-1">Settings</span>
+          </a>
+          <button type="submit" class="btn btn-primary">
+            <i class="mdi mdi-content-save-outline"></i>
+            <span class="ms-1">{{ submit_label }}</span>
+          </button>
         </div>
-        <div class="workflow-editor-main-body">
-          <div class="workflow-board" data-workflow-board>
-            <div class="workflow-surface" data-workflow-surface>
-              <svg class="workflow-edges" data-workflow-edges aria-hidden="true"></svg>
-              <div class="workflow-canvas-empty" data-canvas-empty>
-                <div class="workflow-canvas-empty-card">
-                  <span class="workflow-canvas-empty-icon">
-                    <i class="mdi mdi-vector-polyline-plus"></i>
-                  </span>
-                  <div class="workflow-canvas-empty-title">Start with a trigger node</div>
-                  <div class="workflow-canvas-empty-copy">
-                    Use the node palette to add an entry point, then connect logic and response nodes to shape the run.
-                  </div>
+      </header>
+
+      <section class="workflow-editor-canvas-shell">
+        <div class="workflow-editor-canvas" data-workflow-board>
+          <svg class="workflow-editor-edge-layer" data-workflow-edge-layer aria-hidden="true"></svg>
+          <div class="workflow-editor-edge-controls" data-workflow-edge-controls></div>
+          <div class="workflow-editor-node-layer" data-workflow-node-layer></div>
+
+          <aside
+            class="workflow-editor-settings-panel"
+            data-workflow-settings-panel
+            aria-label="Node settings"
+            hidden
+          >
+            <header class="workflow-editor-settings-head">
+              <div class="workflow-editor-settings-title-row">
+                <div>
+                  <h2 class="workflow-editor-settings-title" data-workflow-settings-title>Node settings</h2>
+                  <div class="workflow-editor-settings-description" data-workflow-settings-description></div>
                 </div>
+                <button
+                  type="button"
+                  class="workflow-editor-settings-close"
+                  data-close-node-settings
+                  aria-label="Close node settings"
+                >
+                  <i class="mdi mdi-close"></i>
+                </button>
               </div>
-              <div class="workflow-canvas" data-workflow-canvas></div>
+            </header>
+
+            <div class="workflow-editor-settings-body" data-workflow-settings-fields></div>
+          </aside>
+
+          <button
+            type="button"
+            class="workflow-editor-fab"
+            data-open-node-browser
+            aria-label="Open node browser"
+          >
+            <i class="mdi mdi-plus"></i>
+          </button>
+
+          <section
+            class="workflow-node-browser"
+            data-node-browser
+            aria-label="Node browser"
+            hidden
+          >
+            <header class="workflow-node-browser-head">
+              <div class="workflow-node-browser-title-row">
+                <h2 class="workflow-node-browser-title">Add node</h2>
+                <button
+                  type="button"
+                  class="workflow-node-browser-close"
+                  data-close-node-browser
+                  aria-label="Close node browser"
+                >
+                  <i class="mdi mdi-close"></i>
+                </button>
+              </div>
+
+              <label class="workflow-node-browser-search-wrap" for="workflow-node-browser-search">
+                <i class="mdi mdi-magnify"></i>
+                <input
+                  id="workflow-node-browser-search"
+                  type="search"
+                  class="workflow-node-browser-search"
+                  placeholder="Search nodes"
+                  data-node-browser-search
+                >
+              </label>
+            </header>
+
+            <div class="workflow-node-browser-body">
+              <div class="workflow-node-browser-empty" data-node-browser-empty hidden>No matching nodes</div>
+              <div class="workflow-node-browser-sections" data-node-browser-content></div>
             </div>
-          </div>
-          <div class="form-hint mt-2">
-            Add at least two nodes before creating a connection.
-          </div>
+          </section>
         </div>
       </section>
-
-      <aside class="workflow-editor-panel workflow-editor-panel--inspector">
-        <div class="workflow-editor-panel-head">
-          <div class="workflow-panel-eyebrow">Inspector</div>
-          <h3 class="workflow-editor-panel-title">Selected node</h3>
-        </div>
-        <div class="workflow-editor-panel-body">
-            <div class="workflow-empty-copy" data-node-empty>
-              Select a node on the canvas to configure its fields and runtime settings.
-            </div>
-            <div class="workflow-node-fields d-none" data-node-fields>
-              <div class="workflow-panel-section">
-                <div class="workflow-panel-section-title">Node details</div>
-                <div class="mb-3">
-                  <label class="form-label" for="workflow-node-label">Node name</label>
-                  <input id="workflow-node-label" class="form-control" type="text" data-field="label">
-                </div>
-                <div class="mb-0">
-                  <label class="form-label" for="workflow-node-kind">Node type</label>
-                  <select id="workflow-node-kind" class="form-select" data-field="kind">
-                    {% for app_group in workflow_node_template_groups %}
-                      <optgroup label="{{ app_group.label }}">
-                        {% for template in app_group.templates %}
-                          <option value="{{ template.type }}">{{ template.label }}</option>
-                        {% endfor %}
-                      </optgroup>
-                    {% endfor %}
-                  </select>
-                </div>
-              </div>
-
-              <div class="workflow-panel-section">
-                <div class="workflow-panel-section-title">Template</div>
-                <div class="workflow-selected-template mb-0" data-selected-template></div>
-              </div>
-
-              <div class="workflow-panel-section">
-                <div class="workflow-panel-section-title">Configuration</div>
-                <div class="workflow-template-fields stack-sm" data-node-template-fields></div>
-              </div>
-
-              <details class="workflow-advanced-panel" data-advanced-panel>
-                <summary>Advanced runtime JSON</summary>
-                <div class="mt-3">
-                  <label class="form-label" for="workflow-node-config">Runtime config</label>
-                  <textarea id="workflow-node-config" class="form-control" rows="10" data-field="config"></textarea>
-                  <div class="form-hint">
-                    Use this only for custom values not exposed by the no-code fields above.
-                  </div>
-                </div>
-              </details>
-
-              <button type="button" class="btn btn-outline-danger" data-delete-node>
-                <i class="mdi mdi-trash-can-outline"></i>
-                <span class="ms-1">Delete node</span>
-              </button>
-            </div>
-        </div>
-      </aside>
     </section>
-
-    <details class="workflow-designer-links-drawer mt-3">
-      <summary>
-        <span>Workflow links</span>
-        <span class="workflow-connection-pill" data-edge-count-label>0 links</span>
-      </summary>
-      <div class="workflow-designer-links-drawer-body mt-3">
-        <div class="workflow-panel-copy mb-3">
-          Links are managed directly on the canvas. Expand this list only when you need a quick audit of the graph.
-        </div>
-        <div class="workflow-empty-copy" data-edge-empty>No edges configured yet.</div>
-        <div class="workflow-edge-list" data-edge-list></div>
-      </div>
-    </details>
-
-    <div class="d-none" aria-hidden="true">
-      <select data-node-target-options-fallback>
-        <option value="">Choose a connected node</option>
-        {% for node in workflow_nodes %}
-          <option value="{{ node.id }}">{{ node.label|default:node.kind }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <div class="object-edit-actions mt-4">
-      <a href="{{ workflow_detail_url }}" class="btn btn-outline-secondary">Back</a>
-      <button type="submit" class="btn btn-primary">{{ submit_label }}</button>
-    </div>
   </form>
 {% endblock %}
