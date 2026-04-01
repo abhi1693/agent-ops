@@ -242,6 +242,10 @@ class WorkflowRuntimeTests(TestCase):
             workflow=workflow,
             secret_name="OPENAI_API_KEY",
         )
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="MCP_API_TOKEN",
+        )
 
         openai_call_count = {"value": 0}
 
@@ -307,6 +311,7 @@ class WorkflowRuntimeTests(TestCase):
         def fake_mcp_urlopen(request, timeout=30):
             self.assertEqual(timeout, 30)
             self.assertEqual(request.full_url, "https://mcp.example.com/mcp")
+            self.assertEqual(request.headers["Authorization"], "Bearer mcp-secret")
             if request.method == "DELETE":
                 return _FakeJsonResponse({}, status=200, raw_body=b"")
 
@@ -372,7 +377,7 @@ class WorkflowRuntimeTests(TestCase):
 
             raise AssertionError(f"Unexpected MCP method: {method}")
 
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai"}, clear=False):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai", "MCP_API_TOKEN": "mcp-secret"}, clear=False):
             with patch("automation.tools.base.urlopen", side_effect=fake_openai_urlopen):
                 with patch("automation.nodes.apps.integrations.mcp_server.node.urlopen", side_effect=fake_mcp_urlopen):
                     run = execute_workflow(
@@ -1441,6 +1446,53 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.step_results[1]["result"]["tool_name"], "elasticsearch_search")
         self.assertEqual(run.step_results[1]["result"]["hit_count"], 2)
         self.assertEqual(run.context_data["elastic"]["search"]["total"]["value"], 2)
+
+    def test_execute_workflow_fails_when_configured_elasticsearch_secret_is_missing_from_group(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Elasticsearch missing secret ref",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "tool.elasticsearch_search",
+                        "label": "Elasticsearch search",
+                        "config": {
+                            "base_url": "https://elastic.example.com",
+                            "index": "logs-*",
+                            "auth_scheme": "ApiKey",
+                            "query_json": "{\"size\": 1}",
+                            "output_key": "elastic.search",
+                            "secret_name": "ES_API_KEY",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                ],
+            },
+        )
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="api-key",
+            variable_name="ES_API_KEY",
+        )
+
+        with patch("automation.tools.base.urlopen") as mocked_urlopen:
+            run = execute_workflow(workflow, input_data={})
+
+        self.assertEqual(run.status, "failed")
+        self.assertIn('does not include secret "ES_API_KEY"', run.error)
+        mocked_urlopen.assert_not_called()
 
     def test_execute_workflow_calls_openai_compatible_chat_from_agent_node(self):
         workflow = Workflow.objects.create(

@@ -62,7 +62,6 @@ def _execute_elasticsearch_search_tool(runtime: WorkflowToolExecutionContext) ->
             runtime,
             secret_name=secret_name,
             secret_group_id=runtime.config.get("secret_group_id"),
-            required=False,
         )
     if auth_token:
         auth_scheme = runtime.config.get("auth_scheme", "ApiKey")

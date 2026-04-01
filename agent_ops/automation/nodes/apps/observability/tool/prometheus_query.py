@@ -45,7 +45,6 @@ def _execute_prometheus_query_tool(runtime: WorkflowToolExecutionContext) -> dic
             runtime,
             secret_name=secret_name,
             secret_group_id=runtime.config.get("secret_group_id"),
-            required=False,
         )
     if bearer_token:
         headers["Authorization"] = f"Bearer {bearer_token}"

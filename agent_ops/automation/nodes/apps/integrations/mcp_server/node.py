@@ -488,7 +488,6 @@ def _resolve_mcp_runtime_config(
             runtime_view,
             secret_name=secret_name,
             secret_group_id=runtime_view.config.get("secret_group_id"),
-            required=False,
         )
     if auth_token:
         auth_header_name = _render_runtime_string(runtime_view, "auth_header_name") or "Authorization"
