@@ -7,16 +7,9 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 
-from automation.nodes.adapters import (
-    execute_tool_definition,
-    validate_tool_definition_config,
-)
 from automation.nodes.apps.integrations.mcp_server.node import (
     build_mcp_server_tool_descriptor,
     call_mcp_server_tool,
-)
-from automation.nodes.apps.openai.chat.node import (
-    TOOL_DEFINITION as OPENAI_COMPATIBLE_CHAT_TOOL_DEFINITION,
 )
 from automation.nodes.apps.openai.client import (
     build_openai_chat_payload,
@@ -33,12 +26,11 @@ from automation.nodes.base import (
 from automation.tools.base import (
     _make_json_safe,
     _render_runtime_string,
+    _validate_optional_string,
 )
 from automation.workflow_agents import (
     AGENT_LANGUAGE_MODEL_INPUT_PORT,
     AGENT_TOOL_INPUT_PORT,
-    DEFAULT_AGENT_API_TYPE,
-    SUPPORTED_AGENT_API_TYPES,
     build_workflow_agent_tool_config,
     normalize_workflow_agent_config,
 )
@@ -67,6 +59,7 @@ _AGENT_TOOL_FIXED_FIELD_SUFFIXES = (
     "_secret_provider",
 )
 _AGENT_SECRET_TOOL_TYPE = "tool.secret"
+_CONNECTED_AGENT_RESULT_API_TYPE = "openai_compatible"
 
 
 def _build_runtime_view(runtime: WorkflowNodeExecutionContext, *, node: dict[str, Any], config: dict[str, Any]):
@@ -398,6 +391,14 @@ def _execute_connected_agent(runtime: WorkflowNodeExecutionContext) -> WorkflowN
     normalized_agent_config = normalize_workflow_agent_config(runtime.config)
     connected_model_nodes = runtime.connected_nodes_by_port.get(AGENT_LANGUAGE_MODEL_INPUT_PORT, [])
     connected_model_node = connected_model_nodes[0] if connected_model_nodes else None
+    if connected_model_node is None:
+        raise ValidationError(
+            {
+                "definition": (
+                    f'Node "{runtime.node["id"]}" must connect a chat model to the ai_languageModel port.'
+                )
+            }
+        )
     openai_tools, tool_bindings = _build_agent_tool_bindings(runtime)
 
     agent_runtime_view = _build_runtime_view(
@@ -533,7 +534,7 @@ def _execute_connected_agent(runtime: WorkflowNodeExecutionContext) -> WorkflowN
     return WorkflowNodeExecutionResult(
         next_node_id=runtime.next_node_id,
         output={
-            "api_type": normalized_agent_config.get("api_type", DEFAULT_AGENT_API_TYPE),
+            "api_type": _CONNECTED_AGENT_RESULT_API_TYPE,
             "model": final_payload["model"],
             "connected_model_node_id": connected_model_node["id"] if connected_model_node else None,
             "connected_tool_count": len(tool_bindings),
@@ -545,68 +546,15 @@ def _execute_connected_agent(runtime: WorkflowNodeExecutionContext) -> WorkflowN
 def _validate_agent(config: dict, node_id: str, outgoing_targets: list[str], node_ids: set[str]) -> None:
     del node_ids
     normalized_agent_config = normalize_workflow_agent_config(config)
-    agent_api_type = normalized_agent_config.get("api_type", DEFAULT_AGENT_API_TYPE)
-    if agent_api_type not in SUPPORTED_AGENT_API_TYPES:
-        raise_definition_error(
-            f'Node "{node_id}" config.api_type must be one of: {", ".join(sorted(SUPPORTED_AGENT_API_TYPES))}.'
-        )
-    validate_tool_definition_config(
-        OPENAI_COMPATIBLE_CHAT_TOOL_DEFINITION,
-        config=build_workflow_agent_tool_config(
-            node={"id": node_id},
-            config=normalized_agent_config,
-        ),
-        node_id=node_id,
-    )
+    _validate_optional_string(normalized_agent_config, "template", node_id=node_id)
+    _validate_optional_string(normalized_agent_config, "system_prompt", node_id=node_id)
+    _validate_optional_string(normalized_agent_config, "output_key", node_id=node_id)
     if len(outgoing_targets) > 1:
         raise_definition_error(f'Node "{node_id}" can only connect to a single next node.')
 
 
 def _execute_agent(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecutionResult:
-    normalized_agent_config = normalize_workflow_agent_config(runtime.config)
-    if runtime.connected_nodes_by_port.get(AGENT_LANGUAGE_MODEL_INPUT_PORT) or runtime.connected_nodes_by_port.get(
-        AGENT_TOOL_INPUT_PORT
-    ):
-        return _execute_connected_agent(runtime)
-
-    normalized_tool_config = build_workflow_agent_tool_config(
-        node=runtime.node,
-        config=normalized_agent_config,
-    )
-    validate_tool_definition_config(
-        OPENAI_COMPATIBLE_CHAT_TOOL_DEFINITION,
-        config=normalized_tool_config,
-        node_id=runtime.node["id"],
-    )
-    output = execute_tool_definition(
-        OPENAI_COMPATIBLE_CHAT_TOOL_DEFINITION,
-        runtime=WorkflowNodeExecutionContext(
-            workflow=runtime.workflow,
-            node=runtime.node,
-            config=normalized_tool_config,
-            next_node_id=runtime.next_node_id,
-            connected_nodes_by_port=runtime.connected_nodes_by_port,
-            context=runtime.context,
-            secret_paths=runtime.secret_paths,
-            secret_values=runtime.secret_values,
-            render_template=runtime.render_template,
-            get_path_value=runtime.get_path_value,
-            set_path_value=runtime.set_path_value,
-            resolve_scoped_secret=runtime.resolve_scoped_secret,
-            evaluate_condition=runtime.evaluate_condition,
-        ),
-    )
-    return WorkflowNodeExecutionResult(
-        next_node_id=runtime.next_node_id,
-        output={
-            **{
-                key: value
-                for key, value in output.items()
-                if key != "operation"
-            },
-            "api_type": normalized_agent_config.get("api_type", DEFAULT_AGENT_API_TYPE),
-        },
-    )
+    return _execute_connected_agent(runtime)
 
 
 NODE_IMPLEMENTATION = WorkflowNodeImplementation(

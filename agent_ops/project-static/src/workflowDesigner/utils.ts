@@ -131,10 +131,8 @@ export function getNodeSubtitle(
   }
 
   if (node.kind === 'agent') {
-    const apiType = getConfigString(node.config, 'api_type') || 'openai';
     const outputKey = getConfigString(node.config, 'output_key');
-    const apiLabel = apiType === 'openai' ? 'OpenAI chat' : `${formatKindLabel(apiType)} chat`;
-    return outputKey ? `${apiLabel} • Writes to ${outputKey}` : apiLabel;
+    return outputKey ? `Agent orchestration • Writes to ${outputKey}` : 'Agent orchestration';
   }
 
   return 'Custom workflow node';

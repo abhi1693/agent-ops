@@ -49,17 +49,9 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertEqual(
             agent_fields,
             {
-                "api_type",
                 "output_key",
                 "template",
-                "base_url",
-                "model",
-                "secret_name",
-                "secret_group_id",
                 "system_prompt",
-                "temperature",
-                "max_tokens",
-                "extra_body_json",
             },
         )
         self.assertEqual(template_fields, {"output_key", "template"})
@@ -102,19 +94,16 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertNotIn("resource", alertmanager_fields)
         self.assertNotIn("operation", alertmanager_fields)
 
-    def test_normalize_agent_node_applies_openai_defaults(self):
+    def test_normalize_agent_node_applies_agent_defaults(self):
         definition = {
             "nodes": [
                 {
                     "id": "agent-1",
                     "kind": "agent",
                     "type": "agent",
-                    "label": "OpenAI chat",
+                    "label": "AI Agent",
                     "config": {
-                        "base_url": "https://llm.example.com/v1",
-                        "model": "gpt-4.1-mini",
                         "template": "hello",
-                        "output_key": "llm.response",
                     },
                     "position": {"x": 320, "y": 40},
                 },
@@ -126,7 +115,6 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
 
         self.assertEqual(normalized["nodes"][0]["kind"], "agent")
         self.assertEqual(normalized["nodes"][0]["type"], "agent")
-        self.assertEqual(normalized["nodes"][0]["config"]["api_type"], "openai")
         self.assertEqual(normalized["nodes"][0]["config"]["template"], "hello")
         self.assertEqual(normalized["nodes"][0]["config"]["output_key"], "llm.response")
 
@@ -181,7 +169,6 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
                         "label": "AI Agent",
                         "config": {
                             "template": "Summarize {{ trigger.payload.ticket_id }}",
-                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -263,7 +250,6 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
                         "label": "AI Agent",
                         "config": {
                             "template": "hello",
-                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -319,3 +305,39 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
             )
 
         self.assertIn('accepts at most 1 connection(s) on port "ai_languageModel"', str(exc_info.exception))
+
+    def test_runtime_validation_rejects_agent_without_connected_chat_model(self):
+        definition = normalize_workflow_definition_nodes(
+            {
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "agent-1",
+                        "kind": "agent",
+                        "type": "agent",
+                        "label": "AI Agent",
+                        "config": {
+                            "template": "hello",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                ],
+            }
+        )
+
+        with self.assertRaises(ValidationError) as exc_info:
+            validate_workflow_runtime_definition(
+                nodes=definition["nodes"],
+                edges=definition["edges"],
+            )
+
+        self.assertIn('must connect exactly one chat model on port "ai_languageModel"', str(exc_info.exception))

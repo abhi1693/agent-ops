@@ -331,10 +331,21 @@ class WorkflowViewTests(TestCase):
                     "type": "agent",
                     "config": {
                         "template": "Plan work for {{ trigger.payload.ticket_id }}",
-                        "secret_name": "OPENAI_API_KEY",
                         "output_key": "plan",
                     },
                     "position": {"x": 320, "y": 80},
+                },
+                {
+                    "id": "model-1",
+                    "kind": "tool",
+                    "label": "OpenAI chat model",
+                    "type": "tool.openai_chat_model",
+                    "config": {
+                        "base_url": "https://api.openai.com/v1",
+                        "model": "gpt-4.1-mini",
+                        "secret_name": "OPENAI_API_KEY",
+                    },
+                    "position": {"x": 320, "y": 240},
                 },
                 {
                     "id": "response-1",
@@ -351,6 +362,13 @@ class WorkflowViewTests(TestCase):
             "edges": [
                 {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
                 {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                {
+                    "id": "edge-3",
+                    "source": "model-1",
+                    "sourcePort": "ai_languageModel",
+                    "target": "agent-1",
+                    "targetPort": "ai_languageModel",
+                },
             ],
         }
 
@@ -363,12 +381,13 @@ class WorkflowViewTests(TestCase):
 
         self.assertRedirects(response, reverse("workflow_designer", args=[self.workflow.pk]))
         self.workflow.refresh_from_db()
-        self.assertEqual(self.workflow.node_count, 3)
-        self.assertEqual(self.workflow.edge_count, 2)
+        self.assertEqual(self.workflow.node_count, 4)
+        self.assertEqual(self.workflow.edge_count, 3)
         self.assertEqual(self.workflow.definition["nodes"][0]["type"], "n8n-nodes-base.manualTrigger")
         self.assertEqual(self.workflow.definition["nodes"][1]["type"], "agent")
         self.assertEqual(self.workflow.definition["nodes"][1]["label"], "Planner")
-        self.assertEqual(self.workflow.definition["nodes"][2]["type"], "response")
+        self.assertEqual(self.workflow.definition["nodes"][2]["type"], "tool.openai_chat_model")
+        self.assertEqual(self.workflow.definition["nodes"][3]["type"], "response")
 
     def test_workflow_detail_post_executes_runtime_and_persists_run(self):
         self.workflow.definition = {
@@ -387,9 +406,20 @@ class WorkflowViewTests(TestCase):
                     "label": "Draft",
                     "config": {
                         "template": "Review {{ trigger.payload.ticket_id }}",
-                        "secret_name": "OPENAI_API_KEY",
                     },
                     "position": {"x": 320, "y": 40},
+                },
+                {
+                    "id": "model-1",
+                    "kind": "tool",
+                    "type": "tool.openai_chat_model",
+                    "label": "OpenAI chat model",
+                    "config": {
+                        "base_url": "https://api.openai.com/v1",
+                        "model": "gpt-4.1-mini",
+                        "secret_name": "OPENAI_API_KEY",
+                    },
+                    "position": {"x": 320, "y": 240},
                 },
                 {
                     "id": "response-1",
@@ -405,6 +435,13 @@ class WorkflowViewTests(TestCase):
             "edges": [
                 {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
                 {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                {
+                    "id": "edge-3",
+                    "source": "model-1",
+                    "sourcePort": "ai_languageModel",
+                    "target": "agent-1",
+                    "targetPort": "ai_languageModel",
+                },
             ],
         }
         self.workflow.save(update_fields=("definition",))

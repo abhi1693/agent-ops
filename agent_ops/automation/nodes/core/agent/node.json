@@ -1,7 +1,7 @@
 {
   "node": "agent",
   "nodeVersion": "1.0.0",
-  "details": "Call an LLM with an OpenAI-style chat API and store the result in workflow context.",
+  "details": "Coordinate a connected chat model and optional tools, then store the result in workflow context.",
   "categories": [
     "Core Nodes"
   ],
@@ -17,23 +17,9 @@
     "appDescription": "Core workflow nodes, runtime primitives, and n8n-style built-in blocks available in the designer.",
     "appIcon": "mdi-toy-brick-outline",
     "config": {
-      "api_type": "openai",
-      "base_url": "https://api.openai.com/v1",
-      "model": "gpt-4.1-mini",
       "output_key": "llm.response"
     },
     "fields": [
-      {
-        "key": "api_type",
-        "label": "API type",
-        "type": "select",
-        "options": [
-          {
-            "value": "openai",
-            "label": "OpenAI"
-          }
-        ]
-      },
       {
         "key": "template",
         "label": "Template",
@@ -49,58 +35,11 @@
         "placeholder": "draft"
       },
       {
-        "key": "base_url",
-        "label": "API base URL",
-        "type": "text",
-        "placeholder": "https://api.openai.com/v1",
-        "helpText": "Override the default endpoint when you need a different OpenAI-compatible API base URL."
-      },
-      {
-        "key": "model",
-        "label": "Model",
-        "type": "text",
-        "placeholder": "gpt-4.1-mini"
-      },
-      {
-        "key": "secret_name",
-        "label": "Secret name",
-        "type": "text",
-        "placeholder": "OPENAI_API_KEY",
-        "helpText": "Resolve this secret from the workflow secret group before calling the model."
-      },
-      {
-        "key": "secret_group_id",
-        "label": "Secret group",
-        "type": "text",
-        "placeholder": "Use workflow secret group",
-        "helpText": "Optional. Override the workflow secret group for this node with a scoped secret group ID."
-      },
-      {
         "key": "system_prompt",
         "label": "System prompt",
         "type": "textarea",
         "rows": 4,
         "placeholder": "You are an incident response assistant."
-      },
-      {
-        "key": "temperature",
-        "label": "Temperature",
-        "type": "text",
-        "placeholder": "0.2"
-      },
-      {
-        "key": "max_tokens",
-        "label": "Max tokens",
-        "type": "text",
-        "placeholder": "800"
-      },
-      {
-        "key": "extra_body_json",
-        "label": "Extra body JSON",
-        "type": "textarea",
-        "rows": 5,
-        "placeholder": "{\"response_format\": {\"type\": \"json_object\"}}",
-        "helpText": "Optional provider-specific fields merged into the request body after prompts and model."
       }
     ]
   }

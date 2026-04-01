@@ -95,9 +95,20 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "Draft",
                         "config": {
                             "template": "Review {{ trigger.payload.ticket_id }}",
-                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "model-1",
+                        "kind": "tool",
+                        "type": "tool.openai_chat_model",
+                        "label": "OpenAI chat model",
+                        "config": {
+                            "base_url": "https://api.openai.com/v1",
+                            "model": "gpt-4.1-mini",
+                            "secret_name": "OPENAI_API_KEY",
+                        },
+                        "position": {"x": 320, "y": 240},
                     },
                     {
                         "id": "response-1",
@@ -113,6 +124,13 @@ class WorkflowRuntimeTests(TestCase):
                 "edges": [
                     {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
                     {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                    {
+                        "id": "edge-3",
+                        "source": "model-1",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
                 ],
             },
         )
@@ -178,7 +196,6 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "AI Agent",
                         "config": {
                             "template": "What is the weather in {{ trigger.payload.city }}?",
-                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -412,7 +429,6 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "AI Agent",
                         "config": {
                             "template": "Summarize the city briefing for {{ trigger.payload.city }}.",
-                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -1513,17 +1529,26 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "agent",
                         "label": "OpenAI-compatible chat",
                         "config": {
-                            "base_url": "https://llm.example.com/v1",
-                            "model": "gpt-4.1-mini",
-                            "secret_name": "OPENAI_COMPATIBLE_API_KEY",
                             "system_prompt": "You are an incident triage assistant.",
                             "template": "Summarize incident {{ trigger.payload.incident_id }}.",
-                            "temperature": "0.2",
-                            "max_tokens": "120",
-                            "extra_body_json": "{\"response_format\": {\"type\": \"json_object\"}}",
                             "output_key": "llm.response",
                         },
                         "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "model-1",
+                        "kind": "tool",
+                        "type": "tool.openai_chat_model",
+                        "label": "OpenAI-compatible model",
+                        "config": {
+                            "base_url": "https://llm.example.com/v1",
+                            "model": "gpt-4.1-mini",
+                            "secret_name": "OPENAI_COMPATIBLE_API_KEY",
+                            "temperature": "0.2",
+                            "max_tokens": "120",
+                            "extra_body_json": "{\"response_format\": {\"type\": \"json_object\"}}",
+                        },
+                        "position": {"x": 320, "y": 240},
                     },
                     {
                         "id": "response-1",
@@ -1539,6 +1564,13 @@ class WorkflowRuntimeTests(TestCase):
                 "edges": [
                     {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
                     {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                    {
+                        "id": "edge-3",
+                        "source": "model-1",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
                 ],
             },
         )
@@ -1580,9 +1612,8 @@ class WorkflowRuntimeTests(TestCase):
                 run = execute_workflow(workflow, input_data={"incident_id": "INC-77"})
 
         self.assertEqual(run.status, "succeeded")
-        self.assertEqual(run.step_results[1]["result"]["api_type"], "openai")
-        self.assertEqual(run.step_results[1]["result"]["tool_name"], "openai_compatible_chat")
-        self.assertNotIn("resource", run.step_results[1]["result"])
-        self.assertNotIn("operation", run.step_results[1]["result"])
+        self.assertEqual(run.step_results[1]["result"]["api_type"], "openai_compatible")
+        self.assertEqual(run.step_results[1]["result"]["connected_model_node_id"], "model-1")
+        self.assertEqual(run.step_results[1]["result"]["connected_tool_count"], 0)
         self.assertEqual(run.output_data["response"]["text"], "{\"summary\":\"Investigate the failing deployment.\"}")
         self.assertEqual(run.context_data["llm"]["response"]["usage"]["total_tokens"], 46)

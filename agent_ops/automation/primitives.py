@@ -36,8 +36,8 @@ WORKFLOW_RUNTIME_EXAMPLES = (
     },
     {
         "label": "Agent",
-        "description": "Call an LLM with an OpenAI-style chat API and store the result in context.",
-        "example": '{\n  "api_type": "openai",\n  "model": "gpt-4.1-mini",\n  "template": "Review ticket {{ trigger.payload.ticket_id }}",\n  "system_prompt": "You are a ticket triage assistant.",\n  "output_key": "llm.response"\n}',
+        "description": "Coordinate a connected chat model and optional tools, then store the result in context.",
+        "example": '{\n  "template": "Review ticket {{ trigger.payload.ticket_id }}",\n  "system_prompt": "You are a ticket triage assistant.",\n  "output_key": "llm.response"\n}',
     },
     {
         "label": "Tool",

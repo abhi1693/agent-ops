@@ -3,8 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 
-SUPPORTED_AGENT_API_TYPES = frozenset({"openai"})
-DEFAULT_AGENT_API_TYPE = "openai"
 AGENT_LANGUAGE_MODEL_INPUT_PORT = "ai_languageModel"
 AGENT_TOOL_INPUT_PORT = "ai_tool"
 AGENT_LANGUAGE_MODEL_NODE_TYPES = frozenset(
@@ -27,13 +25,7 @@ SUPPORTED_AGENT_AUXILIARY_PORTS = frozenset(
 AGENT_AUXILIARY_MAX_CONNECTIONS_BY_PORT = {
     AGENT_LANGUAGE_MODEL_INPUT_PORT: 1,
 }
-AGENT_DEFAULTS_BY_API_TYPE = {
-    "openai": {
-        "base_url": "https://api.openai.com/v1",
-        "model": "gpt-4.1-mini",
-        "output_key": "llm.response",
-    }
-}
+DEFAULT_AGENT_OUTPUT_KEY = "llm.response"
 
 
 def is_agent_language_model_node_type(node_type: Any) -> bool:
@@ -70,17 +62,8 @@ def normalize_workflow_agent_config(
     config: dict[str, Any] | None,
 ) -> dict[str, Any]:
     normalized = dict(config or {})
-
-    configured_api_type = normalized.get("api_type")
-    if isinstance(configured_api_type, str) and configured_api_type.strip():
-        normalized_api_type = configured_api_type.strip()
-    else:
-        normalized_api_type = DEFAULT_AGENT_API_TYPE
-
-    normalized["api_type"] = normalized_api_type
-    for key, value in AGENT_DEFAULTS_BY_API_TYPE.get(normalized_api_type, {}).items():
-        if normalized.get(key) in ("", None):
-            normalized[key] = value
+    if normalized.get("output_key") in ("", None):
+        normalized["output_key"] = DEFAULT_AGENT_OUTPUT_KEY
 
     return normalized
 

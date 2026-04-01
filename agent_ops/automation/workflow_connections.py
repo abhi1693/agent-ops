@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 
 from automation.workflow_agents import (
     AGENT_AUXILIARY_MAX_CONNECTIONS_BY_PORT,
+    AGENT_LANGUAGE_MODEL_INPUT_PORT,
     SUPPORTED_AGENT_AUXILIARY_PORTS,
     describe_agent_auxiliary_supported_sources,
     is_agent_auxiliary_source_compatible,
@@ -133,3 +134,15 @@ def validate_agent_auxiliary_edges(
                         )
                     }
                 )
+
+    for node_id, node in nodes_by_id.items():
+        if node.get("kind") != "agent" or node.get("type") != "agent":
+            continue
+        if len(connections_by_target.get(node_id, {}).get(AGENT_LANGUAGE_MODEL_INPUT_PORT, [])) < 1:
+            raise ValidationError(
+                {
+                    "definition": (
+                        f'Agent node "{node_id}" must connect exactly one chat model on port "{AGENT_LANGUAGE_MODEL_INPUT_PORT}".'
+                    )
+                }
+            )

@@ -130,7 +130,6 @@ class WorkflowModelTests(TestCase):
                         "label": "AI Agent",
                         "config": {
                             "template": "hello",
-                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -455,13 +454,22 @@ class WorkflowModelTests(TestCase):
                         "type": "agent",
                         "label": "LLM chat",
                         "config": {
-                            "base_url": "https://user:password@llm.example.com/v1",
-                            "model": "gpt-4.1-mini",
                             "template": "hello",
-                            "secret_name": "OPENAI_API_KEY",
                             "output_key": "llm.response",
                         },
                         "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "model-1",
+                        "kind": "tool",
+                        "type": "tool.openai_chat_model",
+                        "label": "OpenAI chat model",
+                        "config": {
+                            "base_url": "https://user:password@llm.example.com/v1",
+                            "model": "gpt-4.1-mini",
+                            "secret_name": "OPENAI_API_KEY",
+                        },
+                        "position": {"x": 320, "y": 240},
                     },
                     {
                         "id": "response-1",
@@ -477,6 +485,13 @@ class WorkflowModelTests(TestCase):
                 "edges": [
                     {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
                     {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                    {
+                        "id": "edge-3",
+                        "source": "model-1",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
                 ],
             },
         )
