@@ -11,6 +11,7 @@
       "observability.alertmanager_webhook",
       "observability.kibana_webhook",
       "openai.chat",
+      "openai.chat_model",
       "observability.prometheus_query",
       "observability.elasticsearch_search",
       "infrastructure.kubectl",

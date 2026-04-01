@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -429,40 +430,81 @@ def _extract_text_content(content_blocks: list | None) -> str | None:
     return "\n\n".join(parts)
 
 
-def _execute_mcp_server_tool(runtime: WorkflowToolExecutionContext) -> dict:
-    output_key = _render_runtime_string(runtime, "output_key", required=True)
-    server_url = _render_runtime_external_url(runtime, "server_url", required=True)
-    remote_tool_name = _render_runtime_string(runtime, "remote_tool_name", required=True)
-    protocol_version = _render_runtime_string(runtime, "protocol_version") or _DEFAULT_PROTOCOL_VERSION
+def _build_runtime_view(runtime, *, node: dict, config: dict):
+    return SimpleNamespace(
+        workflow=runtime.workflow,
+        node=node,
+        config=config,
+        context=runtime.context,
+        secret_values=runtime.secret_values,
+        render_template=runtime.render_template,
+        resolve_scoped_secret=runtime.resolve_scoped_secret,
+    )
+
+
+def _resolve_mcp_runtime_config(
+    runtime,
+    *,
+    node: dict,
+    config: dict,
+    arguments: dict | None = None,
+) -> tuple[dict, dict | None, dict | None]:
+    runtime_view = _build_runtime_view(runtime, node=node, config=config)
+    server_url = _render_runtime_external_url(runtime_view, "server_url", required=True)
+    remote_tool_name = _render_runtime_string(runtime_view, "remote_tool_name", required=True)
+    protocol_version = _render_runtime_string(runtime_view, "protocol_version") or _DEFAULT_PROTOCOL_VERSION
     timeout_seconds = _coerce_positive_int(
-        runtime.config.get("timeout_seconds"),
+        runtime_view.config.get("timeout_seconds"),
         field_name="timeout_seconds",
-        node_id=runtime.node["id"],
+        node_id=node["id"],
         default=_DEFAULT_TIMEOUT_SECONDS,
         maximum=300,
     )
 
-    arguments = _render_runtime_json(runtime, "arguments_json")
-    if arguments is None:
-        arguments = {}
-    if not isinstance(arguments, dict):
+    resolved_arguments = arguments
+    if resolved_arguments is None:
+        resolved_arguments = _render_runtime_json(runtime_view, "arguments_json")
+        if resolved_arguments is None:
+            resolved_arguments = {}
+        if not isinstance(resolved_arguments, dict):
+            raise ValidationError(
+                {"definition": f'Node "{node["id"]}" config.arguments_json must render a JSON object.'}
+            )
+    elif not isinstance(resolved_arguments, dict):
         raise ValidationError(
-            {"definition": f'Node "{runtime.node["id"]}" config.arguments_json must render a JSON object.'}
+            {"definition": f'Node "{node["id"]}" tool call arguments must be a JSON object.'}
         )
 
-    base_headers = _render_headers_json(runtime)
+    base_headers = _render_headers_json(runtime_view)
     base_headers["Accept"] = _REQUEST_ACCEPT_HEADER
 
     secret_meta = None
-    if runtime.config.get("auth_token_name"):
+    if runtime_view.config.get("auth_token_name"):
         auth_token, secret_meta = _resolve_runtime_secret(
-            runtime,
+            runtime_view,
             name_key="auth_token_name",
             provider_key="auth_token_provider",
         )
-        auth_header_name = _render_runtime_string(runtime, "auth_header_name") or "Authorization"
-        base_headers[auth_header_name] = _render_auth_header_value(runtime, token=auth_token)
+        auth_header_name = _render_runtime_string(runtime_view, "auth_header_name") or "Authorization"
+        base_headers[auth_header_name] = _render_auth_header_value(runtime_view, token=auth_token)
 
+    return {
+        "server_url": server_url,
+        "remote_tool_name": remote_tool_name,
+        "protocol_version": protocol_version,
+        "timeout_seconds": timeout_seconds,
+        "arguments": resolved_arguments,
+        "base_headers": base_headers,
+    }, secret_meta, runtime_view
+
+
+def _initialize_mcp_session(
+    *,
+    server_url: str,
+    base_headers: dict[str, str],
+    timeout_seconds: int,
+    protocol_version: str,
+) -> tuple[dict[str, str], str | None, str]:
     initialize_result, initialize_headers = _post_jsonrpc_request(
         url=server_url,
         headers=base_headers,
@@ -486,31 +528,145 @@ def _execute_mcp_server_tool(runtime: WorkflowToolExecutionContext) -> dict:
     if session_id:
         session_headers["MCP-Session-Id"] = session_id
 
+    _post_notification(
+        url=server_url,
+        headers=session_headers,
+        timeout=timeout_seconds,
+        method="notifications/initialized",
+    )
+
+    return session_headers, session_id, negotiated_protocol_version
+
+
+def _default_tool_descriptor(*, remote_tool_name: str, server_url: str) -> dict:
+    return {
+        "name": remote_tool_name,
+        "description": f'Call MCP tool "{remote_tool_name}" via {server_url}.',
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": True,
+        },
+    }
+
+
+def build_mcp_server_tool_descriptor(
+    runtime,
+    *,
+    node: dict,
+    config: dict,
+) -> dict:
+    resolved_config, _, _ = _resolve_mcp_runtime_config(
+        runtime,
+        node=node,
+        config=config,
+    )
+    descriptor = _default_tool_descriptor(
+        remote_tool_name=resolved_config["remote_tool_name"],
+        server_url=resolved_config["server_url"],
+    )
+
+    session_headers = None
+    session_id = None
     try:
-        _post_notification(
-            url=server_url,
+        session_headers, session_id, negotiated_protocol_version = _initialize_mcp_session(
+            server_url=resolved_config["server_url"],
+            base_headers=resolved_config["base_headers"],
+            timeout_seconds=resolved_config["timeout_seconds"],
+            protocol_version=resolved_config["protocol_version"],
+        )
+        tools_result, _ = _post_jsonrpc_request(
+            url=resolved_config["server_url"],
             headers=session_headers,
-            timeout=timeout_seconds,
-            method="notifications/initialized",
+            timeout=resolved_config["timeout_seconds"],
+            request_id=2,
+            method="tools/list",
+        )
+        tools = tools_result.get("tools")
+        if not isinstance(tools, list):
+            return {
+                **descriptor,
+                "protocol_version": negotiated_protocol_version,
+            }
+
+        matched_tool = next(
+            (
+                tool
+                for tool in tools
+                if isinstance(tool, dict)
+                and tool.get("name") == resolved_config["remote_tool_name"]
+            ),
+            None,
+        )
+        if not isinstance(matched_tool, dict):
+            return {
+                **descriptor,
+                "protocol_version": negotiated_protocol_version,
+            }
+
+        input_schema = matched_tool.get("inputSchema", matched_tool.get("input_schema"))
+        if not isinstance(input_schema, dict):
+            input_schema = descriptor["input_schema"]
+
+        return {
+            "name": matched_tool.get("name") or descriptor["name"],
+            "description": matched_tool.get("description") or descriptor["description"],
+            "input_schema": _make_json_safe(input_schema),
+            "protocol_version": negotiated_protocol_version,
+        }
+    except ValidationError:
+        return descriptor
+    finally:
+        if session_id and session_headers is not None:
+            _delete_session(
+                url=resolved_config["server_url"],
+                headers=session_headers,
+                timeout=resolved_config["timeout_seconds"],
+            )
+
+
+def call_mcp_server_tool(
+    runtime,
+    *,
+    node: dict,
+    config: dict,
+    arguments: dict | None = None,
+) -> tuple[dict, dict | None]:
+    resolved_config, secret_meta, _ = _resolve_mcp_runtime_config(
+        runtime,
+        node=node,
+        config=config,
+        arguments=arguments,
+    )
+
+    session_headers = None
+    session_id = None
+    negotiated_protocol_version = resolved_config["protocol_version"]
+    try:
+        session_headers, session_id, negotiated_protocol_version = _initialize_mcp_session(
+            server_url=resolved_config["server_url"],
+            base_headers=resolved_config["base_headers"],
+            timeout_seconds=resolved_config["timeout_seconds"],
+            protocol_version=resolved_config["protocol_version"],
         )
 
         call_result, _ = _post_jsonrpc_request(
-            url=server_url,
+            url=resolved_config["server_url"],
             headers=session_headers,
-            timeout=timeout_seconds,
+            timeout=resolved_config["timeout_seconds"],
             request_id=2,
             method="tools/call",
             params={
-                "name": remote_tool_name,
-                "arguments": arguments,
+                "name": resolved_config["remote_tool_name"],
+                "arguments": resolved_config["arguments"],
             },
         )
     finally:
         if session_id:
             _delete_session(
-                url=server_url,
+                url=resolved_config["server_url"],
                 headers=session_headers,
-                timeout=timeout_seconds,
+                timeout=resolved_config["timeout_seconds"],
             )
 
     content_blocks = call_result.get("content")
@@ -521,8 +677,8 @@ def _execute_mcp_server_tool(runtime: WorkflowToolExecutionContext) -> dict:
 
     structured_content = call_result.get("structuredContent")
     payload = {
-        "server_url": server_url,
-        "tool": remote_tool_name,
+        "server_url": resolved_config["server_url"],
+        "tool": resolved_config["remote_tool_name"],
         "protocol_version": negotiated_protocol_version,
         "content": _make_json_safe(content_blocks),
         "structured_content": _make_json_safe(structured_content),
@@ -530,13 +686,24 @@ def _execute_mcp_server_tool(runtime: WorkflowToolExecutionContext) -> dict:
         "is_error": bool(call_result.get("isError")),
         "raw": _make_json_safe(call_result),
     }
+
+    return payload, secret_meta
+
+
+def _execute_mcp_server_tool(runtime: WorkflowToolExecutionContext) -> dict:
+    output_key = _render_runtime_string(runtime, "output_key", required=True)
+    payload, secret_meta = call_mcp_server_tool(
+        runtime,
+        node=runtime.node,
+        config=runtime.config,
+    )
     runtime.set_path_value(runtime.context, output_key, payload)
 
     result = {
         "output_key": output_key,
-        "remote_tool_name": remote_tool_name,
-        "protocol_version": negotiated_protocol_version,
-        "content_count": len(content_blocks),
+        "remote_tool_name": payload["tool"],
+        "protocol_version": payload["protocol_version"],
+        "content_count": len(payload["content"]),
         "is_error": payload["is_error"],
     }
     if secret_meta is not None:

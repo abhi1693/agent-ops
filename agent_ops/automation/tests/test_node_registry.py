@@ -37,6 +37,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
                 "trigger.alertmanager_webhook",
                 "trigger.kibana_webhook",
                 "tool.openai_compatible_chat",
+                "tool.openai_chat_model",
                 "tool.prometheus_query",
                 "tool.elasticsearch_search",
                 "tool.kubectl",
@@ -67,6 +68,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
                 "trigger.alertmanager_webhook",
                 "trigger.kibana_webhook",
                 "tool.openai_compatible_chat",
+                "tool.openai_chat_model",
                 "tool.prometheus_query",
                 "tool.elasticsearch_search",
                 "tool.kubectl",
@@ -100,6 +102,11 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
         self.assertEqual(openai_template["label"], "LLM chat (OpenAI-compatible)")
         self.assertEqual(openai_template["config"]["output_key"], "llm.response")
         self.assertEqual(openai_template["fields"][1]["key"], "base_url")
+
+        chat_model_template = templates_by_type["tool.openai_chat_model"]
+        self.assertEqual(chat_model_template["label"], "OpenAI chat model")
+        self.assertEqual(chat_model_template["config"]["api_key_name"], "OPENAI_API_KEY")
+        self.assertEqual(chat_model_template["fields"][1]["key"], "base_url")
 
     def test_manifest_field_schema_supports_visibility_and_dynamic_options(self):
         definition = WorkflowNodeDefinition.from_manifest(
@@ -214,6 +221,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
             workflow=None,
             node=tool_node,
             next_node_id="done",
+            connected_nodes_by_port={},
             context=context,
             secret_paths=set(),
             secret_values=[],
@@ -227,6 +235,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
             workflow=None,
             node=trigger_node,
             next_node_id="tool-1",
+            connected_nodes_by_port={},
             context=context,
             secret_paths=set(),
             secret_values=[],

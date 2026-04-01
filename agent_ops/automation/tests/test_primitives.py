@@ -1,6 +1,12 @@
 from django.test import SimpleTestCase
 
-from automation.primitives import WORKFLOW_NODE_TEMPLATE_MAP, normalize_workflow_definition_nodes
+from django.core.exceptions import ValidationError
+
+from automation.primitives import (
+    WORKFLOW_NODE_TEMPLATE_MAP,
+    normalize_workflow_definition_nodes,
+    validate_workflow_runtime_definition,
+)
 
 
 class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
@@ -161,3 +167,158 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
             normalized["nodes"][1]["config"]["output_key"],
             "prometheus.query",
         )
+
+    def test_runtime_validation_allows_agent_auxiliary_model_and_tool_edges(self):
+        definition = normalize_workflow_definition_nodes(
+            {
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "agent-1",
+                        "kind": "agent",
+                        "type": "agent",
+                        "label": "AI Agent",
+                        "config": {
+                            "template": "Summarize {{ trigger.payload.ticket_id }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "llm.response",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                    {
+                        "id": "model-1",
+                        "kind": "tool",
+                        "type": "tool.openai_chat_model",
+                        "label": "OpenAI chat model",
+                        "config": {
+                            "base_url": "https://api.openai.com/v1",
+                            "api_key_name": "OPENAI_API_KEY",
+                            "model": "gpt-4.1-mini",
+                        },
+                        "position": {"x": 320, "y": 240},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "tool.template",
+                        "label": "Template tool",
+                        "config": {
+                            "output_key": "template.result",
+                            "template": "Weather summary for {{ trigger.payload.city }}",
+                        },
+                        "position": {"x": 480, "y": 240},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                    {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                    {
+                        "id": "edge-3",
+                        "source": "model-1",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
+                    {
+                        "id": "edge-4",
+                        "source": "tool-1",
+                        "sourcePort": "ai_tool",
+                        "target": "agent-1",
+                        "targetPort": "ai_tool",
+                    },
+                ],
+            }
+        )
+
+        validate_workflow_runtime_definition(
+            nodes=definition["nodes"],
+            edges=definition["edges"],
+        )
+
+    def test_runtime_validation_rejects_multiple_agent_chat_models(self):
+        definition = normalize_workflow_definition_nodes(
+            {
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "agent-1",
+                        "kind": "agent",
+                        "type": "agent",
+                        "label": "AI Agent",
+                        "config": {
+                            "template": "hello",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "model-1",
+                        "kind": "tool",
+                        "type": "tool.openai_chat_model",
+                        "label": "OpenAI chat model A",
+                        "config": {
+                            "base_url": "https://api.openai.com/v1",
+                            "api_key_name": "OPENAI_API_KEY",
+                            "model": "gpt-4.1-mini",
+                        },
+                        "position": {"x": 320, "y": 240},
+                    },
+                    {
+                        "id": "model-2",
+                        "kind": "tool",
+                        "type": "tool.openai_chat_model",
+                        "label": "OpenAI chat model B",
+                        "config": {
+                            "base_url": "https://api.openai.com/v1",
+                            "api_key_name": "OPENAI_API_KEY",
+                            "model": "gpt-4.1-mini",
+                        },
+                        "position": {"x": 480, "y": 240},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                    {
+                        "id": "edge-2",
+                        "source": "model-1",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
+                    {
+                        "id": "edge-3",
+                        "source": "model-2",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
+                ],
+            }
+        )
+
+        with self.assertRaises(ValidationError) as exc_info:
+            validate_workflow_runtime_definition(
+                nodes=definition["nodes"],
+                edges=definition["edges"],
+            )
+
+        self.assertIn('accepts at most 1 connection(s) on port "ai_languageModel"', str(exc_info.exception))

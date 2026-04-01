@@ -131,6 +131,395 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.context_data["llm"]["response"]["text"], "Review T-42")
         self.assertEqual(run.step_count, 3)
 
+    def test_execute_workflow_runs_agent_with_connected_chat_model_and_mcp_tool(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Connected agent runtime",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "agent-1",
+                        "kind": "agent",
+                        "type": "agent",
+                        "label": "AI Agent",
+                        "config": {
+                            "template": "What is the weather in {{ trigger.payload.city }}?",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "template": "Completed {{ llm.response.text }}",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                    {
+                        "id": "model-1",
+                        "kind": "tool",
+                        "type": "tool.openai_chat_model",
+                        "label": "OpenAI chat model",
+                        "config": {
+                            "base_url": "https://api.openai.com/v1",
+                            "api_key_name": "OPENAI_API_KEY",
+                            "model": "gpt-4.1-mini",
+                        },
+                        "position": {"x": 240, "y": 240},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "tool.mcp_server",
+                        "label": "Weather tool",
+                        "config": {
+                            "output_key": "weather.result",
+                            "server_url": "https://mcp.example.com/mcp",
+                            "remote_tool_name": "weather_current",
+                        },
+                        "position": {"x": 400, "y": 240},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                    {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                    {
+                        "id": "edge-3",
+                        "source": "model-1",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
+                    {
+                        "id": "edge-4",
+                        "source": "tool-1",
+                        "sourcePort": "ai_tool",
+                        "target": "agent-1",
+                        "targetPort": "ai_tool",
+                    },
+                ],
+            },
+        )
+        Secret.objects.create(
+            environment=self.environment,
+            provider="environment-variable",
+            name="OPENAI_API_KEY",
+            parameters={"variable": "OPENAI_API_KEY"},
+        )
+
+        openai_call_count = {"value": 0}
+
+        def fake_openai_urlopen(request, timeout=20):
+            self.assertEqual(timeout, 20)
+            self.assertEqual(request.full_url, "https://api.openai.com/v1/chat/completions")
+            self.assertEqual(request.headers["Authorization"], "Bearer sk-test-openai")
+            body = loads(request.data.decode("utf-8"))
+            openai_call_count["value"] += 1
+
+            if openai_call_count["value"] == 1:
+                self.assertEqual(body["messages"][0]["role"], "user")
+                self.assertEqual(body["messages"][0]["content"], "What is the weather in Bengaluru?")
+                self.assertEqual(body["tools"][0]["function"]["name"], "weather_current")
+                return _FakeJsonResponse(
+                    {
+                        "id": "chatcmpl-100",
+                        "model": "gpt-4.1-mini",
+                        "choices": [
+                            {
+                                "finish_reason": "tool_calls",
+                                "message": {
+                                    "role": "assistant",
+                                    "tool_calls": [
+                                        {
+                                            "id": "call-weather-1",
+                                            "type": "function",
+                                            "function": {
+                                                "name": "weather_current",
+                                                "arguments": "{\"location\": \"Bengaluru\"}",
+                                            },
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                        "usage": {"prompt_tokens": 40, "completion_tokens": 8, "total_tokens": 48},
+                    }
+                )
+
+            self.assertEqual(openai_call_count["value"], 2)
+            self.assertEqual(body["messages"][0]["role"], "user")
+            self.assertEqual(body["messages"][1]["role"], "assistant")
+            self.assertEqual(body["messages"][2]["role"], "tool")
+            self.assertIn("31C", body["messages"][2]["content"])
+            return _FakeJsonResponse(
+                {
+                    "id": "chatcmpl-101",
+                    "model": "gpt-4.1-mini",
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {
+                                "role": "assistant",
+                                "content": "The weather in Bengaluru is 31C.",
+                            },
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 50, "completion_tokens": 10, "total_tokens": 60},
+                }
+            )
+
+        def fake_mcp_urlopen(request, timeout=30):
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.full_url, "https://mcp.example.com/mcp")
+            if request.method == "DELETE":
+                return _FakeJsonResponse({}, status=200, raw_body=b"")
+
+            raw_body = loads(request.data.decode("utf-8")) if request.data else {}
+            method = raw_body.get("method")
+            if method == "initialize":
+                return _FakeJsonResponse(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": raw_body["id"],
+                        "result": {
+                            "protocolVersion": "2025-11-25",
+                        },
+                    },
+                    headers={"MCP-Session-Id": "session-1"},
+                )
+            if method == "notifications/initialized":
+                return _FakeJsonResponse({}, status=202, raw_body=b"")
+            if method == "tools/list":
+                return _FakeJsonResponse(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": raw_body["id"],
+                        "result": {
+                            "tools": [
+                                {
+                                    "name": "weather_current",
+                                    "description": "Get the current weather for a city.",
+                                    "inputSchema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "location": {"type": "string"},
+                                        },
+                                        "required": ["location"],
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                )
+            if method == "tools/call":
+                self.assertEqual(raw_body["params"]["name"], "weather_current")
+                self.assertEqual(raw_body["params"]["arguments"], {"location": "Bengaluru"})
+                return _FakeJsonResponse(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": raw_body["id"],
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": "Weather for Bengaluru: 31C and sunny.",
+                                }
+                            ],
+                            "structuredContent": {
+                                "location": "Bengaluru",
+                                "temperature_c": 31,
+                            },
+                            "isError": False,
+                        },
+                    }
+                )
+
+            raise AssertionError(f"Unexpected MCP method: {method}")
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai"}, clear=False):
+            with patch("automation.tools.base.urlopen", side_effect=fake_openai_urlopen):
+                with patch("automation.nodes.apps.integrations.mcp_server.node.urlopen", side_effect=fake_mcp_urlopen):
+                    run = execute_workflow(
+                        workflow,
+                        input_data={"city": "Bengaluru"},
+                    )
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"], "Completed The weather in Bengaluru is 31C.")
+        self.assertEqual(run.context_data["llm"]["response"]["text"], "The weather in Bengaluru is 31C.")
+        self.assertEqual(len(run.context_data["llm"]["response"]["tool_runs"]), 1)
+        self.assertEqual(run.context_data["llm"]["response"]["tool_runs"][0]["remote_tool_name"], "weather_current")
+        self.assertEqual(run.step_count, 3)
+
+    def test_execute_workflow_runs_agent_with_generic_attached_tool(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Connected agent generic tool runtime",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "agent-1",
+                        "kind": "agent",
+                        "type": "agent",
+                        "label": "AI Agent",
+                        "config": {
+                            "template": "Summarize the city briefing for {{ trigger.payload.city }}.",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "template": "Completed {{ llm.response.text }}",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                    {
+                        "id": "model-1",
+                        "kind": "tool",
+                        "type": "tool.openai_chat_model",
+                        "label": "OpenAI chat model",
+                        "config": {
+                            "base_url": "https://api.openai.com/v1",
+                            "api_key_name": "OPENAI_API_KEY",
+                            "model": "gpt-4.1-mini",
+                        },
+                        "position": {"x": 240, "y": 240},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "tool.template",
+                        "label": "render_template",
+                        "config": {
+                            "output_key": "template.result",
+                        },
+                        "position": {"x": 400, "y": 240},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                    {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                    {
+                        "id": "edge-3",
+                        "source": "model-1",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
+                    {
+                        "id": "edge-4",
+                        "source": "tool-1",
+                        "sourcePort": "ai_tool",
+                        "target": "agent-1",
+                        "targetPort": "ai_tool",
+                    },
+                ],
+            },
+        )
+        Secret.objects.create(
+            environment=self.environment,
+            provider="environment-variable",
+            name="OPENAI_API_KEY",
+            parameters={"variable": "OPENAI_API_KEY"},
+        )
+
+        openai_call_count = {"value": 0}
+
+        def fake_openai_urlopen(request, timeout=20):
+            self.assertEqual(timeout, 20)
+            self.assertEqual(request.full_url, "https://api.openai.com/v1/chat/completions")
+            self.assertEqual(request.headers["Authorization"], "Bearer sk-test-openai")
+            body = loads(request.data.decode("utf-8"))
+            openai_call_count["value"] += 1
+
+            if openai_call_count["value"] == 1:
+                self.assertEqual(body["messages"][0]["role"], "user")
+                self.assertEqual(body["tools"][0]["function"]["name"], "render_template")
+                self.assertIn("template", body["tools"][0]["function"]["parameters"]["properties"])
+                return _FakeJsonResponse(
+                    {
+                        "id": "chatcmpl-200",
+                        "model": "gpt-4.1-mini",
+                        "choices": [
+                            {
+                                "finish_reason": "tool_calls",
+                                "message": {
+                                    "role": "assistant",
+                                    "tool_calls": [
+                                        {
+                                            "id": "call-template-1",
+                                            "type": "function",
+                                            "function": {
+                                                "name": "render_template",
+                                                "arguments": "{\"template\": \"City briefing: Bengaluru is stable.\"}",
+                                            },
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                        "usage": {"prompt_tokens": 40, "completion_tokens": 8, "total_tokens": 48},
+                    }
+                )
+
+            self.assertEqual(openai_call_count["value"], 2)
+            self.assertEqual(body["messages"][2]["role"], "tool")
+            self.assertIn("Bengaluru is stable", body["messages"][2]["content"])
+            return _FakeJsonResponse(
+                {
+                    "id": "chatcmpl-201",
+                    "model": "gpt-4.1-mini",
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {
+                                "role": "assistant",
+                                "content": "Bengaluru is stable.",
+                            },
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 50, "completion_tokens": 10, "total_tokens": 60},
+                }
+            )
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai"}, clear=False):
+            with patch("automation.tools.base.urlopen", side_effect=fake_openai_urlopen):
+                run = execute_workflow(
+                    workflow,
+                    input_data={"city": "Bengaluru"},
+                )
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"], "Completed Bengaluru is stable.")
+        self.assertEqual(run.context_data["llm"]["response"]["text"], "Bengaluru is stable.")
+        self.assertEqual(len(run.context_data["llm"]["response"]["tool_runs"]), 1)
+        self.assertEqual(run.context_data["llm"]["response"]["tool_runs"][0]["remote_tool_name"], "template")
+        self.assertEqual(
+            run.context_data["llm"]["response"]["tool_runs"][0]["result"]["tool_name"],
+            "template",
+        )
+        self.assertEqual(run.step_count, 3)
+
     def test_execute_workflow_runs_n8n_style_builtins_end_to_end(self):
         workflow = Workflow.objects.create(
             environment=self.environment,

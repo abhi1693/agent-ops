@@ -5,6 +5,18 @@ from typing import Any
 
 SUPPORTED_AGENT_API_TYPES = frozenset({"openai"})
 DEFAULT_AGENT_API_TYPE = "openai"
+AGENT_LANGUAGE_MODEL_INPUT_PORT = "ai_languageModel"
+AGENT_TOOL_INPUT_PORT = "ai_tool"
+AGENT_LANGUAGE_MODEL_NODE_TYPES = frozenset({"tool.openai_chat_model"})
+SUPPORTED_AGENT_AUXILIARY_PORTS = frozenset(
+    {
+        AGENT_LANGUAGE_MODEL_INPUT_PORT,
+        AGENT_TOOL_INPUT_PORT,
+    }
+)
+AGENT_AUXILIARY_MAX_CONNECTIONS_BY_PORT = {
+    AGENT_LANGUAGE_MODEL_INPUT_PORT: 1,
+}
 AGENT_DEFAULTS_BY_API_TYPE = {
     "openai": {
         "api_key_name": "OPENAI_API_KEY",
@@ -13,6 +25,36 @@ AGENT_DEFAULTS_BY_API_TYPE = {
         "output_key": "llm.response",
     }
 }
+
+
+def is_agent_language_model_node_type(node_type: Any) -> bool:
+    return isinstance(node_type, str) and node_type in AGENT_LANGUAGE_MODEL_NODE_TYPES
+
+
+def is_agent_tool_source_node(source_node: dict[str, Any] | None) -> bool:
+    if not isinstance(source_node, dict):
+        return False
+    if source_node.get("kind") != "tool":
+        return False
+    return not is_agent_language_model_node_type(source_node.get("type"))
+
+
+def is_agent_auxiliary_source_compatible(*, source_node: dict[str, Any] | None, target_port: str) -> bool:
+    if target_port == AGENT_LANGUAGE_MODEL_INPUT_PORT:
+        if not isinstance(source_node, dict):
+            return False
+        return is_agent_language_model_node_type(source_node.get("type"))
+    if target_port == AGENT_TOOL_INPUT_PORT:
+        return is_agent_tool_source_node(source_node)
+    return False
+
+
+def describe_agent_auxiliary_supported_sources(target_port: str) -> str:
+    if target_port == AGENT_LANGUAGE_MODEL_INPUT_PORT:
+        return ", ".join(sorted(AGENT_LANGUAGE_MODEL_NODE_TYPES))
+    if target_port == AGENT_TOOL_INPUT_PORT:
+        return "any tool node except model provider nodes"
+    return "none"
 
 
 def normalize_workflow_agent_config(

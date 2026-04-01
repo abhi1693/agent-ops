@@ -9,6 +9,7 @@ from automation.primitives import (
     normalize_workflow_definition_nodes,
     validate_workflow_runtime_definition,
 )
+from automation.workflow_connections import validate_agent_auxiliary_edges
 from core.models import PrimaryModel
 
 
@@ -185,6 +186,15 @@ def _validate_workflow_edges(edges, *, node_ids):
             if node_id not in node_ids:
                 raise ValidationError({"definition": f'Edge "{edge_id}" references unknown {endpoint} node "{node_id}".'})
 
+        for port_name in ("sourcePort", "targetPort"):
+            port_value = edge.get(port_name)
+            if port_value is None:
+                continue
+            if not isinstance(port_value, str) or not port_value.strip():
+                raise ValidationError(
+                    {"definition": f'Edge "{edge_id}" {port_name} must be a non-empty string when provided.'}
+                )
+
         edge_ids.add(edge_id)
 
 
@@ -195,6 +205,11 @@ def _validate_workflow_definition(definition):
     edges = normalized_definition.get("edges")
     node_ids = _validate_workflow_nodes(nodes)
     _validate_workflow_edges(edges, node_ids=node_ids)
+    if nodes and edges:
+        validate_agent_auxiliary_edges(
+            nodes_by_id={node["id"]: node for node in nodes},
+            edges=edges,
+        )
     if nodes or edges:
         validate_workflow_runtime_definition(
             nodes=normalized_definition.get("nodes", []),

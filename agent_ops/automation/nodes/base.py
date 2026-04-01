@@ -384,6 +384,7 @@ class WorkflowNodeExecutionContext:
     node: dict[str, Any]
     config: dict[str, Any]
     next_node_id: str | None
+    connected_nodes_by_port: dict[str, list[dict[str, Any]]]
     context: dict[str, Any]
     secret_paths: set[str]
     secret_values: list[str]

@@ -8,7 +8,14 @@ from automation.nodes import (
     normalize_workflow_node_config,
     validate_workflow_node,
 )
-from automation.workflow_agents import normalize_workflow_agent_config
+from automation.workflow_connections import (
+    split_workflow_edges,
+    validate_agent_auxiliary_edges,
+)
+from automation.workflow_agents import (
+    AGENT_TOOL_INPUT_PORT,
+    normalize_workflow_agent_config,
+)
 
 
 WORKFLOW_NODE_KINDS = (
@@ -120,6 +127,35 @@ WORKFLOW_NODE_TEMPLATE_MAP = {
     for template in WORKFLOW_NODE_TEMPLATES
 }
 
+_AGENT_TOOL_FIXED_FIELD_KEYS = frozenset(
+    {
+        "output_key",
+        "auth_secret_group_id",
+        "base_url",
+        "server_url",
+        "binary_path",
+        "protocol_version",
+        "timeout_seconds",
+        "auth_header_name",
+        "auth_header_template",
+        "headers_json",
+        "api_key_name",
+        "api_key_provider",
+        "auth_token_name",
+        "auth_token_provider",
+        "bearer_token_name",
+        "bearer_token_provider",
+    }
+)
+_AGENT_TOOL_FIXED_FIELD_SUFFIXES = (
+    "_key_name",
+    "_key_provider",
+    "_token_name",
+    "_token_provider",
+    "_secret_name",
+    "_secret_provider",
+)
+
 
 def resolve_workflow_node_template_type(
     *,
@@ -191,10 +227,72 @@ def _raise_definition_error(message: str) -> None:
     raise ValidationError({"definition": message})
 
 
+def _is_agent_fixed_tool_field(*, node: dict, field_key: str) -> bool:
+    if field_key in _AGENT_TOOL_FIXED_FIELD_KEYS:
+        return True
+    if any(field_key.endswith(suffix) for suffix in _AGENT_TOOL_FIXED_FIELD_SUFFIXES):
+        return True
+    if node.get("type") == "tool.secret" and field_key in {"name", "provider"}:
+        return True
+    return False
+
+
+def _has_agent_validation_value(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict, tuple, set)):
+        return len(value) > 0
+    return True
+
+
+def _build_agent_tool_validation_placeholder(field: dict) -> str:
+    options = field.get("options")
+    if isinstance(options, list) and options:
+        first_option = options[0]
+        if isinstance(first_option, dict) and isinstance(first_option.get("value"), str):
+            return first_option["value"]
+
+    placeholder = field.get("placeholder")
+    if isinstance(placeholder, str) and placeholder.strip():
+        return placeholder.strip()
+
+    if str(field.get("key") or "").endswith("_json"):
+        return "{}"
+    return "agent input"
+
+
+def _build_agent_attached_tool_validation_node(node: dict) -> dict:
+    node_template = get_workflow_node_template(node_type=node.get("type"))
+    if node_template is None:
+        return node
+
+    base_config = {
+        **(node_template.get("config") or {}),
+        **(node.get("config") or {}),
+    }
+    for field in node_template.get("fields") or ():
+        field_key = field.get("key")
+        if not isinstance(field_key, str) or not field_key:
+            continue
+        if _is_agent_fixed_tool_field(node=node, field_key=field_key):
+            continue
+        if _has_agent_validation_value(base_config.get(field_key)):
+            continue
+        base_config[field_key] = _build_agent_tool_validation_placeholder(field)
+
+    return {
+        **node,
+        "config": base_config,
+    }
+
+
 def validate_workflow_runtime_definition(*, nodes: list[dict], edges: list[dict]) -> None:
     nodes_by_id = {node["id"]: node for node in nodes}
+    primary_edges, auxiliary_edges = split_workflow_edges(edges)
     adjacency: dict[str, list[str]] = {node_id: [] for node_id in nodes_by_id}
-    for edge in edges:
+    for edge in primary_edges:
         adjacency.setdefault(edge["source"], []).append(edge["target"])
 
     trigger_nodes = [node for node in nodes if node["kind"] == "trigger"]
@@ -202,12 +300,19 @@ def validate_workflow_runtime_definition(*, nodes: list[dict], edges: list[dict]
         _raise_definition_error("Workflow runtime requires exactly one trigger node.")
 
     _validate_runtime_cycle_free(adjacency=adjacency)
+    validate_agent_auxiliary_edges(nodes_by_id=nodes_by_id, edges=auxiliary_edges)
+    attached_agent_tool_node_ids = {
+        edge["source"]
+        for edge in auxiliary_edges
+        if edge.get("targetPort") == AGENT_TOOL_INPUT_PORT
+    }
 
     for node in nodes:
         _validate_runtime_node(
             node=node,
             node_ids=set(nodes_by_id),
             outgoing_targets=adjacency.get(node["id"], []),
+            attached_agent_tool_node_ids=attached_agent_tool_node_ids,
         )
 
 
@@ -231,7 +336,13 @@ def _validate_runtime_cycle_free(*, adjacency: dict[str, list[str]]) -> None:
         visit(node_id)
 
 
-def _validate_runtime_node(*, node: dict, node_ids: set[str], outgoing_targets: list[str]) -> None:
+def _validate_runtime_node(
+    *,
+    node: dict,
+    node_ids: set[str],
+    outgoing_targets: list[str],
+    attached_agent_tool_node_ids: set[str],
+) -> None:
     node_id = node["id"]
     kind = node["kind"]
     if kind not in SUPPORTED_WORKFLOW_NODE_KINDS:
@@ -243,8 +354,12 @@ def _validate_runtime_node(*, node: dict, node_ids: set[str], outgoing_targets: 
     if not isinstance(config, dict):
         _raise_definition_error(f'Node "{node_id}" config must be a JSON object.')
 
+    validation_node = node
+    if node_id in attached_agent_tool_node_ids and kind == "tool":
+        validation_node = _build_agent_attached_tool_validation_node(node)
+
     node_definition = validate_workflow_node(
-        node=node,
+        node=validation_node,
         outgoing_targets=outgoing_targets,
         node_ids=node_ids,
     )

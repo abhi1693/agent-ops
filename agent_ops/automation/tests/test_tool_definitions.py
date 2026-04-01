@@ -108,11 +108,16 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
 
     def test_openai_tool_node_template_serializes_expected_fields(self):
         openai_tool = get_workflow_node_template(node_type="tool.openai_compatible_chat")
+        chat_model_tool = get_workflow_node_template(node_type="tool.openai_chat_model")
 
         self.assertEqual(openai_tool["label"], "LLM chat (OpenAI-compatible)")
         self.assertEqual(openai_tool["config"]["output_key"], "llm.response")
         self.assertEqual(openai_tool["fields"][0]["key"], "output_key")
         self.assertEqual(openai_tool["fields"][1]["key"], "base_url")
+        self.assertEqual(chat_model_tool["label"], "OpenAI chat model")
+        self.assertEqual(chat_model_tool["config"]["api_key_name"], "OPENAI_API_KEY")
+        self.assertEqual(chat_model_tool["fields"][0]["key"], "auth_secret_group_id")
+        self.assertEqual(chat_model_tool["fields"][1]["key"], "base_url")
 
     def test_tool_node_validation_requires_base_url(self):
         with self.assertRaises(ValidationError) as exc_info:

@@ -56,6 +56,7 @@ type CanvasElements = {
 };
 
 type ConnectorSide = 'top' | 'right' | 'bottom' | 'left';
+type AgentAuxiliaryPortId = 'ai_languageModel' | 'ai_tool';
 type BrowserMode = 'default' | 'starter';
 
 type DragState = {
@@ -67,6 +68,7 @@ type DragState = {
 
 type ConnectionDraft = {
   hoveredTargetId: string | null;
+  hoveredTargetPort: AgentAuxiliaryPortId | null;
   hoveredTargetSide: ConnectorSide | null;
   pointerId: number;
   pointerX: number;
@@ -75,11 +77,14 @@ type ConnectionDraft = {
 };
 
 type InsertDraft = {
+  allowedNodeTypes?: string[];
   position: {
     x: number;
     y: number;
   };
-  sourceId: string;
+  sourceId?: string;
+  targetId?: string;
+  targetPort?: AgentAuxiliaryPortId;
 };
 
 type ContextMenuState = {
@@ -94,11 +99,40 @@ type Point = {
 };
 
 const CONNECTOR_SIDES: ConnectorSide[] = ['top', 'right', 'bottom', 'left'];
+const AGENT_AUXILIARY_PORTS: Array<{
+  id: AgentAuxiliaryPortId;
+  label: string;
+}> = [
+  {
+    id: 'ai_languageModel',
+    label: 'Model',
+  },
+  {
+    id: 'ai_tool',
+    label: 'Tools',
+  },
+];
+const AGENT_NODE_WIDTH = 224;
+const AGENT_NODE_HEIGHT = 164;
+const AGENT_NODE_CARD_WIDTH = 224;
+const AGENT_NODE_CARD_HEIGHT = 164;
+const AGENT_AUXILIARY_PORT_ANCHOR_X = 18;
+const AGENT_AUXILIARY_PORT_ANCHOR_Y = 102;
+const AGENT_AUXILIARY_PORT_ROW_GAP = 34;
 const NODE_CONTEXT_MENU_WIDTH = 224;
 const NODE_CONTEXT_MENU_HEIGHT = 142;
 const NODE_CONTEXT_MENU_MARGIN = 12;
 const NODE_CONTEXT_MENU_OFFSET_X = 10;
 const NODE_CONTEXT_MENU_OFFSET_Y = 6;
+const AGENT_LANGUAGE_MODEL_NODE_TYPES = new Set<string>(['tool.openai_chat_model']);
+
+function isAgentLanguageModelNodeType(nodeType: string | null | undefined): boolean {
+  return Boolean(nodeType && AGENT_LANGUAGE_MODEL_NODE_TYPES.has(nodeType));
+}
+
+function isAgentToolCompatibleNode(definition: Pick<WorkflowNodeDefinition, 'kind' | 'type'>): boolean {
+  return definition.kind === 'tool' && !isAgentLanguageModelNodeType(definition.type);
+}
 
 function getBrowserElements(root: ParentNode): BrowserElements | null {
   const browser = root.querySelector<HTMLElement>('[data-node-browser]');
@@ -267,21 +301,27 @@ function renderPaletteSections(sections: WorkflowPaletteSection[], query: string
     .join('');
 }
 
-function getBoardBounds(board: HTMLElement): { maxX: number; maxY: number } {
-  const boardWidth = Math.max(board.clientWidth, NODE_WIDTH + CANVAS_EDGE_MARGIN * 2);
-  const boardHeight = Math.max(board.clientHeight, NODE_HEIGHT + CANVAS_EDGE_MARGIN * 2);
+function getBoardBounds(
+  board: HTMLElement,
+  nodeHeight = NODE_HEIGHT,
+  nodeWidth = NODE_WIDTH,
+): { maxX: number; maxY: number } {
+  const boardWidth = Math.max(board.clientWidth, nodeWidth + CANVAS_EDGE_MARGIN * 2);
+  const boardHeight = Math.max(board.clientHeight, nodeHeight + CANVAS_EDGE_MARGIN * 2);
 
   return {
-    maxX: Math.max(CANVAS_EDGE_MARGIN, boardWidth - NODE_WIDTH - CANVAS_EDGE_MARGIN),
-    maxY: Math.max(CANVAS_EDGE_MARGIN, boardHeight - NODE_HEIGHT - CANVAS_EDGE_MARGIN),
+    maxX: Math.max(CANVAS_EDGE_MARGIN, boardWidth - nodeWidth - CANVAS_EDGE_MARGIN),
+    maxY: Math.max(CANVAS_EDGE_MARGIN, boardHeight - nodeHeight - CANVAS_EDGE_MARGIN),
   };
 }
 
 function clampNodePosition(
   board: HTMLElement,
   position: { x: number; y: number },
+  nodeHeight = NODE_HEIGHT,
+  nodeWidth = NODE_WIDTH,
 ): { x: number; y: number } {
-  const bounds = getBoardBounds(board);
+  const bounds = getBoardBounds(board, nodeHeight, nodeWidth);
 
   return {
     x: clamp(Math.round(position.x), CANVAS_EDGE_MARGIN, bounds.maxX),
@@ -292,23 +332,38 @@ function clampNodePosition(
 function nodesOverlap(
   first: { x: number; y: number },
   second: { x: number; y: number },
+  firstHeight = NODE_HEIGHT,
+  secondHeight = NODE_HEIGHT,
+  firstWidth = NODE_WIDTH,
+  secondWidth = NODE_WIDTH,
   padding = 28,
 ): boolean {
   return !(
-    first.x + NODE_WIDTH + padding <= second.x ||
-    second.x + NODE_WIDTH + padding <= first.x ||
-    first.y + NODE_HEIGHT + padding <= second.y ||
-    second.y + NODE_HEIGHT + padding <= first.y
+    first.x + firstWidth + padding <= second.x ||
+    second.x + secondWidth + padding <= first.x ||
+    first.y + firstHeight + padding <= second.y ||
+    second.y + secondHeight + padding <= first.y
   );
 }
 
 function hasNodeCollision(
   definition: WorkflowDefinition,
   position: { x: number; y: number },
+  nodeHeight = NODE_HEIGHT,
+  nodeWidth = NODE_WIDTH,
   ignoreNodeId?: string,
 ): boolean {
   return definition.nodes.some(
-    (node) => node.id !== ignoreNodeId && nodesOverlap(position, node.position),
+    (node) =>
+      node.id !== ignoreNodeId &&
+      nodesOverlap(
+        position,
+        node.position,
+        nodeHeight,
+        getNodeRenderHeight(node),
+        nodeWidth,
+        getNodeRenderWidth(node),
+      ),
   );
 }
 
@@ -316,7 +371,10 @@ function getSuggestedNodePosition(
   board: HTMLElement,
   definition: WorkflowDefinition,
   selectedNodeId: string | null,
+  nextNode: Pick<WorkflowNode, 'kind'> | null | undefined,
 ): { x: number; y: number } {
+  const nextNodeHeight = getNodeRenderHeight(nextNode);
+  const nextNodeWidth = getNodeRenderWidth(nextNode);
   const selectedNode = selectedNodeId
     ? definition.nodes.find((node) => node.id === selectedNodeId)
     : undefined;
@@ -339,8 +397,8 @@ function getSuggestedNodePosition(
         y: selectedNode.position.y - NODE_ROW_GAP,
       },
     ]
-      .map((position) => clampNodePosition(board, position))
-      .find((position) => !hasNodeCollision(definition, position));
+      .map((position) => clampNodePosition(board, position, nextNodeHeight, nextNodeWidth))
+      .find((position) => !hasNodeCollision(definition, position, nextNodeHeight, nextNodeWidth));
 
     if (nextPosition) {
       return nextPosition;
@@ -349,32 +407,32 @@ function getSuggestedNodePosition(
     return clampNodePosition(board, {
       x: selectedNode.position.x + NODE_COLUMN_GAP,
       y: selectedNode.position.y,
-    });
+    }, nextNodeHeight, nextNodeWidth);
   }
 
   if (definition.nodes.length === 0) {
     return clampNodePosition(board, {
-      x: board.clientWidth / 2 - NODE_WIDTH / 2,
+      x: board.clientWidth / 2 - nextNodeWidth / 2,
       y: 132,
-    });
+    }, nextNodeHeight, nextNodeWidth);
   }
 
   const lastNode = definition.nodes[definition.nodes.length - 1];
-  const bounds = getBoardBounds(board);
-  const nextX = lastNode.position.x + NODE_WIDTH + 24;
+  const bounds = getBoardBounds(board, nextNodeHeight, nextNodeWidth);
+  const nextX = lastNode.position.x + getNodeRenderWidth(lastNode) + 24;
   const nextY = lastNode.position.y + 24;
 
   if (nextX > bounds.maxX) {
     return clampNodePosition(board, {
       x: SURFACE_PADDING,
       y: lastNode.position.y + NODE_ROW_GAP,
-    });
+    }, nextNodeHeight, nextNodeWidth);
   }
 
   return clampNodePosition(board, {
     x: nextX,
     y: nextY,
-  });
+  }, nextNodeHeight, nextNodeWidth);
 }
 
 function createWorkflowNode(
@@ -389,9 +447,12 @@ function createWorkflowNode(
     id: createId('node'),
     kind: nodeDefinition.kind,
     label: nodeDefinition.label,
-    position: overridePosition
-      ? clampNodePosition(board, overridePosition)
-      : getSuggestedNodePosition(board, definition, selectedNodeId),
+    position: clampNodePosition(
+      board,
+      overridePosition ?? getSuggestedNodePosition(board, definition, selectedNodeId, nodeDefinition),
+      getNodeRenderHeight(nodeDefinition),
+      getNodeRenderWidth(nodeDefinition),
+    ),
     type: nodeDefinition.type,
     typeVersion: nodeDefinition.typeVersion,
   };
@@ -418,43 +479,110 @@ function canNodeEmitConnections(node: WorkflowNode): boolean {
   return node.kind !== 'response';
 }
 
-function getNodeCardOffsetX(): number {
-  return (NODE_WIDTH - NODE_CARD_WIDTH) / 2;
+function getNodeRenderWidth(node: Pick<WorkflowNode, 'kind'> | null | undefined): number {
+  return node?.kind === 'agent' ? AGENT_NODE_WIDTH : NODE_WIDTH;
+}
+
+function getNodeRenderHeight(node: Pick<WorkflowNode, 'kind'> | null | undefined): number {
+  return node?.kind === 'agent' ? AGENT_NODE_HEIGHT : NODE_HEIGHT;
+}
+
+function getNodeCardWidth(node: Pick<WorkflowNode, 'kind'> | null | undefined): number {
+  return node?.kind === 'agent' ? AGENT_NODE_CARD_WIDTH : NODE_CARD_WIDTH;
+}
+
+function getNodeCardHeight(node: Pick<WorkflowNode, 'kind'> | null | undefined): number {
+  return node?.kind === 'agent' ? AGENT_NODE_CARD_HEIGHT : NODE_CARD_HEIGHT;
+}
+
+function getCompatibleAgentAuxiliaryPort(
+  sourceNode: WorkflowNode | undefined,
+  targetNode: WorkflowNode | undefined,
+): AgentAuxiliaryPortId | null {
+  if (!sourceNode || !targetNode || targetNode.kind !== 'agent') {
+    return null;
+  }
+
+  if (isAgentLanguageModelNodeType(sourceNode.type)) {
+    return 'ai_languageModel';
+  }
+  if (sourceNode.kind === 'tool') {
+    return 'ai_tool';
+  }
+  return null;
+}
+
+function getAgentAuxiliaryPortDefinition(
+  portId: AgentAuxiliaryPortId | null | undefined,
+): (typeof AGENT_AUXILIARY_PORTS)[number] | undefined {
+  if (!portId) {
+    return undefined;
+  }
+
+  return AGENT_AUXILIARY_PORTS.find((port) => port.id === portId);
+}
+
+function getAgentAuxiliaryAllowedNodeTypes(
+  definitions: WorkflowNodeDefinition[],
+  portId: AgentAuxiliaryPortId,
+): string[] {
+  return definitions
+    .filter((definition) =>
+      portId === 'ai_languageModel'
+        ? isAgentLanguageModelNodeType(definition.type)
+        : isAgentToolCompatibleNode(definition),
+    )
+    .map((definition) => definition.type);
+}
+
+function getNodeCardOffsetX(node: Pick<WorkflowNode, 'kind'> | null | undefined): number {
+  return (getNodeRenderWidth(node) - getNodeCardWidth(node)) / 2;
 }
 
 function getNodeCenter(node: WorkflowNode): Point {
   return {
-    x: node.position.x + getNodeCardOffsetX() + NODE_CARD_WIDTH / 2,
-    y: node.position.y + NODE_CARD_HEIGHT / 2,
+    x: node.position.x + getNodeCardOffsetX(node) + getNodeCardWidth(node) / 2,
+    y: node.position.y + getNodeCardHeight(node) / 2,
   };
 }
 
 function getConnectorPoint(node: WorkflowNode, side: ConnectorSide): Point {
-  const cardOffsetX = getNodeCardOffsetX();
+  const cardOffsetX = getNodeCardOffsetX(node);
+  const cardWidth = getNodeCardWidth(node);
+  const cardHeight = getNodeCardHeight(node);
 
   switch (side) {
     case 'top':
       return {
-        x: node.position.x + cardOffsetX + NODE_CARD_WIDTH / 2,
+        x: node.position.x + cardOffsetX + cardWidth / 2,
         y: node.position.y,
       };
     case 'right':
       return {
-        x: node.position.x + cardOffsetX + NODE_CARD_WIDTH,
-        y: node.position.y + NODE_CARD_HEIGHT / 2,
+        x: node.position.x + cardOffsetX + cardWidth,
+        y: node.position.y + cardHeight / 2,
       };
     case 'bottom':
       return {
-        x: node.position.x + cardOffsetX + NODE_CARD_WIDTH / 2,
-        y: node.position.y + NODE_CARD_HEIGHT,
+        x: node.position.x + cardOffsetX + cardWidth / 2,
+        y: node.position.y + cardHeight,
       };
     case 'left':
     default:
       return {
         x: node.position.x + cardOffsetX,
-        y: node.position.y + NODE_CARD_HEIGHT / 2,
+        y: node.position.y + cardHeight / 2,
       };
   }
+}
+
+function getAgentAuxiliaryPortPoint(node: WorkflowNode, portId: AgentAuxiliaryPortId): Point {
+  const portIndex = AGENT_AUXILIARY_PORTS.findIndex((port) => port.id === portId);
+
+  return {
+    x: node.position.x + AGENT_AUXILIARY_PORT_ANCHOR_X,
+    y: node.position.y + AGENT_AUXILIARY_PORT_ANCHOR_Y + portIndex * AGENT_AUXILIARY_PORT_ROW_GAP,
+  };
 }
 
 function getConnectorVector(side: ConnectorSide): Point {
@@ -569,6 +697,37 @@ function getConnectionMidpoint(
   };
 }
 
+function getEdgeAnchors(
+  edge: WorkflowDefinition['edges'][number],
+  sourceNode: WorkflowNode,
+  targetNode: WorkflowNode,
+): {
+  sourcePoint: Point;
+  sourceSide: ConnectorSide;
+  targetPoint: Point;
+  targetSide: ConnectorSide;
+} {
+  if (edge.targetPort === 'ai_languageModel' || edge.targetPort === 'ai_tool') {
+    const targetPoint = getAgentAuxiliaryPortPoint(targetNode, edge.targetPort);
+    const sourceSide = getPreferredConnectorSide(sourceNode, targetPoint);
+
+    return {
+      sourcePoint: getConnectorPoint(sourceNode, sourceSide),
+      sourceSide,
+      targetPoint,
+      targetSide: 'top',
+    };
+  }
+
+  const { sourceSide, targetSide } = getConnectionSides(sourceNode, targetNode);
+  return {
+    sourcePoint: getConnectorPoint(sourceNode, sourceSide),
+    sourceSide,
+    targetPoint: getConnectorPoint(targetNode, targetSide),
+    targetSide,
+  };
+}
+
 function getNodeTargetOptions(currentNode: WorkflowNode, definition: WorkflowDefinition): Array<{ label: string; value: string }> {
   return definition.nodes
     .filter((node) => node.id !== currentNode.id)
@@ -623,18 +782,50 @@ export function initWorkflowDesigner(): void {
     return workflowDefinition.nodes.find((node) => node.id === nodeId);
   }
 
-  function hasConnection(sourceId: string, targetId: string): boolean {
-    return workflowDefinition.edges.some((edge) => edge.source === sourceId && edge.target === targetId);
+  function hasConnection(sourceId: string, targetId: string, targetPort?: string | null): boolean {
+    return workflowDefinition.edges.some(
+      (edge) =>
+        edge.source === sourceId &&
+        edge.target === targetId &&
+        (edge.targetPort ?? null) === (targetPort ?? null),
+    );
   }
 
   function isEmptyWorkflow(): boolean {
     return workflowDefinition.nodes.length === 0;
   }
 
-  function isValidConnection(sourceId: string, targetId: string): boolean {
+  function isValidConnection(
+    sourceId: string,
+    targetId: string,
+    targetPort?: AgentAuxiliaryPortId | null,
+  ): boolean {
     const sourceNode = getNode(sourceId);
     const targetNode = getNode(targetId);
     if (!sourceNode || !targetNode || sourceId === targetId) {
+      return false;
+    }
+
+    const compatibleAuxiliaryPort = getCompatibleAgentAuxiliaryPort(sourceNode, targetNode);
+    if (targetPort) {
+      if (compatibleAuxiliaryPort !== targetPort) {
+        return false;
+      }
+
+      if (hasConnection(sourceId, targetId, targetPort)) {
+        return false;
+      }
+
+      if (targetPort === 'ai_languageModel') {
+        return !workflowDefinition.edges.some(
+          (edge) => edge.target === targetId && edge.targetPort === targetPort,
+        );
+      }
+
+      return true;
+    }
+
+    if (compatibleAuxiliaryPort) {
       return false;
     }
 
@@ -642,7 +833,7 @@ export function initWorkflowDesigner(): void {
       return false;
     }
 
-    return !hasConnection(sourceId, targetId);
+    return !hasConnection(sourceId, targetId, null);
   }
 
   function getPointFromClient(clientX: number, clientY: number): Point {
@@ -658,8 +849,23 @@ export function initWorkflowDesigner(): void {
     clientX: number,
     clientY: number,
     sourceId: string,
-  ): { nodeId: string; side: ConnectorSide } | null {
+  ): { nodeId: string; side: ConnectorSide; targetPort: AgentAuxiliaryPortId | null } | null {
     const target = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+    const auxiliaryPort = target?.closest<HTMLElement>('[data-workflow-node-aux-port]');
+    const auxiliaryTargetId = auxiliaryPort?.dataset.workflowNodeAuxNode ?? null;
+    const auxiliaryTargetPort = (auxiliaryPort?.dataset.workflowNodeAuxPort as AgentAuxiliaryPortId | undefined) ?? null;
+    if (
+      auxiliaryTargetId &&
+      auxiliaryTargetPort &&
+      isValidConnection(sourceId, auxiliaryTargetId, auxiliaryTargetPort)
+    ) {
+      return {
+        nodeId: auxiliaryTargetId,
+        side: 'top',
+        targetPort: auxiliaryTargetPort,
+      };
+    }
+
     const connector = target?.closest<HTMLElement>('[data-workflow-node-connector]');
     const nodeElement = target?.closest<HTMLElement>('[data-workflow-node-id]');
     const targetId = connector?.dataset.workflowNodeConnector ?? nodeElement?.dataset.workflowNodeId ?? null;
@@ -678,6 +884,7 @@ export function initWorkflowDesigner(): void {
       side:
         (connector?.dataset.workflowNodeConnectorSide as ConnectorSide | undefined) ??
         getPreferredConnectorSide(targetNode, getPointFromClient(clientX, clientY)),
+      targetPort: null,
     };
   }
 
@@ -960,12 +1167,22 @@ export function initWorkflowDesigner(): void {
 
   function renderBrowser(): void {
     const emptyWorkflow = isEmptyWorkflow();
+    const insertPort = getAgentAuxiliaryPortDefinition(insertDraft?.targetPort);
+    const allowedNodeTypes = insertDraft?.allowedNodeTypes ?? null;
+    const filteredSections = getAvailablePaletteSections(nodeRegistry, workflowDefinition)
+      .map((section) => ({
+        ...section,
+        definitions: allowedNodeTypes
+          ? section.definitions.filter((definition) => allowedNodeTypes.includes(definition.type))
+          : section.definitions,
+      }))
+      .filter((section) => section.definitions.length > 0);
     let title = 'Add node';
     let description = insertDraft
       ? 'Choose the next step to connect from here.'
       : 'Choose the next step to add to this workflow.';
     let emptyMessage = 'No matching nodes';
-    let markup = renderPaletteSections(getAvailablePaletteSections(nodeRegistry, workflowDefinition), searchQuery);
+    let markup = renderPaletteSections(filteredSections, searchQuery);
 
     if (emptyWorkflow) {
       const triggerDefinitions = filterNodeDefinitions(
@@ -978,6 +1195,14 @@ export function initWorkflowDesigner(): void {
       markup = triggerDefinitions.length > 0
         ? `<div class="workflow-node-browser-list">${renderPaletteDefinitions(triggerDefinitions, 'starter')}</div>`
         : '';
+    } else if (insertPort) {
+      title = insertPort.id === 'ai_languageModel' ? 'Attach model provider' : 'Attach tool';
+      description = insertPort.id === 'ai_languageModel'
+        ? 'Choose a provider-specific model node to attach to this agent.'
+        : 'Choose any tool or integration node to attach to this agent.';
+      emptyMessage = insertPort.id === 'ai_languageModel'
+        ? 'No matching model providers'
+        : 'No matching tools';
     }
 
     browser.browser.hidden = !isBrowserOpen;
@@ -1005,22 +1230,30 @@ export function initWorkflowDesigner(): void {
         const nodeDefinition = nodeRegistry.definitionMap.get(node.type);
         const icon = nodeDefinition?.icon ?? 'mdi-vector-square';
         const title = node.label || nodeDefinition?.label || formatKindLabel(node.kind) || node.type;
+        const isDefaultAgentTitle = node.kind === 'agent' && title === (nodeDefinition?.label ?? 'Agent');
+        const agentDisplayTitle = node.kind === 'agent' && isDefaultAgentTitle ? 'AI Agent' : title;
+        const showAgentKindLabel = node.kind === 'agent' && !isDefaultAgentTitle;
         const isSelected = selectedNodeId === node.id;
         const isConnectionSource = connectionDraft?.sourceId === node.id;
         const isConnectionCandidate = connectionDraft
           ? isValidConnection(connectionDraft.sourceId, node.id)
           : false;
         const isConnectionTarget = connectionDraft?.hoveredTargetId === node.id;
+        const sourceConnectionNode = connectionDraft ? getNode(connectionDraft.sourceId) : undefined;
+        const compatibleAuxiliaryPort = connectionDraft
+          ? getCompatibleAgentAuxiliaryPort(sourceConnectionNode, node)
+          : null;
         const canReceiveConnections = canNodeReceiveConnections(node);
         const canEmitConnections = canNodeEmitConnections(node);
-        const sourceConnectionNode = connectionDraft ? getNode(connectionDraft.sourceId) : undefined;
         const draftTargetPoint =
           connectionDraft && isConnectionSource
             ? connectionDraft.hoveredTargetId
               ? (() => {
                   const hoveredNode = getNode(connectionDraft.hoveredTargetId);
                   return hoveredNode
-                    ? connectionDraft.hoveredTargetSide
+                    ? connectionDraft.hoveredTargetPort
+                      ? getAgentAuxiliaryPortPoint(hoveredNode, connectionDraft.hoveredTargetPort)
+                      : connectionDraft.hoveredTargetSide
                       ? getConnectorPoint(hoveredNode, connectionDraft.hoveredTargetSide)
                       : getNodeCenter(hoveredNode)
                     : {
@@ -1038,7 +1271,7 @@ export function initWorkflowDesigner(): void {
             ? getPreferredConnectorSide(node, draftTargetPoint)
             : null;
         const activeTargetSide =
-          isConnectionTarget && canReceiveConnections && sourceConnectionNode
+          isConnectionTarget && !connectionDraft?.hoveredTargetPort && canReceiveConnections && sourceConnectionNode
             ? connectionDraft?.hoveredTargetSide ?? getPreferredConnectorSide(node, getNodeCenter(sourceConnectionNode))
             : null;
         const connectorModeClass = canReceiveConnections && canEmitConnections
@@ -1046,6 +1279,19 @@ export function initWorkflowDesigner(): void {
           : canEmitConnections
             ? ' is-output-only'
             : ' is-input-only';
+        const modelConnections = workflowDefinition.edges.filter(
+          (edge) => edge.target === node.id && edge.targetPort === 'ai_languageModel',
+        );
+        const toolConnections = workflowDefinition.edges.filter(
+          (edge) => edge.target === node.id && edge.targetPort === 'ai_tool',
+        );
+        const connectedModelNode = modelConnections
+          .map((edge) => getNode(edge.source))
+          .find((candidate): candidate is WorkflowNode => Boolean(candidate));
+        const connectedModelTitle = connectedModelNode
+          ? connectedModelNode.label || getNodeDefinition(connectedModelNode)?.label || connectedModelNode.type
+          : null;
+        const agentNeedsModel = node.kind === 'agent' && modelConnections.length === 0;
         const connectors = (canReceiveConnections || canEmitConnections)
           ? CONNECTOR_SIDES.map((side) => {
               const isActiveSourceConnector = activeSourceSide === side;
@@ -1061,22 +1307,104 @@ export function initWorkflowDesigner(): void {
               `;
             }).join('')
           : '';
+        const auxiliaryPorts = node.kind === 'agent'
+          ? `
+            <span class="workflow-editor-node-auxiliary">
+              ${AGENT_AUXILIARY_PORTS.map((port) => {
+                const isCompatibleCandidate = compatibleAuxiliaryPort === port.id;
+                const isActiveTargetPort =
+                  connectionDraft?.hoveredTargetId === node.id && connectionDraft?.hoveredTargetPort === port.id;
+                const connectedEdges = workflowDefinition.edges.filter(
+                  (edge) => edge.target === node.id && edge.targetPort === port.id,
+                );
+                const connectionCount = connectedEdges.length;
+                const connectedSourceNodes = connectedEdges
+                  .map((edge) => getNode(edge.source))
+                  .filter((candidate): candidate is WorkflowNode => Boolean(candidate));
+                const primaryConnectedSourceNode = connectedSourceNodes[0];
+                const connectedSourceTitle = primaryConnectedSourceNode
+                  ? primaryConnectedSourceNode.label
+                    || getNodeDefinition(primaryConnectedSourceNode)?.label
+                    || primaryConnectedSourceNode.type
+                  : null;
+                const actionIcon = connectionCount > 0 && port.id === 'ai_languageModel'
+                  ? 'mdi-chevron-right'
+                  : 'mdi-plus';
+                const stateLabel = connectionCount > 0
+                  ? port.id === 'ai_languageModel'
+                    ? connectedSourceTitle ?? 'Provider attached'
+                    : `${connectionCount} tool${connectionCount === 1 ? '' : 's'} attached`
+                  : port.id === 'ai_languageModel'
+                    ? 'No provider attached'
+                    : 'No tools attached';
 
-        return `
-          <article
-            class="workflow-editor-node workflow-editor-node--${escapeHtml(node.kind)}${isSelected ? ' is-selected' : ''}${isConnectionSource ? ' is-connection-source' : ''}${isConnectionCandidate ? ' is-connection-candidate' : ''}${isConnectionTarget ? ' is-connection-target' : ''}"
-            data-workflow-node-id="${escapeHtml(node.id)}"
-            tabindex="0"
-          >
-            ${connectors}
+                return `
+                  <button
+                    type="button"
+                    class="workflow-editor-node-auxiliary-port${isCompatibleCandidate ? ' is-candidate' : ''}${isActiveTargetPort ? ' is-active' : ''}${connectionCount > 0 ? ' is-connected' : ''}${port.id === 'ai_languageModel' && connectionCount === 0 ? ' is-warning' : ''}"
+                    data-workflow-node-aux-node="${escapeHtml(node.id)}"
+                    data-workflow-node-aux-port="${port.id}"
+                    title="${escapeHtml(connectionCount > 0 && port.id === 'ai_languageModel' ? `Open ${port.label}` : `Add ${port.label}`)}"
+                    aria-label="${escapeHtml(connectionCount > 0 && port.id === 'ai_languageModel' ? `Open ${port.label}` : `Add ${port.label}`)}"
+                  >
+                    <span class="workflow-editor-node-auxiliary-handle" aria-hidden="true"></span>
+                    <span class="workflow-editor-node-auxiliary-label">
+                      <span class="workflow-editor-node-auxiliary-text">${escapeHtml(port.label)}</span>
+                      <span class="workflow-editor-node-auxiliary-state">${escapeHtml(stateLabel)}</span>
+                    </span>
+                      <span class="workflow-editor-node-auxiliary-action" aria-hidden="true">
+                        <i class="mdi ${actionIcon}"></i>
+                      </span>
+                  </button>
+                `;
+              }).join('')}
+            </span>
+          `
+          : '';
+        const cardMarkup = node.kind === 'agent'
+          ? `
+            <span class="workflow-editor-node-card">
+              <span class="workflow-editor-agent-panel">
+                <span class="workflow-editor-agent-head">
+                  <span class="workflow-editor-agent-brand">
+                    <span class="workflow-editor-agent-icon">
+                      <i class="mdi ${escapeHtml(icon)}"></i>
+                    </span>
+                  </span>
+                  <span class="workflow-editor-agent-copy">
+                    <span class="workflow-editor-agent-title">${escapeHtml(agentDisplayTitle)}</span>
+                    ${showAgentKindLabel ? '<span class="workflow-editor-agent-kind">AI agent</span>' : ''}
+                  </span>
+                </span>
+                <span class="workflow-editor-agent-divider" aria-hidden="true"></span>
+                ${auxiliaryPorts}
+              </span>
+            </span>
+          `
+          : `
             <span class="workflow-editor-node-card">
               <span class="workflow-editor-node-icon">
                 <i class="mdi ${escapeHtml(icon)}"></i>
               </span>
             </span>
+          `;
+        const copyMarkup = node.kind === 'agent'
+          ? ''
+          : `
             <span class="workflow-editor-node-copy">
               <span class="workflow-editor-node-title">${escapeHtml(title)}</span>
             </span>
+          `;
+
+        return `
+          <article
+            class="workflow-editor-node workflow-editor-node--${escapeHtml(node.kind)}${isSelected ? ' is-selected' : ''}${isConnectionSource ? ' is-connection-source' : ''}${isConnectionCandidate ? ' is-connection-candidate' : ''}${isConnectionTarget ? ' is-connection-target' : ''}${agentNeedsModel ? ' is-agent-incomplete' : ''}"
+            data-workflow-node-id="${escapeHtml(node.id)}"
+            tabindex="0"
+          >
+            ${connectors}
+            ${cardMarkup}
+            ${copyMarkup}
           </article>
         `;
       })
@@ -1104,9 +1432,11 @@ export function initWorkflowDesigner(): void {
           return '';
         }
 
-        const { sourceSide, targetSide } = getConnectionSides(sourceNode, targetNode);
-        const sourcePoint = getConnectorPoint(sourceNode, sourceSide);
-        const targetPoint = getConnectorPoint(targetNode, targetSide);
+        const { sourcePoint, sourceSide, targetPoint, targetSide } = getEdgeAnchors(
+          edge,
+          sourceNode,
+          targetNode,
+        );
         const path = buildConnectionPath(sourcePoint, sourceSide, targetPoint, targetSide);
         const isHovered = hoveredEdgeId === edge.id;
 
@@ -1143,6 +1473,10 @@ export function initWorkflowDesigner(): void {
               };
             }
 
+            if (connectionDraft.hoveredTargetPort) {
+              return getAgentAuxiliaryPortPoint(hoveredNode, connectionDraft.hoveredTargetPort);
+            }
+
             const targetSide =
               connectionDraft.hoveredTargetSide ??
               getPreferredConnectorSide(hoveredNode, getNodeCenter(sourceNode));
@@ -1156,7 +1490,9 @@ export function initWorkflowDesigner(): void {
       const sourceSide = getPreferredConnectorSide(sourceNode, targetPoint);
       const sourcePoint = getConnectorPoint(sourceNode, sourceSide);
       const targetSide = connectionDraft.hoveredTargetId
-        ? connectionDraft.hoveredTargetSide ?? getOppositeConnectorSide(sourceSide)
+        ? connectionDraft.hoveredTargetPort
+          ? 'top'
+          : connectionDraft.hoveredTargetSide ?? getOppositeConnectorSide(sourceSide)
         : getOppositeConnectorSide(sourceSide);
 
       return `<path class="workflow-editor-edge-path workflow-editor-edge-path--draft" d="${buildConnectionPath(sourcePoint, sourceSide, targetPoint, targetSide)}"></path>`;
@@ -1184,9 +1520,11 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
-    const { sourceSide, targetSide } = getConnectionSides(sourceNode, targetNode);
-    const sourcePoint = getConnectorPoint(sourceNode, sourceSide);
-    const targetPoint = getConnectorPoint(targetNode, targetSide);
+    const { sourcePoint, sourceSide, targetPoint, targetSide } = getEdgeAnchors(
+      hoveredEdge,
+      sourceNode,
+      targetNode,
+    );
     const midpoint = getConnectionMidpoint(sourcePoint, sourceSide, targetPoint, targetSide);
     const controlX = clamp(Math.round(midpoint.x), 20, Math.max(canvas.board.clientWidth - 20, 20));
     const controlY = clamp(Math.round(midpoint.y), 20, Math.max(canvas.board.clientHeight - 20, 20));
@@ -1241,10 +1579,43 @@ export function initWorkflowDesigner(): void {
       position: clampNodePosition(canvas.board, {
         x: clientX - boardRect.left + canvas.board.scrollLeft - NODE_WIDTH / 2,
         y: clientY - boardRect.top + canvas.board.scrollTop - NODE_HEIGHT / 2,
-      }),
+      }, NODE_HEIGHT),
       sourceId,
     };
     openBrowser();
+  }
+
+  function openAuxiliaryInsertBrowser(targetId: string, targetPort: AgentAuxiliaryPortId): void {
+    const targetNode = getNode(targetId);
+    const portDefinition = getAgentAuxiliaryPortDefinition(targetPort);
+    if (!targetNode || !portDefinition) {
+      return;
+    }
+
+    const existingModelEdge = targetPort === 'ai_languageModel'
+      ? workflowDefinition.edges.find((edge) => edge.target === targetId && edge.targetPort === targetPort)
+      : undefined;
+    if (existingModelEdge) {
+      openNodeSettings(existingModelEdge.source);
+      return;
+    }
+
+    const portPoint = getAgentAuxiliaryPortPoint(targetNode, targetPort);
+    const targetNodeHeight = getNodeRenderHeight(targetNode);
+    insertDraft = {
+      allowedNodeTypes: getAgentAuxiliaryAllowedNodeTypes(nodeRegistry.definitions, targetPort),
+      position: clampNodePosition(canvas.board, {
+        x: portPoint.x - NODE_WIDTH / 2,
+        y: targetNode.position.y + targetNodeHeight + 44,
+      }, NODE_HEIGHT),
+      targetId,
+      targetPort,
+    };
+    selectedNodeId = targetId;
+    settingsNodeId = null;
+    openBrowser();
+    renderCanvas();
+    renderSettingsPanel();
   }
 
   function shouldOpenInsertBrowser(clientX: number, clientY: number): boolean {
@@ -1285,8 +1656,14 @@ export function initWorkflowDesigner(): void {
     browser.searchInput.value = '';
     syncDefinitionInput();
     closeBrowser();
-    if (pendingInsert) {
+    if (pendingInsert?.sourceId) {
       addEdge(pendingInsert.sourceId, newNode.id);
+      settingsNodeId = newNode.id;
+    } else if (pendingInsert?.targetId && pendingInsert.targetPort) {
+      addEdge(newNode.id, pendingInsert.targetId, {
+        sourcePort: pendingInsert.targetPort,
+        targetPort: pendingInsert.targetPort,
+      });
       settingsNodeId = newNode.id;
     }
     renderCanvas();
@@ -1326,14 +1703,24 @@ export function initWorkflowDesigner(): void {
     renderSettingsPanel();
   }
 
-  function addEdge(sourceId: string, targetId: string): void {
-    if (!isValidConnection(sourceId, targetId)) {
+  function addEdge(
+    sourceId: string,
+    targetId: string,
+    options?: {
+      sourcePort?: AgentAuxiliaryPortId;
+      targetPort?: AgentAuxiliaryPortId;
+    },
+  ): void {
+    if (!isValidConnection(sourceId, targetId, options?.targetPort ?? null)) {
       return;
     }
 
     const sourceNode = getNode(sourceId);
     const sourceDefinition = getNodeDefinition(sourceNode);
-    const targetFields = sourceNode && sourceDefinition ? getVisibleTargetFields(sourceNode, sourceDefinition) : [];
+    const isAuxiliaryEdge = Boolean(options?.targetPort);
+    const targetFields = sourceNode && sourceDefinition && !isAuxiliaryEdge
+      ? getVisibleTargetFields(sourceNode, sourceDefinition)
+      : [];
     if (sourceNode && targetFields.length > 0) {
       const nextConfig = { ...(sourceNode.config ?? {}) };
       const assignedField = targetFields.find((field) => {
@@ -1352,10 +1739,12 @@ export function initWorkflowDesigner(): void {
     workflowDefinition.edges.push({
       id: createId('edge'),
       source: sourceId,
+      ...(options?.sourcePort ? { sourcePort: options.sourcePort } : {}),
       target: targetId,
+      ...(options?.targetPort ? { targetPort: options.targetPort } : {}),
     });
 
-    if (sourceNode) {
+    if (sourceNode && !isAuxiliaryEdge) {
       syncNodeTargetEdges(sourceNode, sourceDefinition);
     }
     syncDefinitionInput();
@@ -1371,7 +1760,9 @@ export function initWorkflowDesigner(): void {
 
     const sourceNode = getNode(edge.source);
     const sourceDefinition = getNodeDefinition(sourceNode);
-    const targetFields = sourceNode && sourceDefinition ? getVisibleTargetFields(sourceNode, sourceDefinition) : [];
+    const targetFields = sourceNode && sourceDefinition && !edge.targetPort
+      ? getVisibleTargetFields(sourceNode, sourceDefinition)
+      : [];
 
     if (sourceNode && targetFields.length > 0) {
       const nextConfig = { ...(sourceNode.config ?? {}) };
@@ -1476,6 +1867,7 @@ export function initWorkflowDesigner(): void {
     hoveredEdgeId = null;
     connectionDraft = {
       hoveredTargetId: null,
+      hoveredTargetPort: null,
       hoveredTargetSide: null,
       pointerId,
       pointerX: pointerPoint.x,
@@ -1491,7 +1883,12 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
-    node.position = clampNodePosition(canvas.board, position);
+    node.position = clampNodePosition(
+      canvas.board,
+      position,
+      getNodeRenderHeight(node),
+      getNodeRenderWidth(node),
+    );
     syncDefinitionInput();
 
     const nodeElement = getNodeElement(canvas.nodeLayer, nodeId);
@@ -1557,6 +1954,14 @@ export function initWorkflowDesigner(): void {
     const browserItem = target.closest<HTMLElement>('[data-node-browser-item]');
     if (browserItem?.dataset.nodeBrowserItem) {
       addNode(browserItem.dataset.nodeBrowserItem);
+      return;
+    }
+
+    const auxiliaryPort = target.closest<HTMLElement>('[data-workflow-node-aux-port]');
+    const auxiliaryTargetId = auxiliaryPort?.dataset.workflowNodeAuxNode;
+    const auxiliaryTargetPort = auxiliaryPort?.dataset.workflowNodeAuxPort as AgentAuxiliaryPortId | undefined;
+    if (auxiliaryTargetId && auxiliaryTargetPort) {
+      openAuxiliaryInsertBrowser(auxiliaryTargetId, auxiliaryTargetPort);
     }
   });
 
@@ -1600,6 +2005,11 @@ export function initWorkflowDesigner(): void {
     if (contextMenuState) {
       closeNodeContextMenu();
     }
+    const auxiliaryPort = target.closest<HTMLElement>('[data-workflow-node-aux-port]');
+    if (auxiliaryPort) {
+      return;
+    }
+
     const connector = target.closest<HTMLElement>('[data-workflow-node-connector]');
     if (connector?.dataset.workflowNodeConnector) {
       const connectorNode = getNode(connector.dataset.workflowNodeConnector);
@@ -1716,8 +2126,10 @@ export function initWorkflowDesigner(): void {
       );
       const didHoverTargetChange =
         connectionDraft.hoveredTargetId !== nextHoveredTarget?.nodeId ||
+        connectionDraft.hoveredTargetPort !== nextHoveredTarget?.targetPort ||
         connectionDraft.hoveredTargetSide !== nextHoveredTarget?.side;
       connectionDraft.hoveredTargetId = nextHoveredTarget?.nodeId ?? null;
+      connectionDraft.hoveredTargetPort = nextHoveredTarget?.targetPort ?? null;
       connectionDraft.hoveredTargetSide = nextHoveredTarget?.side ?? null;
       renderNodes();
       if (didHoverTargetChange) {
@@ -1764,11 +2176,12 @@ export function initWorkflowDesigner(): void {
     }
 
     const targetId = connectionDraft.hoveredTargetId;
+    const targetPort = connectionDraft.hoveredTargetPort;
     const sourceId = connectionDraft.sourceId;
     connectionDraft = null;
 
-    if (targetId && isValidConnection(sourceId, targetId)) {
-      addEdge(sourceId, targetId);
+    if (targetId && isValidConnection(sourceId, targetId, targetPort)) {
+      addEdge(sourceId, targetId, targetPort ? { sourcePort: targetPort, targetPort } : undefined);
       return;
     }
 
@@ -1806,6 +2219,18 @@ export function initWorkflowDesigner(): void {
     }
 
     if (event.key !== 'Escape') {
+      const target = event.target as HTMLElement | null;
+      const auxiliaryPort = target?.closest<HTMLElement>('[data-workflow-node-aux-port]');
+      const auxiliaryTargetId = auxiliaryPort?.dataset.workflowNodeAuxNode;
+      const auxiliaryTargetPort = auxiliaryPort?.dataset.workflowNodeAuxPort as AgentAuxiliaryPortId | undefined;
+      if (
+        auxiliaryTargetId &&
+        auxiliaryTargetPort &&
+        (event.key === 'Enter' || event.key === ' ')
+      ) {
+        openAuxiliaryInsertBrowser(auxiliaryTargetId, auxiliaryTargetPort);
+        event.preventDefault();
+      }
       return;
     }
 

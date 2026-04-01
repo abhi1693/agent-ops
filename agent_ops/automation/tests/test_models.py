@@ -110,6 +110,86 @@ class WorkflowModelTests(TestCase):
         with self.assertRaises(ValidationError):
             workflow.full_clean()
 
+    def test_workflow_accepts_agent_auxiliary_model_and_tool_edges(self):
+        workflow = Workflow(
+            environment=self.environment,
+            name="Agent attachments",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "agent-1",
+                        "kind": "agent",
+                        "type": "agent",
+                        "label": "AI Agent",
+                        "config": {
+                            "template": "hello",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "llm.response",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                    {
+                        "id": "model-1",
+                        "kind": "tool",
+                        "type": "tool.openai_chat_model",
+                        "label": "OpenAI chat model",
+                        "config": {
+                            "base_url": "https://api.openai.com/v1",
+                            "api_key_name": "OPENAI_API_KEY",
+                            "model": "gpt-4.1-mini",
+                        },
+                        "position": {"x": 320, "y": 240},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "tool.template",
+                        "label": "Template tool",
+                        "config": {
+                            "output_key": "template.result",
+                            "template": "Weather summary for {{ trigger.payload.city }}",
+                        },
+                        "position": {"x": 480, "y": 240},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                    {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                    {
+                        "id": "edge-3",
+                        "source": "model-1",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
+                    {
+                        "id": "edge-4",
+                        "source": "tool-1",
+                        "sourcePort": "ai_tool",
+                        "target": "agent-1",
+                        "targetPort": "ai_tool",
+                    },
+                ],
+            },
+        )
+
+        workflow.full_clean()
+
     def test_workflow_allows_empty_definition_as_draft(self):
         workflow = Workflow(
             environment=self.environment,

@@ -10,6 +10,10 @@ from django.utils import timezone
 
 from automation.nodes import execute_workflow_node
 from automation.auth import resolve_workflow_secret
+from automation.workflow_connections import (
+    build_auxiliary_connections_by_target,
+    split_workflow_edges,
+)
 from automation.models.runs import WorkflowRun
 from automation.primitives import (
     normalize_workflow_definition_nodes,
@@ -190,6 +194,7 @@ def _execute_node(
     workflow,
     node: dict[str, Any],
     next_node_id: str | None,
+    connected_nodes_by_port: dict[str, list[dict[str, Any]]],
     context: dict[str, Any],
     secret_paths: set[str],
     secret_values: list[str],
@@ -198,6 +203,7 @@ def _execute_node(
         workflow=workflow,
         node=node,
         next_node_id=next_node_id,
+        connected_nodes_by_port=connected_nodes_by_port,
         context=context,
         secret_paths=secret_paths,
         secret_values=secret_values,
@@ -233,9 +239,14 @@ def execute_workflow(
     nodes = definition.get("nodes", [])
     edges = definition.get("edges", [])
     nodes_by_id = {node["id"]: node for node in nodes}
+    primary_edges, auxiliary_edges = split_workflow_edges(edges)
     adjacency: dict[str, list[str]] = {node["id"]: [] for node in nodes}
-    for edge in edges:
+    for edge in primary_edges:
         adjacency.setdefault(edge["source"], []).append(edge["target"])
+    auxiliary_connections_by_target = build_auxiliary_connections_by_target(
+        nodes_by_id=nodes_by_id,
+        edges=auxiliary_edges,
+    )
 
     context = _build_execution_context(
         workflow,
@@ -276,6 +287,7 @@ def execute_workflow(
                     workflow=workflow,
                     node=node,
                     next_node_id=default_next_node_id,
+                    connected_nodes_by_port=auxiliary_connections_by_target.get(node["id"], {}),
                     context=context,
                     secret_paths=secret_paths,
                     secret_values=secret_values,
