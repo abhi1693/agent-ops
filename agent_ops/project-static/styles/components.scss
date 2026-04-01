@@ -1535,6 +1535,12 @@ tr[data-virtual='true'] {
   line-height: 1.45;
 }
 
+.workflow-editor-settings-actions {
+  padding-top: 0.25rem;
+  display: flex;
+  justify-content: flex-start;
+}
+
 .workflow-editor-fab {
   position: absolute;
   left: 1.2rem;

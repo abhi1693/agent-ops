@@ -514,6 +514,18 @@ export function initWorkflowDesigner(): void {
     renderSettingsPanel();
   }
 
+  function isTextEntryTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+
+    return Boolean(
+      target.closest(
+        'input:not([type="button"]):not([type="checkbox"]):not([type="radio"]), textarea, select, [contenteditable="true"]',
+      ),
+    );
+  }
+
   function renderSettingsPanel(): void {
     const settingsNode = getNode(settingsNodeId);
     const nodeDefinition = getNodeDefinition(settingsNode);
@@ -613,6 +625,16 @@ export function initWorkflowDesigner(): void {
         >
       </div>
       ${fieldMarkup || '<div class="workflow-editor-settings-empty">No editable settings for this node yet.</div>'}
+      <div class="workflow-editor-settings-actions">
+        <button
+          type="button"
+          class="btn btn-outline-danger"
+          data-delete-selected-node="${escapeHtml(settingsNode.id)}"
+        >
+          <i class="mdi mdi-trash-can-outline"></i>
+          <span class="ms-1">Delete node</span>
+        </button>
+      </div>
     `;
   }
 
@@ -992,6 +1014,61 @@ export function initWorkflowDesigner(): void {
     renderSettingsPanel();
   }
 
+  function deleteNode(nodeId: string): void {
+    const node = getNode(nodeId);
+    if (!node) {
+      return;
+    }
+
+    workflowDefinition.nodes.forEach((candidate) => {
+      if (candidate.id === nodeId) {
+        return;
+      }
+
+      const candidateDefinition = getNodeDefinition(candidate);
+      const targetFields = getVisibleTargetFields(candidate, candidateDefinition);
+      if (!targetFields.length) {
+        return;
+      }
+
+      const nextConfig = { ...(candidate.config ?? {}) };
+      let didChange = false;
+      targetFields.forEach((field) => {
+        if (nextConfig[field.key] === nodeId) {
+          delete nextConfig[field.key];
+          didChange = true;
+        }
+      });
+
+      if (!didChange) {
+        return;
+      }
+
+      candidate.config = nextConfig;
+      syncNodeTargetEdges(candidate, candidateDefinition);
+    });
+
+    workflowDefinition.nodes = workflowDefinition.nodes.filter((candidate) => candidate.id !== nodeId);
+    workflowDefinition.edges = workflowDefinition.edges.filter(
+      (edge) => edge.source !== nodeId && edge.target !== nodeId,
+    );
+
+    if (selectedNodeId === nodeId) {
+      selectedNodeId = null;
+    }
+    if (settingsNodeId === nodeId) {
+      settingsNodeId = null;
+    }
+    if (connectionDraft?.sourceId === nodeId) {
+      connectionDraft = null;
+    }
+    hoveredEdgeId = null;
+
+    syncDefinitionInput();
+    renderCanvas();
+    renderSettingsPanel();
+  }
+
   function beginConnection(sourceId: string, pointerId: number, clientX: number, clientY: number): void {
     const sourceNode = getNode(sourceId);
     if (!sourceNode || !canNodeEmitConnections(sourceNode)) {
@@ -1059,6 +1136,12 @@ export function initWorkflowDesigner(): void {
     const removeEdgeButton = target.closest<HTMLElement>('[data-remove-edge]');
     if (removeEdgeButton?.dataset.removeEdge) {
       removeEdge(removeEdgeButton.dataset.removeEdge);
+      return;
+    }
+
+    const deleteNodeButton = target.closest<HTMLElement>('[data-delete-selected-node]');
+    if (deleteNodeButton?.dataset.deleteSelectedNode) {
+      deleteNode(deleteNodeButton.dataset.deleteSelectedNode);
       return;
     }
 
@@ -1278,6 +1361,19 @@ export function initWorkflowDesigner(): void {
   });
 
   root.addEventListener('keydown', (event) => {
+    if (
+      (event.key === 'Delete' || event.key === 'Backspace') &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      selectedNodeId &&
+      !isTextEntryTarget(event.target)
+    ) {
+      deleteNode(selectedNodeId);
+      event.preventDefault();
+      return;
+    }
+
     if (event.key !== 'Escape') {
       return;
     }
