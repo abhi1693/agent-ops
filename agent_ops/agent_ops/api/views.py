@@ -24,7 +24,7 @@ class APIRootView(APIView):
         return Response(
             {
                 "changelog": reverse("api:changelog-list", request=request, format=format),
-                "integrations": reverse("api:integrations-api:api-root", request=request, format=format),
+                "automation": reverse("api:automation-api:api-root", request=request, format=format),
                 "tenancy": reverse("api:tenancy-api:api-root", request=request, format=format),
                 "users": reverse("api:users-api:api-root", request=request, format=format),
                 "status": reverse("api:status", request=request, format=format),

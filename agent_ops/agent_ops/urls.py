@@ -10,7 +10,6 @@ urlpatterns = [
     path("logout/", AgentOpsLogoutView.as_view(), name="logout"),
     path("api/", include(("agent_ops.api.urls", "api"), namespace="api")),
     path("automation/", include("automation.urls")),
-    path("integrations/", include("integrations.urls")),
     path("tenancy/", include("tenancy.urls")),
     path("user/", include("account.urls")),
     path("users/", include("users.urls")),

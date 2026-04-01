@@ -62,13 +62,6 @@ TOOL_DEFINITION = WorkflowToolDefinition(
     fields=(
         tool_text_field("output_key", "Save result as", placeholder="llm.response"),
         tool_text_field("base_url", "API base URL", placeholder="https://api.openai.com/v1"),
-        tool_text_field("api_key_name", "API key secret name", placeholder="OPENAI_API_KEY"),
-        tool_text_field(
-            "api_key_provider",
-            "API key provider",
-            placeholder="environment-variable",
-            help_text="Optional. Leave blank to search all enabled providers in scope.",
-        ),
         tool_text_field("model", "Model", placeholder="gpt-4.1-mini"),
         tool_textarea_field(
             "system_prompt",

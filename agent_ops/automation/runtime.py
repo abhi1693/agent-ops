@@ -9,7 +9,7 @@ from django.template import Context, Engine
 from django.utils import timezone
 
 from automation.nodes import execute_workflow_node
-from automation.auth import resolve_workflow_secret
+from automation.auth import resolve_workflow_secret_ref
 from automation.workflow_connections import (
     build_auxiliary_connections_by_target,
     split_workflow_edges,
@@ -135,16 +135,16 @@ def _redact_value(
 def _resolve_scoped_secret(
     workflow,
     *,
-    name: str,
-    provider: str | None = None,
-    secret_group_id: str | int | None = None,
+    secret_name: str,
+    secret_group_id=None,
+    required: bool = True,
 ):
-    return resolve_workflow_secret(
+    return resolve_workflow_secret_ref(
         workflow,
-        name=name,
-        provider=provider,
+        secret_name=secret_name,
         secret_group_id=secret_group_id,
         error_field="definition",
+        required=required,
     )
 
 

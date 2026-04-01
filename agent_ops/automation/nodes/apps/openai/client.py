@@ -16,6 +16,7 @@ from automation.tools.base import (
     _render_runtime_json,
     _render_runtime_string,
     _resolve_runtime_secret,
+    _validate_optional_secret_group_id,
     _validate_optional_json_template,
     _validate_optional_string,
     _validate_required_external_url,
@@ -47,12 +48,12 @@ class _RuntimeConfigView:
 
 def validate_openai_chat_model_config(config: dict[str, Any], node_id: str) -> None:
     _validate_required_external_url(config, "base_url", node_id=node_id)
-    _validate_required_string(config, "api_key_name", node_id=node_id)
-    _validate_optional_string(config, "api_key_provider", node_id=node_id)
     _validate_required_string(config, "model", node_id=node_id)
+    _validate_required_string(config, "secret_name", node_id=node_id)
     if config.get("custom_model") not in (None, ""):
         _validate_optional_string(config, "custom_model", node_id=node_id)
     _validate_optional_json_template(config, "extra_body_json", node_id=node_id)
+    _validate_optional_secret_group_id(config, "secret_group_id", node_id=node_id)
     _coerce_optional_float(config.get("temperature"), field_name="temperature", node_id=node_id)
     if config.get("max_tokens") not in (None, ""):
         _coerce_positive_int(config.get("max_tokens"), field_name="max_tokens", node_id=node_id, default=1)
@@ -83,10 +84,13 @@ def resolve_openai_chat_model_config(
 ) -> OpenAICompatibleRequestConfig:
     runtime_view = _build_runtime_view(runtime, node=node, config=config)
     base_url = (_render_runtime_external_url(runtime_view, "base_url", required=True) or "").rstrip("/")
+    secret_name = _render_runtime_string(runtime_view, "secret_name")
+    if not secret_name:
+        raise ValidationError({"definition": f'Node "{node["id"]}" must define config.secret_name.'})
     api_key, secret_meta = _resolve_runtime_secret(
         runtime_view,
-        name_key="api_key_name",
-        provider_key="api_key_provider",
+        secret_name=secret_name,
+        secret_group_id=runtime_view.config.get("secret_group_id"),
     )
     custom_model = _render_runtime_string(runtime_view, "custom_model")
     model = custom_model or _render_runtime_string(runtime_view, "model", required=True)

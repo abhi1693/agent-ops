@@ -28,8 +28,8 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertEqual(mcp_template["config"]["protocol_version"], "2025-11-25")
         self.assertEqual(mcp_template["config"]["timeout_seconds"], 30)
         self.assertNotIn("tool_name", mcp_template["config"])
-        self.assertEqual(mcp_template["config"]["auth_secret_group_id"], "")
-        self.assertIn("auth_secret_group_id", fields_by_key)
+        self.assertNotIn("auth_secret_group_id", mcp_template["config"])
+        self.assertNotIn("auth_secret_group_id", fields_by_key)
         self.assertEqual(fields_by_key["remote_tool_name"]["placeholder"], "weather_current")
         self.assertEqual(fields_by_key["timeout_seconds"]["placeholder"], "30")
 
@@ -52,11 +52,10 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
                 "api_type",
                 "output_key",
                 "template",
-                "auth_secret_group_id",
                 "base_url",
-                "api_key_name",
-                "api_key_provider",
                 "model",
+                "secret_name",
+                "secret_group_id",
                 "system_prompt",
                 "temperature",
                 "max_tokens",
@@ -66,13 +65,12 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertEqual(template_fields, {"output_key", "template"})
         self.assertEqual(
             secret_fields,
-            {"auth_secret_group_id", "output_key", "name", "provider"},
+            {"output_key", "secret_name", "secret_group_id"},
         )
         self.assertEqual(response_fields, {"status", "template", "value_path"})
         self.assertNotIn("resource", github_fields)
         self.assertNotIn("operation", github_fields)
-        self.assertIn("signature_secret_name", github_fields)
-        self.assertIn("auth_secret_group_id", github_fields)
+        self.assertEqual(github_fields, {"events", "secret_name", "secret_group_id"})
 
     def test_concrete_observability_templates_are_route_specific(self):
         prometheus_template = WORKFLOW_NODE_TEMPLATE_MAP["tool.prometheus_query"]
@@ -89,7 +87,7 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertNotIn("resource", prometheus_fields)
         self.assertNotIn("operation", prometheus_fields)
         self.assertIn("query", prometheus_fields)
-        self.assertIn("bearer_token_name", prometheus_fields)
+        self.assertNotIn("bearer_token_name", prometheus_fields)
 
         self.assertEqual(elasticsearch_template["config"]["output_key"], "elasticsearch.search")
         self.assertNotIn("resource", elasticsearch_template)
@@ -114,7 +112,6 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
                     "label": "OpenAI chat",
                     "config": {
                         "base_url": "https://llm.example.com/v1",
-                        "api_key_name": "OPENAI_API_KEY",
                         "model": "gpt-4.1-mini",
                         "template": "hello",
                         "output_key": "llm.response",
@@ -141,9 +138,7 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
                     "kind": "trigger",
                     "type": "trigger.github_webhook",
                     "label": "GitHub webhook",
-                    "config": {
-                        "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
-                    },
+                    "config": {},
                 },
                 {
                     "id": "tool-1",
@@ -186,6 +181,7 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
                         "label": "AI Agent",
                         "config": {
                             "template": "Summarize {{ trigger.payload.ticket_id }}",
+                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -206,8 +202,8 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
                         "label": "DeepSeek chat model",
                         "config": {
                             "base_url": "https://api.deepseek.com/v1",
-                            "api_key_name": "DEEPSEEK_API_KEY",
                             "model": "deepseek-chat",
+                            "secret_name": "DEEPSEEK_API_KEY",
                         },
                         "position": {"x": 320, "y": 240},
                     },
@@ -267,6 +263,7 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
                         "label": "AI Agent",
                         "config": {
                             "template": "hello",
+                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -277,8 +274,8 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
                         "label": "OpenAI chat model A",
                         "config": {
                             "base_url": "https://api.openai.com/v1",
-                            "api_key_name": "OPENAI_API_KEY",
                             "model": "gpt-4.1-mini",
+                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 240},
                     },
@@ -289,8 +286,8 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
                         "label": "Groq chat model",
                         "config": {
                             "base_url": "https://api.groq.com/openai/v1",
-                            "api_key_name": "GROQ_API_KEY",
                             "model": "llama-3.3-70b-versatile",
+                            "secret_name": "GROQ_API_KEY",
                         },
                         "position": {"x": 480, "y": 240},
                     },

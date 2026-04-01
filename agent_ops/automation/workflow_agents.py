@@ -29,7 +29,6 @@ AGENT_AUXILIARY_MAX_CONNECTIONS_BY_PORT = {
 }
 AGENT_DEFAULTS_BY_API_TYPE = {
     "openai": {
-        "api_key_name": "OPENAI_API_KEY",
         "base_url": "https://api.openai.com/v1",
         "model": "gpt-4.1-mini",
         "output_key": "llm.response",
@@ -71,12 +70,6 @@ def normalize_workflow_agent_config(
     config: dict[str, Any] | None,
 ) -> dict[str, Any]:
     normalized = dict(config or {})
-    auth_secret_group_id = normalized.get("auth_secret_group_id")
-
-    if auth_secret_group_id in ("", None):
-        normalized.pop("auth_secret_group_id", None)
-    elif not isinstance(auth_secret_group_id, str):
-        normalized["auth_secret_group_id"] = str(auth_secret_group_id)
 
     configured_api_type = normalized.get("api_type")
     if isinstance(configured_api_type, str) and configured_api_type.strip():

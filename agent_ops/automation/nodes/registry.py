@@ -251,11 +251,6 @@ def normalize_workflow_node_config(
     config: dict[str, Any] | None,
 ) -> dict[str, Any]:
     normalized = dict(config or {})
-    auth_secret_group_id = normalized.get("auth_secret_group_id")
-    if auth_secret_group_id in ("", None):
-        normalized.pop("auth_secret_group_id", None)
-    elif not isinstance(auth_secret_group_id, str):
-        normalized["auth_secret_group_id"] = str(auth_secret_group_id)
 
     node_definition = get_workflow_node_definition(node_type)
     if node_definition is None:

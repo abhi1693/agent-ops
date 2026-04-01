@@ -9,7 +9,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from automation.models import Workflow, WorkflowRun
-from integrations.models import Secret, SecretGroup, SecretGroupAssignment
+from automation.models import Secret, SecretGroup
 from tenancy.models import Environment, Organization, Workspace
 from users.models import Membership, ObjectPermission, User
 
@@ -118,6 +118,34 @@ class WorkflowViewTests(TestCase):
             definition=_definition("Suspicious activity"),
         )
 
+    def _create_secret_group(self, *, name="Workflow secrets"):
+        return SecretGroup.objects.create(
+            environment=self.environment,
+            name=name,
+        )
+
+    def _bind_secret(
+        self,
+        *,
+        workflow,
+        secret_name,
+        variable_name=None,
+        provider="environment-variable",
+        parameters=None,
+        secret_group=None,
+    ):
+        group = secret_group or workflow.secret_group or self._create_secret_group(name=f"{workflow.name} secrets")
+        secret = Secret.objects.create(
+            secret_group=group,
+            provider=provider,
+            name=secret_name,
+            parameters=parameters or {"variable": variable_name or secret_name},
+        )
+        if workflow.secret_group_id != group.pk:
+            workflow.secret_group = group
+            workflow.save(update_fields=("secret_group",))
+        return secret
+
     def test_workflow_list_is_scoped_for_members(self):
         self.client.force_login(self.standard_user)
 
@@ -199,32 +227,32 @@ class WorkflowViewTests(TestCase):
         response = self.client.get(reverse("workflow_designer", args=[self.workflow.pk]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Workflow canvas")
+        self.assertContains(response, 'id="workflow-definition-data"')
+        self.assertContains(response, 'id="workflow-node-templates-data"')
+        self.assertContains(response, "data-workflow-board")
         self.assertContains(response, "Add node")
-        self.assertContains(response, '<optgroup label="Built-ins">')
-        self.assertContains(response, '<optgroup label="AgentOps utilities">')
-        self.assertContains(response, '<optgroup label="GitHub">')
-        self.assertContains(response, '<optgroup label="Observability">')
-        self.assertContains(response, '<option value="n8n-nodes-base.manualTrigger">Manual Trigger</option>', html=True)
-        self.assertContains(response, '<option value="n8n-nodes-base.scheduleTrigger">Schedule Trigger</option>', html=True)
-        self.assertContains(response, '<option value="agent">Agent</option>', html=True)
-        self.assertContains(response, '<option value="n8n-nodes-base.set">Set</option>', html=True)
-        self.assertContains(response, '<option value="n8n-nodes-base.if">If</option>', html=True)
-        self.assertContains(response, '<option value="n8n-nodes-base.switch">Switch</option>', html=True)
-        self.assertContains(response, '<option value="response">Response</option>', html=True)
-        self.assertContains(response, '<option value="n8n-nodes-base.stopAndError">Stop and Error</option>', html=True)
-        self.assertContains(response, '<option value="trigger.github_webhook">GitHub</option>', html=True)
-        self.assertContains(response, '<option value="trigger.alertmanager_webhook">Alertmanager webhook</option>', html=True)
-        self.assertContains(response, '<option value="trigger.kibana_webhook">Kibana webhook</option>', html=True)
-        self.assertContains(response, '<option value="tool.prometheus_query">Prometheus query</option>', html=True)
-        self.assertContains(response, '<option value="tool.elasticsearch_search">Elasticsearch search</option>', html=True)
-        self.assertContains(response, '<option value="tool.template">Render template</option>', html=True)
-        self.assertContains(response, '&quot;type&quot;: &quot;n8n-nodes-base.manualTrigger&quot;')
-        self.assertContains(response, '<option value="trigger-1">New task</option>', html=True)
-        self.assertContains(response, '<option value="agent-1">Triage agent</option>', html=True)
-        self.assertContains(response, "Add at least two nodes before creating a connection.")
+        self.assertContains(response, '"app_label": "Built-ins"')
+        self.assertContains(response, '"app_label": "AgentOps utilities"')
+        self.assertContains(response, '"app_label": "GitHub"')
+        self.assertContains(response, '"app_label": "Observability"')
+        self.assertContains(response, '"type": "n8n-nodes-base.manualTrigger"')
+        self.assertContains(response, '"type": "n8n-nodes-base.scheduleTrigger"')
+        self.assertContains(response, '"type": "agent"')
+        self.assertContains(response, '"type": "n8n-nodes-base.set"')
+        self.assertContains(response, '"type": "n8n-nodes-base.if"')
+        self.assertContains(response, '"type": "n8n-nodes-base.switch"')
+        self.assertContains(response, '"type": "response"')
+        self.assertContains(response, '"type": "n8n-nodes-base.stopAndError"')
+        self.assertContains(response, '"type": "trigger.github_webhook"')
+        self.assertContains(response, '"type": "trigger.alertmanager_webhook"')
+        self.assertContains(response, '"type": "trigger.kibana_webhook"')
+        self.assertContains(response, '"type": "tool.prometheus_query"')
+        self.assertContains(response, '"type": "tool.elasticsearch_search"')
+        self.assertContains(response, '"type": "tool.template"')
+        self.assertContains(response, '"label": "New task"')
+        self.assertContains(response, '"label": "Triage agent"')
 
-    def test_workflow_designer_includes_secret_group_options_for_auth_nodes(self):
+    def test_workflow_designer_renders_scoped_secret_group_options_for_nodes(self):
         SecretGroup.objects.create(
             environment=self.environment,
             name="Shared node auth",
@@ -234,7 +262,7 @@ class WorkflowViewTests(TestCase):
         response = self.client.get(reverse("workflow_designer", args=[self.workflow.pk]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Auth secret group")
+        self.assertNotContains(response, "Auth secret group")
         self.assertContains(response, "No secret group")
         self.assertContains(response, "Shared node auth")
 
@@ -256,6 +284,7 @@ class WorkflowViewTests(TestCase):
                     "type": "agent",
                     "config": {
                         "template": "Plan work for {{ trigger.payload.ticket_id }}",
+                        "secret_name": "OPENAI_API_KEY",
                         "output_key": "plan",
                     },
                     "position": {"x": 320, "y": 80},
@@ -311,6 +340,7 @@ class WorkflowViewTests(TestCase):
                     "label": "Draft",
                     "config": {
                         "template": "Review {{ trigger.payload.ticket_id }}",
+                        "secret_name": "OPENAI_API_KEY",
                     },
                     "position": {"x": 320, "y": 40},
                 },
@@ -331,11 +361,9 @@ class WorkflowViewTests(TestCase):
             ],
         }
         self.workflow.save(update_fields=("definition",))
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="OPENAI_API_KEY",
-            parameters={"variable": "OPENAI_API_KEY"},
+        self._bind_secret(
+            workflow=self.workflow,
+            secret_name="OPENAI_API_KEY",
         )
         self.client.force_login(self.staff_user)
 
@@ -409,8 +437,7 @@ class WorkflowViewTests(TestCase):
                         "type": "trigger.alertmanager_webhook",
                         "label": "Alertmanager",
                         "config": {
-                            "webhook_secret_name": "ALERTMANAGER_WEBHOOK_SECRET",
-                            "webhook_secret_provider": "environment-variable",
+                            "secret_name": "ALERTMANAGER_WEBHOOK_SECRET",
                         },
                         "position": {"x": 32, "y": 40},
                     },
@@ -430,11 +457,9 @@ class WorkflowViewTests(TestCase):
                 ],
             },
         )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="ALERTMANAGER_WEBHOOK_SECRET",
-            parameters={"variable": "ALERTMANAGER_WEBHOOK_SECRET"},
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="ALERTMANAGER_WEBHOOK_SECRET",
         )
 
         with patch.dict(os.environ, {"ALERTMANAGER_WEBHOOK_SECRET": "alert-secret"}, clear=False):
@@ -464,8 +489,7 @@ class WorkflowViewTests(TestCase):
                         "type": "trigger.kibana_webhook",
                         "label": "Kibana",
                         "config": {
-                            "webhook_secret_name": "KIBANA_WEBHOOK_SECRET",
-                            "webhook_secret_provider": "environment-variable",
+                            "secret_name": "KIBANA_WEBHOOK_SECRET",
                         },
                         "position": {"x": 32, "y": 40},
                     },
@@ -485,11 +509,9 @@ class WorkflowViewTests(TestCase):
                 ],
             },
         )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="KIBANA_WEBHOOK_SECRET",
-            parameters={"variable": "KIBANA_WEBHOOK_SECRET"},
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="KIBANA_WEBHOOK_SECRET",
         )
 
         with patch.dict(os.environ, {"KIBANA_WEBHOOK_SECRET": "kibana-secret"}, clear=False):
@@ -517,8 +539,7 @@ class WorkflowViewTests(TestCase):
                         "type": "trigger.github_webhook",
                         "label": "GitHub",
                         "config": {
-                            "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
-                            "signature_secret_provider": "environment-variable",
+                            "secret_name": "GITHUB_WEBHOOK_SECRET",
                             "events": "push",
                         },
                         "position": {"x": 32, "y": 40},
@@ -539,11 +560,9 @@ class WorkflowViewTests(TestCase):
                 ],
             },
         )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="GITHUB_WEBHOOK_SECRET",
-            parameters={"variable": "GITHUB_WEBHOOK_SECRET"},
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="GITHUB_WEBHOOK_SECRET",
         )
         body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
 
@@ -569,7 +588,7 @@ class WorkflowViewTests(TestCase):
         run = WorkflowRun.objects.get(pk=payload["run_id"])
         self.assertEqual(run.context_data["trigger"]["meta"]["event"], "push")
 
-    def test_workflow_webhook_trigger_resolves_grouped_secret_for_signature_validation(self):
+    def test_workflow_webhook_trigger_resolves_bound_secret_for_signature_validation(self):
         workflow = Workflow.objects.create(
             environment=self.environment,
             name="GitHub webhook grouped secret",
@@ -581,8 +600,7 @@ class WorkflowViewTests(TestCase):
                         "type": "trigger.github_webhook",
                         "label": "GitHub",
                         "config": {
-                            "auth_secret_group_id": "",
-                            "signature_secret_name": "webhook_secret",
+                            "secret_name": "GITHUB_WEBHOOK_SECRET",
                             "events": "push",
                         },
                         "position": {"x": 32, "y": 40},
@@ -604,23 +622,13 @@ class WorkflowViewTests(TestCase):
             },
         )
         secret = Secret.objects.create(
-            environment=self.environment,
+            secret_group=self._create_secret_group(name="GitHub auth"),
             provider="environment-variable",
             name="GITHUB_WEBHOOK_SECRET",
             parameters={"variable": "GITHUB_WEBHOOK_SECRET"},
         )
-        secret_group = SecretGroup.objects.create(
-            environment=self.environment,
-            name="GitHub auth",
-        )
-        SecretGroupAssignment.objects.create(
-            secret_group=secret_group,
-            secret=secret,
-            key="webhook_secret",
-            order=10,
-        )
-        workflow.definition["nodes"][0]["config"]["auth_secret_group_id"] = str(secret_group.pk)
-        workflow.save(update_fields=("definition",))
+        workflow.secret_group = secret.secret_group
+        workflow.save(update_fields=("secret_group",))
         body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
 
         with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "github-secret"}, clear=False):
@@ -654,8 +662,7 @@ class WorkflowViewTests(TestCase):
                         "type": "trigger.github_webhook",
                         "label": "GitHub",
                         "config": {
-                            "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
-                            "signature_secret_provider": "environment-variable",
+                            "secret_name": "GITHUB_WEBHOOK_SECRET",
                         },
                         "position": {"x": 32, "y": 40},
                     },
@@ -672,11 +679,9 @@ class WorkflowViewTests(TestCase):
                 ],
             },
         )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="GITHUB_WEBHOOK_SECRET",
-            parameters={"variable": "GITHUB_WEBHOOK_SECRET"},
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="GITHUB_WEBHOOK_SECRET",
         )
 
         with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "github-secret"}, clear=False):

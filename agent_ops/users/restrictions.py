@@ -61,7 +61,34 @@ def _replace_constraint_tokens(value, tokens):
     return tokens.get(value, value)
 
 
-def build_constraint_filter(constraints, tokens=None):
+def _normalize_constraint_key(model, key: str) -> str:
+    if not isinstance(key, str):
+        return key
+    if key.startswith("secret_group__"):
+        return key
+
+    field_name = key.split("__", 1)[0]
+    if field_name not in {"organization", "workspace", "environment"}:
+        return key
+    if _model_has_field(model, field_name):
+        return key
+    if _model_has_field(model, "secret_group"):
+        return f"secret_group__{key}"
+    return key
+
+
+def _normalize_constraint_value(model, value):
+    if isinstance(value, list):
+        return [_normalize_constraint_value(model, item) for item in value]
+    if isinstance(value, dict):
+        return {
+            _normalize_constraint_key(model, key): _normalize_constraint_value(model, item)
+            for key, item in value.items()
+        }
+    return value
+
+
+def build_constraint_filter(constraints, tokens=None, model=None):
     if not constraints:
         return None
 
@@ -72,10 +99,11 @@ def build_constraint_filter(constraints, tokens=None):
         if constraint in (None, {}):
             return Q()
 
+        normalized_constraint = _normalize_constraint_value(model, constraint) if model is not None else constraint
         params |= Q(
             **{
                 key: _replace_constraint_tokens(value, tokens)
-                for key, value in constraint.items()
+                for key, value in normalized_constraint.items()
             }
         )
 
@@ -107,6 +135,8 @@ def _get_scope_constraints(model, actor_scope):
             return [{"pk": scope_object.pk}]
         if _model_has_field(model, field_name):
             return [{field_name: scope_object.pk}]
+        if _model_has_field(model, "secret_group"):
+            return [{f"secret_group__{field_name}": scope_object.pk}]
 
     return []
 
@@ -183,6 +213,7 @@ def restrict_queryset(queryset, request=None, actor_scope=None, action="view"):
     permission_filter = build_constraint_filter(
         constraints,
         tokens=_get_constraint_tokens(actor_scope),
+        model=model,
     )
     if permission_filter is None:
         return queryset.none()

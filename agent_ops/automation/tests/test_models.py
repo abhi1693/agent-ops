@@ -130,6 +130,7 @@ class WorkflowModelTests(TestCase):
                         "label": "AI Agent",
                         "config": {
                             "template": "hello",
+                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -150,8 +151,8 @@ class WorkflowModelTests(TestCase):
                         "label": "OpenAI chat model",
                         "config": {
                             "base_url": "https://api.openai.com/v1",
-                            "api_key_name": "OPENAI_API_KEY",
                             "model": "gpt-4.1-mini",
+                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 240},
                     },
@@ -347,7 +348,7 @@ class WorkflowModelTests(TestCase):
                         "type": "trigger.github_webhook",
                         "label": "GitHub webhook",
                         "config": {
-                            "signature_secret_name": "GITHUB_WEBHOOK_SECRET",
+                            "secret_name": "GITHUB_WEBHOOK_SECRET",
                             "events": "push,pull_request",
                         },
                         "position": {"x": 32, "y": 40},
@@ -433,7 +434,7 @@ class WorkflowModelTests(TestCase):
         with self.assertRaises(ValidationError) as context:
             workflow.full_clean()
 
-        self.assertIn("Secrets must come from stored Secret objects", str(context.exception))
+        self.assertIn("Secrets must come from stored Secret objects.", str(context.exception))
 
     def test_workflow_rejects_external_tool_urls_with_embedded_credentials(self):
         workflow = Workflow(
@@ -455,9 +456,9 @@ class WorkflowModelTests(TestCase):
                         "label": "LLM chat",
                         "config": {
                             "base_url": "https://user:password@llm.example.com/v1",
-                            "api_key_name": "OPENAI_API_KEY",
                             "model": "gpt-4.1-mini",
                             "template": "hello",
+                            "secret_name": "OPENAI_API_KEY",
                             "output_key": "llm.response",
                         },
                         "position": {"x": 320, "y": 40},

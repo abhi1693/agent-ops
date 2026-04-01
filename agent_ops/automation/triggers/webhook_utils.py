@@ -6,7 +6,7 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 
-from automation.auth import resolve_workflow_secret
+from automation.auth import resolve_workflow_secret_ref
 
 from .base import WorkflowTriggerRequestContext
 
@@ -32,18 +32,16 @@ def parse_json_body(context: WorkflowTriggerRequestContext) -> dict[str, Any]:
 
 
 def validate_shared_secret_header(context: WorkflowTriggerRequestContext) -> dict[str, str]:
-    secret_name = context.config["webhook_secret_name"]
-    secret_provider = context.config.get("webhook_secret_provider")
     header_name = context.config.get("secret_header", "X-AgentOps-Webhook-Secret")
     header_value = context.request.headers.get(header_name)
     if not header_value:
         raise ValidationError({"trigger": f'Missing required webhook secret header "{header_name}".'})
 
-    secret = resolve_workflow_secret(
+    secret_name = context.config.get("secret_name")
+    secret = resolve_workflow_secret_ref(
         context.workflow,
-        name=secret_name,
-        provider=secret_provider,
-        secret_group_id=context.config.get("auth_secret_group_id"),
+        secret_name=secret_name,
+        secret_group_id=context.config.get("secret_group_id"),
         error_field="trigger",
     )
     expected_value = secret.get_value(obj=context.workflow)

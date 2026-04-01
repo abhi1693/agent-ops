@@ -20,6 +20,7 @@ from automation.tools.base import (
     _tool_result,
     _validate_external_output_key,
     _validate_optional_json_template,
+    _validate_optional_secret_group_id,
     _validate_optional_string,
     _validate_required_external_url,
     _validate_required_string,
@@ -64,8 +65,9 @@ def _validate_mcp_server_tool(config: dict, node_id: str) -> None:
     _validate_required_string(config, "remote_tool_name", node_id=node_id)
     _validate_optional_json_template(config, "arguments_json", node_id=node_id)
     _validate_optional_json_template(config, "headers_json", node_id=node_id)
-    _validate_optional_string(config, "auth_token_name", node_id=node_id)
-    _validate_optional_string(config, "auth_token_provider", node_id=node_id)
+    if config.get("secret_name") not in (None, ""):
+        _validate_optional_string(config, "secret_name", node_id=node_id)
+    _validate_optional_secret_group_id(config, "secret_group_id", node_id=node_id)
 
     auth_header_template = config.get("auth_header_template")
     if auth_header_template is not None and not isinstance(auth_header_template, str):
@@ -141,7 +143,7 @@ def _validate_manual_header_names(header_names, *, node_id: str) -> None:
                 {
                     "definition": (
                         f'Node "{node_id}" config.headers_json cannot define secret-bearing header "{header_name}". '
-                        "Secrets must come from stored Secret objects via config.auth_token_name."
+                        "Secrets must come from stored Secret objects."
                     )
                 }
             )
@@ -479,12 +481,16 @@ def _resolve_mcp_runtime_config(
     base_headers["Accept"] = _REQUEST_ACCEPT_HEADER
 
     secret_meta = None
-    if runtime_view.config.get("auth_token_name"):
+    secret_name = _render_runtime_string(runtime_view, "secret_name")
+    auth_token = None
+    if secret_name:
         auth_token, secret_meta = _resolve_runtime_secret(
             runtime_view,
-            name_key="auth_token_name",
-            provider_key="auth_token_provider",
+            secret_name=secret_name,
+            secret_group_id=runtime_view.config.get("secret_group_id"),
+            required=False,
         )
+    if auth_token:
         auth_header_name = _render_runtime_string(runtime_view, "auth_header_name") or "Authorization"
         base_headers[auth_header_name] = _render_auth_header_value(runtime_view, token=auth_token)
 
@@ -745,22 +751,22 @@ TOOL_DEFINITION = WorkflowToolDefinition(
             help_text="Optional. Rendered JSON object passed as the MCP tool arguments.",
         ),
         tool_text_field(
-            "auth_token_name",
-            "Auth token secret name",
-            placeholder="MCP_API_TOKEN",
-            help_text="Optional. Resolve a secret and inject it into the configured auth header.",
-        ),
-        tool_text_field(
-            "auth_token_provider",
-            "Auth token provider",
-            placeholder="environment-variable",
-            help_text="Optional. Leave blank to search all enabled providers in scope.",
-        ),
-        tool_text_field(
             "auth_header_name",
             "Auth header name",
             placeholder="Authorization",
             help_text="Optional. Defaults to `Authorization` when a stored Secret object is configured for auth.",
+        ),
+        tool_text_field(
+            "secret_name",
+            "Secret name",
+            placeholder="MCP_API_TOKEN",
+            help_text="Optional. Resolve this secret and inject it into the auth header for each MCP request.",
+        ),
+        tool_text_field(
+            "secret_group_id",
+            "Secret group",
+            placeholder="Use workflow secret group",
+            help_text="Optional. Override the workflow secret group for this node with a scoped secret group ID.",
         ),
         tool_text_field(
             "auth_header_template",

@@ -165,6 +165,17 @@ def _validate_required_string(config: dict[str, Any], key: str, *, node_id: str)
     return value
 
 
+def _validate_optional_secret_group_id(config: dict[str, Any], key: str, *, node_id: str) -> None:
+    value = config.get(key)
+    if value in (None, ""):
+        return
+    if isinstance(value, int):
+        return
+    if isinstance(value, str) and value.strip().isdigit():
+        return
+    _raise_definition_error(f'Node "{node_id}" config.{key} must be a numeric secret group ID.')
+
+
 def _coerce_csv_strings(value: Any, *, field_name: str, node_id: str, default: list[str] | None = None) -> list[str]:
     if value in (None, ""):
         return list(default or [])
@@ -193,13 +204,8 @@ def _coerce_csv_strings(value: Any, *, field_name: str, node_id: str, default: l
 def normalize_workflow_trigger_config(config: dict[str, Any] | None) -> dict[str, Any]:
     normalized = dict(config or {})
     trigger_type = normalized.get("type")
-    auth_secret_group_id = normalized.get("auth_secret_group_id")
     if trigger_type in ("", None):
         normalized["type"] = "manual"
-    if auth_secret_group_id in ("", None):
-        normalized.pop("auth_secret_group_id", None)
-    elif not isinstance(auth_secret_group_id, str):
-        normalized["auth_secret_group_id"] = str(auth_secret_group_id)
     return normalized
 
 

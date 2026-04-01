@@ -112,21 +112,18 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
         groq_chat_model_tool = get_workflow_node_template(node_type="tool.groq_chat_model")
 
         self.assertEqual(chat_model_tool["label"], "OpenAI")
-        self.assertEqual(chat_model_tool["config"]["api_key_name"], "OPENAI_API_KEY")
         self.assertEqual(chat_model_tool["config"]["custom_model"], "")
-        self.assertEqual(chat_model_tool["fields"][0]["key"], "auth_secret_group_id")
-        self.assertEqual(chat_model_tool["fields"][1]["key"], "base_url")
-        self.assertEqual(chat_model_tool["fields"][4]["type"], "select")
-        self.assertEqual(chat_model_tool["fields"][4]["label"], "Model preset")
-        self.assertEqual(chat_model_tool["fields"][5]["key"], "custom_model")
+        self.assertEqual(chat_model_tool["fields"][0]["key"], "base_url")
+        self.assertEqual(chat_model_tool["fields"][1]["type"], "select")
+        self.assertEqual(chat_model_tool["fields"][1]["label"], "Model preset")
+        self.assertEqual(chat_model_tool["fields"][2]["key"], "custom_model")
         self.assertEqual(deepseek_chat_model_tool["label"], "DeepSeek")
-        self.assertEqual(deepseek_chat_model_tool["config"]["api_key_name"], "DEEPSEEK_API_KEY")
         self.assertEqual(deepseek_chat_model_tool["config"]["base_url"], "https://api.deepseek.com/v1")
-        self.assertEqual(deepseek_chat_model_tool["fields"][1]["key"], "base_url")
-        self.assertEqual(deepseek_chat_model_tool["fields"][4]["options"][0]["value"], "deepseek-chat")
+        self.assertEqual(deepseek_chat_model_tool["fields"][0]["key"], "base_url")
+        self.assertEqual(deepseek_chat_model_tool["fields"][1]["options"][0]["value"], "deepseek-chat")
         self.assertEqual(groq_chat_model_tool["label"], "Groq")
         self.assertEqual(groq_chat_model_tool["config"]["model"], "llama-3.3-70b-versatile")
-        self.assertEqual(groq_chat_model_tool["fields"][5]["key"], "custom_model")
+        self.assertEqual(groq_chat_model_tool["fields"][2]["key"], "custom_model")
 
     def test_tool_node_validation_requires_base_url(self):
         with self.assertRaises(ValidationError) as exc_info:
@@ -136,7 +133,6 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
                     "kind": "tool",
                     "type": "tool.openai_chat_model",
                     "config": {
-                        "api_key_name": "OPENAI_API_KEY",
                         "model": "gpt-4.1-mini",
                     },
                 },

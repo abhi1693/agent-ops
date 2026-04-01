@@ -9,28 +9,20 @@
     "appLabel": "Observability",
     "appDescription": "Ingest alerts and query monitoring systems such as Prometheus and Elasticsearch.",
     "appIcon": "mdi-chart-areaspline",
-    "config": {
-      "auth_secret_group_id": ""
-    },
+    "config": {},
     "fields": [
       {
-        "key": "auth_secret_group_id",
-        "label": "Auth secret group",
-        "type": "select",
-        "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
-      },
-      {
-        "key": "webhook_secret_name",
-        "label": "Webhook secret name",
+        "key": "secret_name",
+        "label": "Secret name",
         "type": "text",
         "placeholder": "ALERTMANAGER_WEBHOOK_SECRET"
       },
       {
-        "key": "webhook_secret_provider",
-        "label": "Webhook secret provider",
+        "key": "secret_group_id",
+        "label": "Secret group",
         "type": "text",
-        "placeholder": "environment-variable",
-        "help_text": "Optional. Leave blank to search all enabled providers in scope."
+        "placeholder": "Use workflow secret group",
+        "help_text": "Optional. Override the workflow secret group for this trigger with a scoped secret group ID."
       },
       {
         "key": "secret_header",

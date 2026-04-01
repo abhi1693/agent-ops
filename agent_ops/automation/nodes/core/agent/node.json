@@ -2,9 +2,13 @@
   "node": "agent",
   "nodeVersion": "1.0.0",
   "details": "Call an LLM with an OpenAI-style chat API and store the result in workflow context.",
-  "categories": ["Core Nodes"],
+  "categories": [
+    "Core Nodes"
+  ],
   "subcategories": {
-    "Core Nodes": ["AI"]
+    "Core Nodes": [
+      "AI"
+    ]
   },
   "agentOps": {
     "kind": "agent",
@@ -14,7 +18,6 @@
     "appIcon": "mdi-toy-brick-outline",
     "config": {
       "api_type": "openai",
-      "api_key_name": "OPENAI_API_KEY",
       "base_url": "https://api.openai.com/v1",
       "model": "gpt-4.1-mini",
       "output_key": "llm.response"
@@ -46,12 +49,6 @@
         "placeholder": "draft"
       },
       {
-        "key": "auth_secret_group_id",
-        "label": "Auth secret group",
-        "type": "select",
-        "helpText": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
-      },
-      {
         "key": "base_url",
         "label": "API base URL",
         "type": "text",
@@ -59,23 +56,24 @@
         "helpText": "Override the default endpoint when you need a different OpenAI-compatible API base URL."
       },
       {
-        "key": "api_key_name",
-        "label": "API key secret name",
-        "type": "text",
-        "placeholder": "OPENAI_API_KEY"
-      },
-      {
-        "key": "api_key_provider",
-        "label": "API key provider",
-        "type": "text",
-        "placeholder": "environment-variable",
-        "helpText": "Optional. Leave blank to search all enabled providers in scope."
-      },
-      {
         "key": "model",
         "label": "Model",
         "type": "text",
         "placeholder": "gpt-4.1-mini"
+      },
+      {
+        "key": "secret_name",
+        "label": "Secret name",
+        "type": "text",
+        "placeholder": "OPENAI_API_KEY",
+        "helpText": "Resolve this secret from the workflow secret group before calling the model."
+      },
+      {
+        "key": "secret_group_id",
+        "label": "Secret group",
+        "type": "text",
+        "placeholder": "Use workflow secret group",
+        "helpText": "Optional. Override the workflow secret group for this node with a scoped secret group ID."
       },
       {
         "key": "system_prompt",

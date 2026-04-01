@@ -32,7 +32,7 @@ WORKFLOW_RUNTIME_EXAMPLES = (
     {
         "label": "Trigger",
         "description": "Workflow entry point. The submitted payload is available as trigger.payload.",
-        "example": '{\n  "webhook_secret_name": "ALERTMANAGER_WEBHOOK_SECRET"\n}',
+        "example": '{\n  "secret_header": "X-AgentOps-Webhook-Secret"\n}',
     },
     {
         "label": "Agent",
@@ -130,7 +130,6 @@ WORKFLOW_NODE_TEMPLATE_MAP = {
 _AGENT_TOOL_FIXED_FIELD_KEYS = frozenset(
     {
         "output_key",
-        "auth_secret_group_id",
         "base_url",
         "server_url",
         "binary_path",
@@ -139,19 +138,12 @@ _AGENT_TOOL_FIXED_FIELD_KEYS = frozenset(
         "auth_header_name",
         "auth_header_template",
         "headers_json",
-        "api_key_name",
-        "api_key_provider",
-        "auth_token_name",
-        "auth_token_provider",
-        "bearer_token_name",
-        "bearer_token_provider",
+        "auth_scheme",
+        "secret_name",
+        "secret_group_id",
     }
 )
 _AGENT_TOOL_FIXED_FIELD_SUFFIXES = (
-    "_key_name",
-    "_key_provider",
-    "_token_name",
-    "_token_provider",
     "_secret_name",
     "_secret_provider",
 )
@@ -232,7 +224,7 @@ def _is_agent_fixed_tool_field(*, node: dict, field_key: str) -> bool:
         return True
     if any(field_key.endswith(suffix) for suffix in _AGENT_TOOL_FIXED_FIELD_SUFFIXES):
         return True
-    if node.get("type") == "tool.secret" and field_key in {"name", "provider"}:
+    if node.get("type") == "tool.secret" and field_key in {"secret_name", "secret_group_id"}:
         return True
     return False
 

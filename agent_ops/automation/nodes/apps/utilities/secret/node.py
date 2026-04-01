@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from django.core.exceptions import ValidationError
-
 from automation.nodes.adapters import tool_definition_as_node_implementation
 from automation.tools.base import (
     WorkflowToolDefinition,
     WorkflowToolExecutionContext,
     _tool_result,
+    _validate_optional_secret_group_id,
     _validate_required_string,
     tool_text_field,
 )
@@ -14,18 +13,16 @@ from automation.tools.base import (
 
 def _validate_secret_tool(config: dict, node_id: str) -> None:
     _validate_required_string(config, "output_key", node_id=node_id)
-    _validate_required_string(config, "name", node_id=node_id)
-    provider = config.get("provider")
-    if provider is not None and (not isinstance(provider, str) or not provider.strip()):
-        raise ValidationError({"definition": f'Node "{node_id}" config.provider must be a non-empty string.'})
+    _validate_required_string(config, "secret_name", node_id=node_id)
+    _validate_optional_secret_group_id(config, "secret_group_id", node_id=node_id)
 
 
 def _execute_secret_tool(runtime: WorkflowToolExecutionContext) -> dict:
     output_key = runtime.config.get("output_key") or runtime.node["id"]
     secret = runtime.resolve_scoped_secret(
         runtime.workflow,
-        name=runtime.config["name"],
-        provider=runtime.config.get("provider"),
+        secret_name=runtime.config["secret_name"],
+        secret_group_id=runtime.config.get("secret_group_id"),
     )
     value = secret.get_value(obj=runtime.workflow)
     runtime.set_path_value(runtime.context, output_key, value)
@@ -38,6 +35,7 @@ def _execute_secret_tool(runtime: WorkflowToolExecutionContext) -> dict:
         secret={
             "name": secret.name,
             "provider": secret.provider,
+            "secret_group": secret.secret_group.name if secret.secret_group_id else None,
         },
     )
 
@@ -50,12 +48,16 @@ TOOL_DEFINITION = WorkflowToolDefinition(
     config={"output_key": "credentials.value"},
     fields=(
         tool_text_field("output_key", "Save result as", placeholder="credentials.openai"),
-        tool_text_field("name", "Secret name", placeholder="OPENAI_API_KEY"),
         tool_text_field(
-            "provider",
-            "Secret provider",
-            placeholder="environment-variable",
-            help_text="Optional. Leave blank to search all enabled providers in scope.",
+            "secret_name",
+            "Secret name",
+            placeholder="OPENAI_API_KEY",
+        ),
+        tool_text_field(
+            "secret_group_id",
+            "Secret group",
+            placeholder="Use workflow secret group",
+            help_text="Optional. Override the workflow secret group for this node with a scoped secret group ID.",
         ),
     ),
     validator=_validate_secret_tool,

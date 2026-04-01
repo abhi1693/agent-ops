@@ -2,8 +2,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.urls import reverse
 
-from core.models import ChangeLoggedModel, PrimaryModel
-from integrations.secrets import get_secrets_provider
+from automation.secrets import get_secrets_provider
+from core.models import PrimaryModel
 
 
 def _derive_scope_from_environment(workspace, environment):
@@ -64,13 +64,8 @@ def _get_scope_related_object(*, organization, workspace, environment):
     return organization
 
 
-def _validate_unique_scope_name(instance, *, queryset, message):
-    duplicate_qs = queryset.exclude(pk=instance.pk).filter(
-        organization=instance.organization,
-        workspace=instance.workspace,
-        environment=instance.environment,
-        name=instance.name,
-    )
+def _validate_unique_scope_name(instance, *, queryset, filters, message):
+    duplicate_qs = queryset.exclude(pk=instance.pk).filter(**filters)
     if duplicate_qs.exists():
         raise ValidationError({"name": message})
 
@@ -85,26 +80,10 @@ class Secret(PrimaryModel):
         max_length=100,
         help_text="Registered secrets backend provider slug.",
     )
-    organization = models.ForeignKey(
-        "tenancy.Organization",
+    secret_group = models.ForeignKey(
+        "automation.SecretGroup",
         on_delete=models.CASCADE,
         related_name="secrets",
-        blank=True,
-        null=True,
-    )
-    workspace = models.ForeignKey(
-        "tenancy.Workspace",
-        on_delete=models.CASCADE,
-        related_name="secrets",
-        blank=True,
-        null=True,
-    )
-    environment = models.ForeignKey(
-        "tenancy.Environment",
-        on_delete=models.CASCADE,
-        related_name="secrets",
-        blank=True,
-        null=True,
     )
     name = models.CharField(max_length=100)
     parameters = models.JSONField(
@@ -119,22 +98,18 @@ class Secret(PrimaryModel):
     expires = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        ordering = ("organization__name", "workspace__name", "environment__name", "name")
+        db_table = "integrations_secret"
+        ordering = (
+            "secret_group__organization__name",
+            "secret_group__workspace__name",
+            "secret_group__environment__name",
+            "secret_group__name",
+            "name",
+        )
         constraints = (
             models.UniqueConstraint(
-                fields=("environment", "provider", "name"),
-                condition=models.Q(environment__isnull=False),
-                name="integrations_secret_unique_environment_provider_name",
-            ),
-            models.UniqueConstraint(
-                fields=("workspace", "provider", "name"),
-                condition=models.Q(workspace__isnull=False, environment__isnull=True),
-                name="integrations_secret_unique_workspace_provider_name",
-            ),
-            models.UniqueConstraint(
-                fields=("organization", "provider", "name"),
-                condition=models.Q(workspace__isnull=True, environment__isnull=True),
-                name="integrations_secret_unique_organization_provider_name",
+                fields=("secret_group", "name"),
+                name="integrations_secret_unique_group_name",
             ),
         )
 
@@ -146,20 +121,33 @@ class Secret(PrimaryModel):
 
     @property
     def scope_type(self) -> str:
-        if self.environment_id:
-            return "Environment"
-        if self.workspace_id:
-            return "Workspace"
-        return "Organization"
+        if self.secret_group_id:
+            return self.secret_group.scope_type
+        return "Unscoped"
 
     @property
     def scope_label(self) -> str:
-        parts = [self.organization.name] if self.organization_id else []
-        if self.workspace_id:
-            parts.append(self.workspace.name)
-        if self.environment_id:
-            parts.append(self.environment.name)
-        return " / ".join(parts)
+        if self.secret_group_id:
+            return self.secret_group.scope_label
+        return ""
+
+    @property
+    def organization(self):
+        if self.secret_group_id:
+            return self.secret_group.organization
+        return None
+
+    @property
+    def workspace(self):
+        if self.secret_group_id:
+            return self.secret_group.workspace
+        return None
+
+    @property
+    def environment(self):
+        if self.secret_group_id:
+            return self.secret_group.environment
+        return None
 
     def get_provider_display(self) -> str:
         provider = get_secrets_provider(self.provider)
@@ -175,17 +163,6 @@ class Secret(PrimaryModel):
 
     def clean(self):
         super().clean()
-
-        self.organization, self.workspace, self.environment = _derive_scope(
-            organization=self.organization,
-            workspace=self.workspace,
-            environment=self.environment,
-        )
-        _validate_scope_consistency(
-            organization=self.organization,
-            workspace=self.workspace,
-            environment=self.environment,
-        )
         _validate_json_object(self.parameters, field_name="parameters")
         _validate_json_object(self.metadata, field_name="metadata")
 
@@ -194,29 +171,21 @@ class Secret(PrimaryModel):
             raise ValidationError({"provider": f'No registered provider "{self.provider}" is available.'})
         provider.validate_parameters(self.parameters)
 
-        if self.organization is None:
-            raise ValidationError({"organization": "A secret must be scoped to at least an organization."})
+        if not self.secret_group_id:
+            raise ValidationError({"secret_group": "A secret must belong to a secret group."})
 
         _validate_unique_scope_name(
             self,
-            queryset=self.__class__.objects.filter(provider=self.provider),
-            message="A secret with this provider and name already exists for the selected scope.",
+            queryset=self.__class__.objects.all(),
+            filters={
+                "secret_group": self.secret_group,
+                "name": self.name,
+            },
+            message="A secret with this name already exists for the selected group.",
         )
-
-    def save(self, *args, **kwargs):
-        self.organization, self.workspace, self.environment = _derive_scope(
-            organization=self.organization,
-            workspace=self.workspace,
-            environment=self.environment,
-        )
-        return super().save(*args, **kwargs)
 
     def get_changelog_related_object(self):
-        return _get_scope_related_object(
-            organization=self.organization,
-            workspace=self.workspace,
-            environment=self.environment,
-        )
+        return self.secret_group
 
 
 class SecretGroup(PrimaryModel):
@@ -242,14 +211,9 @@ class SecretGroup(PrimaryModel):
         null=True,
     )
     name = models.CharField(max_length=100)
-    secrets = models.ManyToManyField(
-        "integrations.Secret",
-        through="integrations.SecretGroupAssignment",
-        related_name="secret_groups",
-        blank=True,
-    )
 
     class Meta:
+        db_table = "integrations_secretgroup"
         ordering = ("organization__name", "workspace__name", "environment__name", "name")
         constraints = (
             models.UniqueConstraint(
@@ -292,6 +256,11 @@ class SecretGroup(PrimaryModel):
             parts.append(self.environment.name)
         return " / ".join(parts)
 
+    def get_secret(self, *, name: str):
+        if self.pk is None:
+            return None
+        return self.secrets.filter(name=name).first()
+
     def clean(self):
         super().clean()
 
@@ -312,6 +281,12 @@ class SecretGroup(PrimaryModel):
         _validate_unique_scope_name(
             self,
             queryset=self.__class__.objects.all(),
+            filters={
+                "organization": self.organization,
+                "workspace": self.workspace,
+                "environment": self.environment,
+                "name": self.name,
+            },
             message="A secret group with this name already exists for the selected scope.",
         )
 
@@ -329,121 +304,3 @@ class SecretGroup(PrimaryModel):
             workspace=self.workspace,
             environment=self.environment,
         )
-
-
-class SecretGroupAssignment(ChangeLoggedModel):
-    secret_group = models.ForeignKey(
-        "integrations.SecretGroup",
-        on_delete=models.CASCADE,
-        related_name="assignments",
-    )
-    secret = models.ForeignKey(
-        "integrations.Secret",
-        on_delete=models.CASCADE,
-        related_name="group_assignments",
-    )
-    organization = models.ForeignKey(
-        "tenancy.Organization",
-        on_delete=models.CASCADE,
-        related_name="secret_group_assignments",
-        blank=True,
-        null=True,
-    )
-    workspace = models.ForeignKey(
-        "tenancy.Workspace",
-        on_delete=models.CASCADE,
-        related_name="secret_group_assignments",
-        blank=True,
-        null=True,
-    )
-    environment = models.ForeignKey(
-        "tenancy.Environment",
-        on_delete=models.CASCADE,
-        related_name="secret_group_assignments",
-        blank=True,
-        null=True,
-    )
-    key = models.SlugField(
-        max_length=100,
-        help_text="Stable role or key for this secret within the group.",
-    )
-    required = models.BooleanField(default=True)
-    order = models.PositiveIntegerField(default=100)
-
-    class Meta:
-        ordering = (
-            "organization__name",
-            "workspace__name",
-            "environment__name",
-            "secret_group__name",
-            "order",
-            "key",
-        )
-        constraints = (
-            models.UniqueConstraint(
-                fields=("secret_group", "key"),
-                name="integrations_secretgroupassignment_unique_group_key",
-            ),
-            models.UniqueConstraint(
-                fields=("secret_group", "secret"),
-                name="integrations_secretgroupassignment_unique_group_secret",
-            ),
-        )
-
-    def __str__(self) -> str:
-        return f"{self.secret_group} / {self.key}"
-
-    def get_absolute_url(self):
-        return reverse("secretgroupassignment_detail", args=[self.pk])
-
-    @property
-    def scope_label(self) -> str:
-        parts = [self.organization.name] if self.organization_id else []
-        if self.workspace_id:
-            parts.append(self.workspace.name)
-        if self.environment_id:
-            parts.append(self.environment.name)
-        return " / ".join(parts)
-
-    def clean(self):
-        super().clean()
-
-        if self.secret_group_id:
-            self.organization = self.secret_group.organization
-            self.workspace = self.secret_group.workspace
-            self.environment = self.secret_group.environment
-
-        if not self.secret_group_id or not self.secret_id:
-            return
-
-        if self.secret.organization_id != self.secret_group.organization_id:
-            raise ValidationError(
-                {
-                    "secret_group": "Secret group and secret must belong to the same organization.",
-                    "secret": "Secret belongs to a different organization.",
-                }
-            )
-        if self.secret.workspace_id != self.secret_group.workspace_id:
-            raise ValidationError(
-                {
-                    "secret_group": "Secret group and secret must use the same workspace scope.",
-                    "secret": "Secret belongs to a different workspace scope.",
-                }
-            )
-        if self.secret.environment_id != self.secret_group.environment_id:
-            raise ValidationError(
-                {
-                    "secret_group": "Secret group and secret must use the same environment scope.",
-                    "secret": "Secret belongs to a different environment scope.",
-                }
-            )
-
-    def save(self, *args, **kwargs):
-        if self.secret_group_id:
-            self.organization = self.secret_group.organization
-            self.workspace = self.secret_group.workspace
-            self.environment = self.secret_group.environment
-        return super().save(*args, **kwargs)
-
-    def get_changelog_related_object(self):
-        return self.secret_group

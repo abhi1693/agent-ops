@@ -6,8 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.urls import reverse
 
-from automation.models import Workflow
-from integrations.models import Secret
+from automation.models import Secret, SecretGroup, Workflow
 from tenancy.models import Environment, Organization, Workspace
 from users.models import Membership, ObjectPermission, User
 
@@ -51,6 +50,10 @@ def _definition(label):
                 "kind": "agent",
                 "type": "agent",
                 "label": "Triage agent",
+                "config": {
+                    "template": "Triage {{ trigger.payload.ticket_id|default:'manual' }}",
+                    "secret_name": "OPENAI_API_KEY",
+                },
                 "position": {"x": 336, "y": 56},
             },
         ],
@@ -134,6 +137,8 @@ class WorkflowAPITests(TestCase):
             response.json(),
             {
                 "workflows": "http://testserver/api/automation/workflows/",
+                "secrets": "http://testserver/api/automation/secrets/",
+                "secret-groups": "http://testserver/api/automation/secret-groups/",
             },
         )
 
@@ -237,6 +242,7 @@ class WorkflowAPITests(TestCase):
                     "label": "Draft",
                     "config": {
                         "template": "Review {{ trigger.payload.ticket_id }}",
+                        "secret_name": "OPENAI_API_KEY",
                     },
                     "position": {"x": 320, "y": 40},
                 },
@@ -257,8 +263,14 @@ class WorkflowAPITests(TestCase):
             ],
         }
         self.workflow.save(update_fields=("definition",))
-        Secret.objects.create(
+        secret_group = SecretGroup.objects.create(
             environment=self.environment,
+            name="workflow-api-secrets",
+        )
+        self.workflow.secret_group = secret_group
+        self.workflow.save(update_fields=("secret_group",))
+        Secret.objects.create(
+            secret_group=secret_group,
             provider="environment-variable",
             name="OPENAI_API_KEY",
             parameters={"variable": "OPENAI_API_KEY"},

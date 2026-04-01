@@ -7,7 +7,7 @@ from django.test import TestCase
 
 from automation.models import Workflow
 from automation.runtime import execute_workflow
-from integrations.models import Secret, SecretGroup, SecretGroupAssignment
+from automation.models import Secret, SecretGroup
 from tenancy.models import Environment, Organization, Workspace
 
 
@@ -47,6 +47,34 @@ class WorkflowRuntimeTests(TestCase):
             name="production",
         )
 
+    def _create_secret_group(self, *, name="Workflow secrets"):
+        return SecretGroup.objects.create(
+            environment=self.environment,
+            name=name,
+        )
+
+    def _bind_secret(
+        self,
+        *,
+        workflow,
+        secret_name,
+        variable_name=None,
+        provider="environment-variable",
+        parameters=None,
+        secret_group=None,
+    ):
+        group = secret_group or workflow.secret_group or self._create_secret_group(name=f"{workflow.name} secrets")
+        secret = Secret.objects.create(
+            secret_group=group,
+            provider=provider,
+            name=secret_name,
+            parameters=parameters or {"variable": variable_name or secret_name},
+        )
+        if workflow.secret_group_id != group.pk:
+            workflow.secret_group = group
+            workflow.save(update_fields=("secret_group",))
+        return secret
+
     def test_execute_workflow_runs_agent_llm_step_end_to_end(self):
         workflow = Workflow.objects.create(
             environment=self.environment,
@@ -67,6 +95,7 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "Draft",
                         "config": {
                             "template": "Review {{ trigger.payload.ticket_id }}",
+                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -87,11 +116,9 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="OPENAI_API_KEY",
-            parameters={"variable": "OPENAI_API_KEY"},
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="OPENAI_API_KEY",
         )
 
         def fake_urlopen(request, timeout=20):
@@ -151,6 +178,7 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "AI Agent",
                         "config": {
                             "template": "What is the weather in {{ trigger.payload.city }}?",
+                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -171,8 +199,8 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "OpenAI chat model",
                         "config": {
                             "base_url": "https://api.openai.com/v1",
-                            "api_key_name": "OPENAI_API_KEY",
                             "model": "gpt-4.1-mini",
+                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 240, "y": 240},
                     },
@@ -185,6 +213,7 @@ class WorkflowRuntimeTests(TestCase):
                             "output_key": "weather.result",
                             "server_url": "https://mcp.example.com/mcp",
                             "remote_tool_name": "weather_current",
+                            "secret_name": "MCP_API_TOKEN",
                         },
                         "position": {"x": 400, "y": 240},
                     },
@@ -209,11 +238,9 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="OPENAI_API_KEY",
-            parameters={"variable": "OPENAI_API_KEY"},
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="OPENAI_API_KEY",
         )
 
         openai_call_count = {"value": 0}
@@ -380,6 +407,7 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "AI Agent",
                         "config": {
                             "template": "Summarize the city briefing for {{ trigger.payload.city }}.",
+                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -400,8 +428,8 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "OpenAI chat model",
                         "config": {
                             "base_url": "https://api.openai.com/v1",
-                            "api_key_name": "OPENAI_API_KEY",
                             "model": "gpt-4.1-mini",
+                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 240, "y": 240},
                     },
@@ -436,11 +464,9 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="OPENAI_API_KEY",
-            parameters={"variable": "OPENAI_API_KEY"},
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="OPENAI_API_KEY",
         )
 
         openai_call_count = {"value": 0}
@@ -766,8 +792,7 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "tool.secret",
                         "label": "Resolve key",
                         "config": {
-                            "name": "OPENAI_API_KEY",
-                            "provider": "environment-variable",
+                            "secret_name": "OPENAI_API_KEY",
                             "output_key": "credentials.openai",
                         },
                         "position": {"x": 320, "y": 40},
@@ -789,11 +814,9 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="OPENAI_API_KEY",
-            parameters={"variable": "OPENAI_API_KEY"},
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="OPENAI_API_KEY",
         )
 
         with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-secret"}, clear=False):
@@ -807,6 +830,7 @@ class WorkflowRuntimeTests(TestCase):
             {
                 "name": "OPENAI_API_KEY",
                 "provider": "environment-variable",
+                "secret_group": workflow.secret_group.name,
             },
         )
         self.assertEqual(run.step_results[1]["result"]["tool_name"], "secret")
@@ -855,7 +879,7 @@ class WorkflowRuntimeTests(TestCase):
 
         self.assertEqual(run.step_results, [])
 
-    def test_execute_workflow_resolves_tool_auth_from_node_secret_group(self):
+    def test_execute_workflow_resolves_tool_auth_from_workflow_secret_group(self):
         workflow = Workflow.objects.create(
             environment=self.environment,
             name="Grouped Prometheus runtime",
@@ -874,11 +898,10 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "tool.prometheus_query",
                         "label": "Prometheus query",
                         "config": {
-                            "auth_secret_group_id": "",
                             "base_url": "https://prometheus.example.com",
-                            "bearer_token_name": "api_token",
                             "query": "up{job='{{ trigger.payload.job }}'}",
                             "output_key": "prometheus.query",
+                            "secret_name": "PROMETHEUS_API_TOKEN",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -899,24 +922,10 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        secret = Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="PROMETHEUS_API_TOKEN",
-            parameters={"variable": "PROMETHEUS_API_TOKEN"},
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="PROMETHEUS_API_TOKEN",
         )
-        secret_group = SecretGroup.objects.create(
-            environment=self.environment,
-            name="Prometheus auth",
-        )
-        SecretGroupAssignment.objects.create(
-            secret_group=secret_group,
-            secret=secret,
-            key="api_token",
-            order=10,
-        )
-        workflow.definition["nodes"][1]["config"]["auth_secret_group_id"] = str(secret_group.pk)
-        workflow.save(update_fields=("definition",))
 
         def fake_urlopen(request, timeout=20):
             self.assertEqual(timeout, 20)
@@ -1042,10 +1051,9 @@ class WorkflowRuntimeTests(TestCase):
                             "server_url": "https://mcp.example.com/mcp",
                             "remote_tool_name": "weather_current",
                             "arguments_json": '{"location": "{{ trigger.payload.location }}", "units": "imperial"}',
-                            "auth_token_name": "MCP_API_TOKEN",
-                            "auth_token_provider": "environment-variable",
                             "headers_json": '{"X-Tenant": "ops"}',
                             "output_key": "mcp.result",
+                            "secret_name": "MCP_API_TOKEN",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -1066,11 +1074,9 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="MCP_API_TOKEN",
-            parameters={"variable": "MCP_API_TOKEN"},
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="MCP_API_TOKEN",
         )
 
         def fake_urlopen(request, timeout=20):
@@ -1302,11 +1308,10 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "Prometheus query",
                         "config": {
                             "base_url": "https://prometheus.example.com",
-                            "bearer_token_name": "PROMETHEUS_API_TOKEN",
-                            "bearer_token_provider": "environment-variable",
                             "query": "sum(rate(http_requests_total{job='{{ trigger.payload.job }}'}[5m]))",
                             "time": "1711798200",
                             "output_key": "prometheus.query",
+                            "secret_name": "PROMETHEUS_API_TOKEN",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -1327,11 +1332,9 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="PROMETHEUS_API_TOKEN",
-            parameters={"variable": "PROMETHEUS_API_TOKEN"},
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="PROMETHEUS_API_TOKEN",
         )
 
         def fake_urlopen(request, timeout=20):
@@ -1380,11 +1383,10 @@ class WorkflowRuntimeTests(TestCase):
                         "config": {
                             "base_url": "https://elastic.example.com",
                             "index": "logs-*",
-                            "auth_token_name": "ELASTICSEARCH_API_KEY",
-                            "auth_token_provider": "environment-variable",
                             "auth_scheme": "ApiKey",
                             "query_json": "{\"size\": 5, \"query\": {\"term\": {\"service.keyword\": \"{{ trigger.payload.service }}\"}}}",
                             "output_key": "elastic.search",
+                            "secret_name": "ELASTICSEARCH_API_KEY",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -1405,11 +1407,9 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="ELASTICSEARCH_API_KEY",
-            parameters={"variable": "ELASTICSEARCH_API_KEY"},
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="ELASTICSEARCH_API_KEY",
         )
 
         def fake_urlopen(request, timeout=20):
@@ -1462,9 +1462,8 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "OpenAI-compatible chat",
                         "config": {
                             "base_url": "https://llm.example.com/v1",
-                            "api_key_name": "OPENAI_COMPATIBLE_API_KEY",
-                            "api_key_provider": "environment-variable",
                             "model": "gpt-4.1-mini",
+                            "secret_name": "OPENAI_COMPATIBLE_API_KEY",
                             "system_prompt": "You are an incident triage assistant.",
                             "template": "Summarize incident {{ trigger.payload.incident_id }}.",
                             "temperature": "0.2",
@@ -1491,11 +1490,9 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        Secret.objects.create(
-            environment=self.environment,
-            provider="environment-variable",
-            name="OPENAI_COMPATIBLE_API_KEY",
-            parameters={"variable": "OPENAI_COMPATIBLE_API_KEY"},
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="OPENAI_COMPATIBLE_API_KEY",
         )
 
         def fake_urlopen(request, timeout=20):

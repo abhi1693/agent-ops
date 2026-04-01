@@ -1,10 +1,21 @@
 from django import forms
 
-from automation.models import Workflow
+from automation.models import Secret, SecretGroup, Workflow
 from automation.primitives import normalize_workflow_definition_nodes
+from automation.secrets import iter_secrets_providers
 from core.form_widgets import apply_standard_widget_classes
 from tenancy.models import Environment, Organization, Workspace
 from users.restrictions import restrict_queryset
+
+
+def _provider_choices(current_value=None):
+    choices = sorted(
+        (slug, provider.name or slug)
+        for slug, provider in iter_secrets_providers()
+    )
+    if current_value and all(slug != current_value for slug, _label in choices):
+        choices.append((current_value, current_value))
+    return choices
 
 
 def _configure_scope_fields(form, request):
@@ -24,6 +35,106 @@ def _configure_scope_fields(form, request):
     form.fields["organization"].queryset = organization_qs
     form.fields["workspace"].queryset = workspace_qs
     form.fields["environment"].queryset = environment_qs
+    if "secret_group" in form.fields:
+        secret_group_qs = SecretGroup.objects.select_related("organization", "workspace", "environment").order_by(
+            "organization__name",
+            "workspace__name",
+            "environment__name",
+            "name",
+        )
+        if request is not None:
+            secret_group_qs = restrict_queryset(secret_group_qs, request=request, action="view")
+        form.fields["secret_group"].queryset = secret_group_qs
+
+
+class SecretForm(forms.ModelForm):
+    fieldsets = (
+        {
+            "title": "Secret",
+            "fields": (
+                "secret_group",
+                "name",
+                "description",
+                "provider",
+                "enabled",
+            ),
+        },
+        {
+            "title": "Retrieval",
+            "description": "Store provider-specific lookup parameters and metadata here, not the secret value itself.",
+            "fields": ("parameters", "metadata", "expires"),
+        },
+    )
+    provider = forms.ChoiceField(choices=())
+    secret_group = forms.ModelChoiceField(queryset=SecretGroup.objects.none())
+
+    class Meta:
+        model = Secret
+        fields = (
+            "secret_group",
+            "name",
+            "description",
+            "provider",
+            "parameters",
+            "metadata",
+            "enabled",
+            "expires",
+        )
+
+    def __init__(self, *args, request=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["provider"].choices = _provider_choices(self.instance.provider or None)
+
+        secret_group_qs = SecretGroup.objects.select_related("organization", "workspace", "environment").order_by(
+            "organization__name",
+            "workspace__name",
+            "environment__name",
+            "name",
+        )
+        if request is not None:
+            secret_group_qs = restrict_queryset(secret_group_qs, request=request, action="view")
+            if not self.instance.pk:
+                initial_secret_group = request.GET.get("secret_group")
+                if initial_secret_group and initial_secret_group.isdigit():
+                    self.fields["secret_group"].initial = int(initial_secret_group)
+
+        self.fields["secret_group"].queryset = secret_group_qs
+        self.fields["parameters"].widget.attrs["rows"] = 6
+        self.fields["metadata"].widget.attrs["rows"] = 6
+        apply_standard_widget_classes(self)
+
+
+class SecretGroupForm(forms.ModelForm):
+    fieldsets = (
+        {
+            "title": "Secret Group",
+            "fields": (
+                "organization",
+                "workspace",
+                "environment",
+                "name",
+                "description",
+            ),
+        },
+    )
+    organization = forms.ModelChoiceField(queryset=Organization.objects.none(), required=False)
+    workspace = forms.ModelChoiceField(queryset=Workspace.objects.none(), required=False)
+    environment = forms.ModelChoiceField(queryset=Environment.objects.none(), required=False)
+
+    class Meta:
+        model = SecretGroup
+        fields = (
+            "organization",
+            "workspace",
+            "environment",
+            "name",
+            "description",
+        )
+
+    def __init__(self, *args, request=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        _configure_scope_fields(self, request)
+        apply_standard_widget_classes(self)
 
 
 class WorkflowForm(forms.ModelForm):
@@ -34,6 +145,7 @@ class WorkflowForm(forms.ModelForm):
                 "organization",
                 "workspace",
                 "environment",
+                "secret_group",
                 "name",
                 "description",
                 "enabled",
@@ -48,6 +160,7 @@ class WorkflowForm(forms.ModelForm):
     organization = forms.ModelChoiceField(queryset=Organization.objects.none(), required=False)
     workspace = forms.ModelChoiceField(queryset=Workspace.objects.none(), required=False)
     environment = forms.ModelChoiceField(queryset=Environment.objects.none(), required=False)
+    secret_group = forms.ModelChoiceField(queryset=SecretGroup.objects.none(), required=False)
 
     class Meta:
         model = Workflow
@@ -55,6 +168,7 @@ class WorkflowForm(forms.ModelForm):
             "organization",
             "workspace",
             "environment",
+            "secret_group",
             "name",
             "description",
             "enabled",

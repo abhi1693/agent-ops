@@ -1,6 +1,18 @@
 from django.urls import path
 
 from .views import (
+    SecretChangelogView,
+    SecretCreateView,
+    SecretDeleteView,
+    SecretDetailView,
+    SecretGroupChangelogView,
+    SecretGroupCreateView,
+    SecretGroupDeleteView,
+    SecretGroupDetailView,
+    SecretGroupListView,
+    SecretGroupUpdateView,
+    SecretListView,
+    SecretUpdateView,
     WorkflowChangelogView,
     WorkflowCreateView,
     WorkflowDeleteView,
@@ -13,6 +25,18 @@ from .views import (
 
 
 urlpatterns = [
+    path("secrets/", SecretListView.as_view(), name="secret_list"),
+    path("secrets/add/", SecretCreateView.as_view(), name="secret_add"),
+    path("secrets/<int:pk>/", SecretDetailView.as_view(), name="secret_detail"),
+    path("secrets/<int:pk>/changelog/", SecretChangelogView.as_view(), name="secret_changelog"),
+    path("secrets/<int:pk>/edit/", SecretUpdateView.as_view(), name="secret_edit"),
+    path("secrets/<int:pk>/delete/", SecretDeleteView.as_view(), name="secret_delete"),
+    path("secret-groups/", SecretGroupListView.as_view(), name="secretgroup_list"),
+    path("secret-groups/add/", SecretGroupCreateView.as_view(), name="secretgroup_add"),
+    path("secret-groups/<int:pk>/", SecretGroupDetailView.as_view(), name="secretgroup_detail"),
+    path("secret-groups/<int:pk>/changelog/", SecretGroupChangelogView.as_view(), name="secretgroup_changelog"),
+    path("secret-groups/<int:pk>/edit/", SecretGroupUpdateView.as_view(), name="secretgroup_edit"),
+    path("secret-groups/<int:pk>/delete/", SecretGroupDeleteView.as_view(), name="secretgroup_delete"),
     path("workflows/", WorkflowListView.as_view(), name="workflow_list"),
     path("workflows/add/", WorkflowCreateView.as_view(), name="workflow_add"),
     path("workflows/<int:pk>/", WorkflowDetailView.as_view(), name="workflow_detail"),

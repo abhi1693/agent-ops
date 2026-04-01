@@ -8,11 +8,17 @@ from rest_framework import status
 from agent_ops.api.permissions import ObjectActionPermission, TokenPermissions
 from agent_ops.api.viewsets import ModelViewSet
 from automation import filtersets
-from automation.models import Workflow
+from automation.models import Secret, SecretGroup, Workflow
 from automation.runtime import execute_workflow
 from users.restrictions import assert_object_action_allowed, restrict_queryset
 
-from .serializers import WorkflowExecuteSerializer, WorkflowRunSerializer, WorkflowSerializer
+from .serializers import (
+    SecretGroupSerializer,
+    SecretSerializer,
+    WorkflowExecuteSerializer,
+    WorkflowRunSerializer,
+    WorkflowSerializer,
+)
 
 
 class AutomationRootView(APIRootView):
@@ -26,6 +32,8 @@ class AutomationRootView(APIRootView):
         return Response(
             {
                 "workflows": reverse("api:automation-api:workflow-list", request=request),
+                "secrets": reverse("api:automation-api:secret-list", request=request),
+                "secret-groups": reverse("api:automation-api:secretgroup-list", request=request),
             }
         )
 
@@ -82,4 +90,49 @@ class WorkflowViewSet(RestrictedAutomationViewSet):
         return Response(
             WorkflowRunSerializer(run, context=self.get_serializer_context()).data,
             status=status.HTTP_201_CREATED,
+        )
+
+
+class SecretViewSet(RestrictedAutomationViewSet):
+    serializer_class = SecretSerializer
+    filterset_class = filtersets.SecretFilterSet
+    ordering_fields = ("name", "provider", "enabled", "expires")
+    permission_classes = [TokenPermissions, ObjectActionPermission]
+
+    def get_queryset(self):
+        queryset = Secret.objects.select_related(
+            "secret_group__organization",
+            "secret_group__workspace",
+            "secret_group__environment",
+        ).order_by(
+            "secret_group__organization__name",
+            "secret_group__workspace__name",
+            "secret_group__environment__name",
+            "secret_group__name",
+            "name",
+        )
+        return restrict_queryset(
+            queryset,
+            request=self.request,
+            action=self.get_permission_action(),
+        )
+
+
+class SecretGroupViewSet(RestrictedAutomationViewSet):
+    serializer_class = SecretGroupSerializer
+    filterset_class = filtersets.SecretGroupFilterSet
+    ordering_fields = ("name",)
+    permission_classes = [TokenPermissions, ObjectActionPermission]
+
+    def get_queryset(self):
+        queryset = SecretGroup.objects.select_related("organization", "workspace", "environment").order_by(
+            "organization__name",
+            "workspace__name",
+            "environment__name",
+            "name",
+        )
+        return restrict_queryset(
+            queryset,
+            request=self.request,
+            action=self.get_permission_action(),
         )

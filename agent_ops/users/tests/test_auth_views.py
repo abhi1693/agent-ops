@@ -164,9 +164,9 @@ class AuthViewTests(TestCase):
 
         nav_items = build_navigation(request)
 
-        self.assertEqual(len(nav_items), 5)
+        self.assertEqual(len(nav_items), 4)
         nav_by_label = {item["label"]: item for item in nav_items}
-        self.assertEqual(set(nav_by_label), {"Activity", "Administration", "Automation", "Integrations", "Tenancy"})
+        self.assertEqual(set(nav_by_label), {"Activity", "Administration", "Automation", "Tenancy"})
 
         activity_entries = [
             (item["label"], item["icon_class"], item["add_url"])
@@ -203,6 +203,8 @@ class AuthViewTests(TestCase):
             automation_entries,
             [
                 ("Workflows", "mdi mdi-graph-outline", reverse("workflow_add")),
+                ("Secrets", "mdi mdi-key-chain-variant", reverse("secret_add")),
+                ("Secret Groups", "mdi mdi-folder-key-network", reverse("secretgroup_add")),
             ],
         )
         tenancy_entries = [
@@ -218,26 +220,12 @@ class AuthViewTests(TestCase):
                 ("Environments", "mdi mdi-cloud-outline", reverse("environment_add")),
             ],
         )
-        integration_entries = [
-            (item["label"], item["icon_class"], item["add_url"])
-            for group in nav_by_label["Integrations"]["groups"]
-            for item in group["items"]
-        ]
-        self.assertEqual(
-            integration_entries,
-            [
-                ("Secrets", "mdi mdi-key-chain-variant", reverse("secret_add")),
-                ("Secret Groups", "mdi mdi-folder-key-network", reverse("secretgroup_add")),
-                ("Assignments", "mdi mdi-key-link", reverse("secretgroupassignment_add")),
-            ],
-        )
         menu_labels = [
             label
             for label, _icon, _add_url in [
                 *activity_entries,
                 *administration_entries,
                 *automation_entries,
-                *integration_entries,
                 *tenancy_entries,
             ]
         ]

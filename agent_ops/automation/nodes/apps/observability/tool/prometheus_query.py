@@ -11,6 +11,7 @@ from automation.tools.base import (
     _resolve_runtime_secret,
     _tool_result,
     _validate_external_output_key,
+    _validate_optional_secret_group_id,
     _validate_optional_string,
     _validate_required_external_url,
     _validate_required_string,
@@ -24,8 +25,9 @@ def _validate_prometheus_query_tool(config: dict, node_id: str) -> None:
     _validate_required_external_url(config, "base_url", node_id=node_id)
     _validate_required_string(config, "query", node_id=node_id)
     _validate_optional_string(config, "time", node_id=node_id)
-    _validate_optional_string(config, "bearer_token_name", node_id=node_id)
-    _validate_optional_string(config, "bearer_token_provider", node_id=node_id)
+    if config.get("secret_name") not in (None, ""):
+        _validate_optional_string(config, "secret_name", node_id=node_id)
+    _validate_optional_secret_group_id(config, "secret_group_id", node_id=node_id)
 
 
 def _execute_prometheus_query_tool(runtime: WorkflowToolExecutionContext) -> dict:
@@ -36,12 +38,16 @@ def _execute_prometheus_query_tool(runtime: WorkflowToolExecutionContext) -> dic
 
     headers = {"Accept": "application/json"}
     secret_meta = None
-    if runtime.config.get("bearer_token_name"):
+    secret_name = _render_runtime_string(runtime, "secret_name")
+    bearer_token = None
+    if secret_name:
         bearer_token, secret_meta = _resolve_runtime_secret(
             runtime,
-            name_key="bearer_token_name",
-            provider_key="bearer_token_provider",
+            secret_name=secret_name,
+            secret_group_id=runtime.config.get("secret_group_id"),
+            required=False,
         )
+    if bearer_token:
         headers["Authorization"] = f"Bearer {bearer_token}"
 
     query = {"query": query_text}
@@ -76,18 +82,6 @@ TOOL_DEFINITION = WorkflowToolDefinition(
     fields=(
         tool_text_field("output_key", "Save result as", placeholder="prometheus.query"),
         tool_text_field("base_url", "Prometheus base URL", placeholder="https://prometheus.example.com"),
-        tool_text_field(
-            "bearer_token_name",
-            "Bearer token secret name",
-            placeholder="PROMETHEUS_API_TOKEN",
-            help_text="Optional. Leave blank if Prometheus is reachable without auth.",
-        ),
-        tool_text_field(
-            "bearer_token_provider",
-            "Bearer token provider",
-            placeholder="environment-variable",
-            help_text="Optional. Leave blank to search all enabled providers in scope.",
-        ),
         tool_textarea_field(
             "query",
             "PromQL query",
@@ -95,6 +89,18 @@ TOOL_DEFINITION = WorkflowToolDefinition(
             placeholder="sum(rate(http_requests_total[5m]))",
         ),
         tool_text_field("time", "Query time", placeholder="Optional RFC3339 or unix timestamp"),
+        tool_text_field(
+            "secret_name",
+            "Secret name",
+            placeholder="PROMETHEUS_API_TOKEN",
+            help_text="Optional. Resolve this secret and send it as a bearer token.",
+        ),
+        tool_text_field(
+            "secret_group_id",
+            "Secret group",
+            placeholder="Use workflow secret group",
+            help_text="Optional. Override the workflow secret group for this node with a scoped secret group ID.",
+        ),
     ),
     validator=_validate_prometheus_query_tool,
     executor=_execute_prometheus_query_tool,

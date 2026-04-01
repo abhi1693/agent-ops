@@ -15,16 +15,9 @@
       "arguments_json": {},
       "timeout_seconds": 30,
       "auth_header_name": "Authorization",
-      "auth_header_template": "Bearer {token}",
-      "auth_secret_group_id": ""
+      "auth_header_template": "Bearer {token}"
     },
     "fields": [
-      {
-        "key": "auth_secret_group_id",
-        "label": "Auth secret group",
-        "type": "select",
-        "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
-      },
       {
         "key": "output_key",
         "label": "Save result as",
@@ -52,25 +45,25 @@
         "help_text": "Optional. Rendered JSON object passed as the MCP tool arguments."
       },
       {
-        "key": "auth_token_name",
-        "label": "Auth token secret name",
-        "type": "text",
-        "placeholder": "MCP_API_TOKEN",
-        "help_text": "Optional. Resolve a secret and inject it into the configured auth header."
-      },
-      {
-        "key": "auth_token_provider",
-        "label": "Auth token provider",
-        "type": "text",
-        "placeholder": "environment-variable",
-        "help_text": "Optional. Leave blank to search all enabled providers in scope."
-      },
-      {
         "key": "auth_header_name",
         "label": "Auth header name",
         "type": "text",
         "placeholder": "Authorization",
         "help_text": "Optional. Defaults to `Authorization` when a stored Secret object is configured for auth."
+      },
+      {
+        "key": "secret_name",
+        "label": "Secret name",
+        "type": "text",
+        "placeholder": "MCP_API_TOKEN",
+        "help_text": "Optional. Resolve this secret and inject it into the auth header for each MCP request."
+      },
+      {
+        "key": "secret_group_id",
+        "label": "Secret group",
+        "type": "text",
+        "placeholder": "Use workflow secret group",
+        "help_text": "Optional. Override the workflow secret group for this node with a scoped secret group ID."
       },
       {
         "key": "auth_header_template",

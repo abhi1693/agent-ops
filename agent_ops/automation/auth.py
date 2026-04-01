@@ -5,7 +5,7 @@ from typing import Any
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 
-from integrations.models import Secret, SecretGroup, SecretGroupAssignment
+from automation.models.secrets import Secret, SecretGroup
 
 
 def _workflow_scope_candidates(workflow) -> list[dict[str, Any]]:
@@ -51,78 +51,72 @@ def list_workflow_secret_group_options(workflow) -> list[dict[str, str]]:
     return options
 
 
-def resolve_workflow_secret_group(workflow, *, secret_group_id: str | int | None, error_field: str) -> SecretGroup | None:
-    if secret_group_id in (None, ""):
+def resolve_workflow_secret_group(
+    workflow,
+    *,
+    error_field: str,
+    secret_group_id: str | int | None = None,
+) -> SecretGroup | None:
+    resolved_group_id = secret_group_id
+    if resolved_group_id in ("", None):
+        resolved_group_id = workflow.secret_group_id
+    if resolved_group_id in ("", None):
         return None
 
     try:
-        secret_group_pk = int(secret_group_id)
+        resolved_group_id = int(resolved_group_id)
     except (TypeError, ValueError) as exc:
-        raise ValidationError({error_field: f'Secret group "{secret_group_id}" is not a valid identifier.'}) from exc
+        raise ValidationError({error_field: "Secret group reference must be a numeric ID."}) from exc
 
-    secret_group = get_workflow_secret_groups_queryset(workflow).filter(pk=secret_group_pk).first()
+    secret_group = get_workflow_secret_groups_queryset(workflow).filter(pk=resolved_group_id).first()
     if secret_group is None:
-        raise ValidationError(
-            {error_field: f'Secret group "{secret_group_id}" is not available in this workflow scope.'}
-        )
+        raise ValidationError({error_field: "Selected secret group is not available in this workflow scope."})
     return secret_group
 
 
-def resolve_workflow_secret(
+def resolve_workflow_secret_ref(
     workflow,
     *,
-    name: str,
-    provider: str | None = None,
+    secret_name: str,
     secret_group_id: str | int | None = None,
     error_field: str = "definition",
-) -> Secret:
+    required: bool = True,
+) -> Secret | None:
+    if not isinstance(secret_name, str) or not secret_name.strip():
+        if required:
+            raise ValidationError({error_field: "Secret name is required for this node."})
+        return None
+
+    rendered_secret_name = secret_name.strip()
     secret_group = resolve_workflow_secret_group(
         workflow,
-        secret_group_id=secret_group_id,
         error_field=error_field,
+        secret_group_id=secret_group_id,
     )
-    if secret_group is not None:
-        assignments = SecretGroupAssignment.objects.filter(
-            secret_group=secret_group,
-            secret__enabled=True,
-        ).select_related("secret")
-        if provider:
-            assignments = assignments.filter(secret__provider=provider)
+    if secret_group is None:
+        if required:
+            raise ValidationError({error_field: "Workflow must define a secret group for secret-backed nodes."})
+        return None
 
-        assignment = assignments.filter(key=name).order_by("order", "key").first()
-        if assignment is not None:
-            return assignment.secret
-
-        assignment = assignments.filter(secret__name=name).order_by("order", "key").first()
-        if assignment is not None:
-            return assignment.secret
-
-        if provider:
-            raise ValidationError(
-                {
-                    error_field: (
-                        f'No enabled secret matching "{name}" with provider "{provider}" '
-                        f'is assigned to secret group "{secret_group.name}".'
-                    )
-                }
-            )
+    secret = secret_group.get_secret(name=rendered_secret_name)
+    if secret is not None:
+        if not secret.enabled:
+            if required:
+                raise ValidationError(
+                    {
+                        error_field: (
+                            f'Secret group "{secret_group.name}" includes disabled secret "{rendered_secret_name}".'
+                        )
+                    }
+                )
+            return None
+        return secret
+    if required:
         raise ValidationError(
             {
-                error_field: f'No enabled secret matching "{name}" is assigned to secret group "{secret_group.name}".'
+                error_field: (
+                    f'Secret group "{secret_group.name}" does not include secret "{rendered_secret_name}".'
+                )
             }
         )
-
-    scope_candidates = _workflow_scope_candidates(workflow)
-    for scope_filter in scope_candidates:
-        queryset = Secret.objects.filter(enabled=True, name=name, **scope_filter).order_by("name")
-        if provider:
-            queryset = queryset.filter(provider=provider)
-        secret = queryset.first()
-        if secret is not None:
-            return secret
-
-    if provider:
-        raise ValidationError(
-            {error_field: f'No enabled secret named "{name}" with provider "{provider}" is available.'}
-        )
-    raise ValidationError({error_field: f'No enabled secret named "{name}" is available in this workflow scope.'})
+    return None

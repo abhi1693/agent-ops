@@ -12,16 +12,9 @@
     "config": {
       "output_key": "kubectl.result",
       "output_format": "text",
-      "timeout_seconds": 20,
-      "auth_secret_group_id": ""
+      "timeout_seconds": 20
     },
     "fields": [
-      {
-        "key": "auth_secret_group_id",
-        "label": "Auth secret group",
-        "type": "select",
-        "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
-      },
       {
         "key": "output_key",
         "label": "Save result as",

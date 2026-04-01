@@ -5,14 +5,14 @@ import hmac
 
 from django.core.exceptions import ValidationError
 
-from automation.auth import resolve_workflow_secret
+from automation.auth import resolve_workflow_secret_ref
 from automation.nodes.adapters import trigger_definition_as_node_implementation
 
 from automation.triggers.base import (
     WorkflowTriggerDefinition,
     WorkflowTriggerRequestContext,
     _coerce_csv_strings,
-    _validate_optional_string,
+    _validate_optional_secret_group_id,
     _validate_required_string,
     trigger_text_field,
 )
@@ -20,18 +20,16 @@ from automation.triggers.webhook_utils import get_request_meta, parse_json_body
 
 
 def _validate_github_webhook_trigger(config: dict[str, object], node_id: str) -> None:
-    _validate_required_string(config, "signature_secret_name", node_id=node_id)
-    _validate_optional_string(config, "signature_secret_provider", node_id=node_id)
-    _validate_optional_string(config, "auth_secret_group_id", node_id=node_id)
+    _validate_required_string(config, "secret_name", node_id=node_id)
+    _validate_optional_secret_group_id(config, "secret_group_id", node_id=node_id)
     _coerce_csv_strings(config.get("events"), field_name="events", node_id=node_id, default=[])
 
 
 def _handle_github_webhook(context: WorkflowTriggerRequestContext) -> tuple[dict[str, object], dict[str, object]]:
-    secret = resolve_workflow_secret(
+    secret = resolve_workflow_secret_ref(
         context.workflow,
-        name=context.config["signature_secret_name"],
-        provider=context.config.get("signature_secret_provider"),
-        secret_group_id=context.config.get("auth_secret_group_id"),
+        secret_name=context.config.get("secret_name"),
+        secret_group_id=context.config.get("secret_group_id"),
         error_field="trigger",
     )
     secret_value = secret.get_value(obj=context.workflow)
@@ -85,15 +83,15 @@ TRIGGER_DEFINITION = WorkflowTriggerDefinition(
     category="Webhook",
     fields=(
         trigger_text_field(
-            "signature_secret_name",
-            "Signature secret name",
+            "secret_name",
+            "Secret name",
             placeholder="GITHUB_WEBHOOK_SECRET",
         ),
         trigger_text_field(
-            "signature_secret_provider",
-            "Signature secret provider",
-            placeholder="environment-variable",
-            help_text="Optional. Leave blank to search all enabled providers in scope.",
+            "secret_group_id",
+            "Secret group",
+            placeholder="Use workflow secret group",
+            help_text="Optional. Override the workflow secret group for this trigger with a scoped secret group ID.",
         ),
         trigger_text_field(
             "events",

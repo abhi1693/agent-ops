@@ -10,19 +10,11 @@
     "appDescription": "Flagship, coding, and efficient frontier models served through Mistral's chat API.",
     "appIcon": "mdi-weather-windy",
     "config": {
-      "api_key_name": "MISTRAL_API_KEY",
       "base_url": "https://api.mistral.ai/v1",
       "model": "mistral-large-latest",
-      "custom_model": "",
-      "auth_secret_group_id": ""
+      "custom_model": ""
     },
     "fields": [
-      {
-        "key": "auth_secret_group_id",
-        "label": "Auth secret group",
-        "type": "select",
-        "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
-      },
       {
         "key": "base_url",
         "label": "API base URL",
@@ -30,27 +22,26 @@
         "placeholder": "https://api.mistral.ai/v1"
       },
       {
-        "key": "api_key_name",
-        "label": "API key secret name",
-        "type": "text",
-        "placeholder": "MISTRAL_API_KEY"
-      },
-      {
-        "key": "api_key_provider",
-        "label": "API key provider",
-        "type": "text",
-        "placeholder": "environment-variable",
-        "help_text": "Optional. Leave blank to search all enabled providers in scope."
-      },
-      {
         "key": "model",
         "label": "Model preset",
         "type": "select",
         "options": [
-          {"value": "mistral-large-latest", "label": "Mistral Large"},
-          {"value": "devstral-latest", "label": "Devstral"},
-          {"value": "codestral-latest", "label": "Codestral"},
-          {"value": "ministral-8b-latest", "label": "Ministral 8B"}
+          {
+            "value": "mistral-large-latest",
+            "label": "Mistral Large"
+          },
+          {
+            "value": "devstral-latest",
+            "label": "Devstral"
+          },
+          {
+            "value": "codestral-latest",
+            "label": "Codestral"
+          },
+          {
+            "value": "ministral-8b-latest",
+            "label": "Ministral 8B"
+          }
         ]
       },
       {
@@ -59,6 +50,19 @@
         "type": "text",
         "placeholder": "mistral-large-latest",
         "help_text": "Optional advanced override. If set, this exact model ID is used instead of the selected preset."
+      },
+      {
+        "key": "secret_name",
+        "label": "Secret name",
+        "type": "text",
+        "placeholder": "MISTRAL_API_KEY"
+      },
+      {
+        "key": "secret_group_id",
+        "label": "Secret group",
+        "type": "text",
+        "placeholder": "Use workflow secret group",
+        "help_text": "Optional. Override the workflow secret group for this node with a scoped secret group ID."
       },
       {
         "key": "temperature",

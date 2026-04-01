@@ -175,6 +175,17 @@ def _validate_required_string(config: dict[str, Any], key: str, *, node_id: str)
     return value
 
 
+def _validate_optional_secret_group_id(config: dict[str, Any], key: str, *, node_id: str) -> None:
+    value = config.get(key)
+    if value in (None, ""):
+        return
+    if isinstance(value, int):
+        return
+    if isinstance(value, str) and value.strip().isdigit():
+        return
+    _raise_definition_error(f'Node "{node_id}" config.{key} must be a numeric secret group ID.')
+
+
 def _validate_external_url_value(url_value: str, *, field_name: str, node_id: str) -> str:
     parsed_url = urlsplit(url_value)
     if parsed_url.username is not None or parsed_url.password is not None:
@@ -223,15 +234,7 @@ def _tool_result(tool_name: str, **extra: Any) -> dict[str, Any]:
 
 
 def normalize_workflow_tool_config(config: dict[str, Any] | None) -> dict[str, Any]:
-    normalized = dict(config or {})
-    auth_secret_group_id = normalized.get("auth_secret_group_id")
-
-    if auth_secret_group_id in ("", None):
-        normalized.pop("auth_secret_group_id", None)
-    elif not isinstance(auth_secret_group_id, str):
-        normalized["auth_secret_group_id"] = str(auth_secret_group_id)
-
-    return normalized
+    return dict(config or {})
 
 
 def normalize_workflow_definition_tools(definition: dict[str, Any] | None) -> dict[str, Any]:
@@ -400,24 +403,29 @@ def _render_runtime_json(
 def _resolve_runtime_secret(
     runtime: WorkflowToolExecutionContext,
     *,
-    name_key: str,
-    provider_key: str,
-) -> tuple[str, dict[str, str | None]]:
-    secret_name = _render_runtime_string(runtime, name_key, required=True)
-    secret_provider = _render_runtime_string(runtime, provider_key)
+    secret_name: str,
+    secret_group_id: str | int | None = None,
+    required: bool = True,
+) -> tuple[str, dict[str, str | None]] | tuple[None, None]:
     secret = runtime.resolve_scoped_secret(
         runtime.workflow,
-        name=secret_name,
-        provider=secret_provider,
-        secret_group_id=runtime.config.get("auth_secret_group_id"),
+        secret_name=secret_name,
+        secret_group_id=secret_group_id,
+        required=required,
     )
+    if secret is None:
+        return None, None
     value = secret.get_value(obj=runtime.workflow)
     if not isinstance(value, str) or not value:
         raise ValidationError(
             {"definition": f'Node "{runtime.node["id"]}" secret "{secret.name}" must resolve to a non-empty string.'}
         )
     runtime.secret_values.append(value)
-    return value, {"name": secret.name, "provider": secret.provider}
+    return value, {
+        "name": secret.name,
+        "provider": secret.provider,
+        "secret_group": secret.secret_group.name if secret.secret_group_id else None,
+    }
 
 
 def _make_json_safe(value: Any) -> Any:

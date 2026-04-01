@@ -14,6 +14,7 @@ from automation.tools.base import (
     _resolve_runtime_secret,
     _tool_result,
     _validate_external_output_key,
+    _validate_optional_secret_group_id,
     _validate_optional_string,
     _validate_required_external_url,
     _validate_required_json_template,
@@ -29,8 +30,9 @@ def _validate_elasticsearch_search_tool(config: dict, node_id: str) -> None:
     _validate_required_external_url(config, "base_url", node_id=node_id)
     _validate_optional_string(config, "index", node_id=node_id)
     _validate_required_json_template(config, "query_json", node_id=node_id)
-    _validate_optional_string(config, "auth_token_name", node_id=node_id)
-    _validate_optional_string(config, "auth_token_provider", node_id=node_id)
+    if config.get("secret_name") not in (None, ""):
+        _validate_optional_string(config, "secret_name", node_id=node_id)
+    _validate_optional_secret_group_id(config, "secret_group_id", node_id=node_id)
     auth_scheme = config.get("auth_scheme", "ApiKey")
     if auth_scheme not in {"ApiKey", "Bearer"}:
         raise ValidationError(
@@ -53,12 +55,16 @@ def _execute_elasticsearch_search_tool(runtime: WorkflowToolExecutionContext) ->
         "Content-Type": "application/json",
     }
     secret_meta = None
-    if runtime.config.get("auth_token_name"):
+    secret_name = _render_runtime_string(runtime, "secret_name")
+    auth_token = None
+    if secret_name:
         auth_token, secret_meta = _resolve_runtime_secret(
             runtime,
-            name_key="auth_token_name",
-            provider_key="auth_token_provider",
+            secret_name=secret_name,
+            secret_group_id=runtime.config.get("secret_group_id"),
+            required=False,
         )
+    if auth_token:
         auth_scheme = runtime.config.get("auth_scheme", "ApiKey")
         headers["Authorization"] = f"{auth_scheme} {auth_token}"
 
@@ -118,18 +124,6 @@ TOOL_DEFINITION = WorkflowToolDefinition(
             placeholder="logs-*",
             help_text="Optional. Leave blank to search all indices reachable at this endpoint.",
         ),
-        tool_text_field(
-            "auth_token_name",
-            "Auth token secret name",
-            placeholder="ELASTICSEARCH_API_KEY",
-            help_text="Optional. Provide a token when the cluster requires auth.",
-        ),
-        tool_text_field(
-            "auth_token_provider",
-            "Auth token provider",
-            placeholder="environment-variable",
-            help_text="Optional. Leave blank to search all enabled providers in scope.",
-        ),
         tool_select_field(
             "auth_scheme",
             "Auth scheme",
@@ -137,6 +131,18 @@ TOOL_DEFINITION = WorkflowToolDefinition(
                 tool_field_option("ApiKey"),
                 tool_field_option("Bearer"),
             ),
+        ),
+        tool_text_field(
+            "secret_name",
+            "Secret name",
+            placeholder="ELASTICSEARCH_API_KEY",
+            help_text="Optional. Resolve this secret and send it in the Authorization header.",
+        ),
+        tool_text_field(
+            "secret_group_id",
+            "Secret group",
+            placeholder="Use workflow secret group",
+            help_text="Optional. Override the workflow secret group for this node with a scoped secret group ID.",
         ),
         tool_textarea_field(
             "query_json",

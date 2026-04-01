@@ -49,7 +49,6 @@ _TOOL_NAME_SANITIZER = re.compile(r"[^a-zA-Z0-9_-]+")
 _AGENT_TOOL_FIXED_FIELD_KEYS = frozenset(
     {
         "output_key",
-        "auth_secret_group_id",
         "base_url",
         "server_url",
         "binary_path",
@@ -58,19 +57,12 @@ _AGENT_TOOL_FIXED_FIELD_KEYS = frozenset(
         "auth_header_name",
         "auth_header_template",
         "headers_json",
-        "api_key_name",
-        "api_key_provider",
-        "auth_token_name",
-        "auth_token_provider",
-        "bearer_token_name",
-        "bearer_token_provider",
+        "auth_scheme",
+        "secret_name",
+        "secret_group_id",
     }
 )
 _AGENT_TOOL_FIXED_FIELD_SUFFIXES = (
-    "_key_name",
-    "_key_provider",
-    "_token_name",
-    "_token_provider",
     "_secret_name",
     "_secret_provider",
 )
@@ -185,7 +177,7 @@ def _is_agent_fixed_tool_field(*, tool_node: dict[str, Any], field_key: str) -> 
         return True
     if any(field_key.endswith(suffix) for suffix in _AGENT_TOOL_FIXED_FIELD_SUFFIXES):
         return True
-    if tool_node.get("type") == _AGENT_SECRET_TOOL_TYPE and field_key in {"name", "provider"}:
+    if tool_node.get("type") == _AGENT_SECRET_TOOL_TYPE and field_key in {"secret_name", "secret_group_id"}:
         return True
     return False
 

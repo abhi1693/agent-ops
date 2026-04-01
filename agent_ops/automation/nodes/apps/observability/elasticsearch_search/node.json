@@ -11,16 +11,9 @@
     "appIcon": "mdi-chart-areaspline",
     "config": {
       "output_key": "elasticsearch.search",
-      "auth_scheme": "ApiKey",
-      "auth_secret_group_id": ""
+      "auth_scheme": "ApiKey"
     },
     "fields": [
-      {
-        "key": "auth_secret_group_id",
-        "label": "Auth secret group",
-        "type": "select",
-        "help_text": "Optional. If set, this node resolves authentication secrets from the selected secret group by assignment key or grouped secret name."
-      },
       {
         "key": "output_key",
         "label": "Save result as",
@@ -41,20 +34,6 @@
         "help_text": "Optional. Leave blank to search all indices reachable at this endpoint."
       },
       {
-        "key": "auth_token_name",
-        "label": "Auth token secret name",
-        "type": "text",
-        "placeholder": "ELASTICSEARCH_API_KEY",
-        "help_text": "Optional. Provide a token when the cluster requires auth."
-      },
-      {
-        "key": "auth_token_provider",
-        "label": "Auth token provider",
-        "type": "text",
-        "placeholder": "environment-variable",
-        "help_text": "Optional. Leave blank to search all enabled providers in scope."
-      },
-      {
         "key": "auth_scheme",
         "label": "Auth scheme",
         "type": "select",
@@ -68,6 +47,20 @@
             "label": "Bearer"
           }
         ]
+      },
+      {
+        "key": "secret_name",
+        "label": "Secret name",
+        "type": "text",
+        "placeholder": "ELASTICSEARCH_API_KEY",
+        "help_text": "Optional. Resolve this secret and send it in the Authorization header."
+      },
+      {
+        "key": "secret_group_id",
+        "label": "Secret group",
+        "type": "text",
+        "placeholder": "Use workflow secret group",
+        "help_text": "Optional. Override the workflow secret group for this node with a scoped secret group ID."
       },
       {
         "key": "query_json",

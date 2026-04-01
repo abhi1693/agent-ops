@@ -2,6 +2,7 @@ import json
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.db.models import Count, Prefetch
 from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -9,13 +10,13 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from automation.auth import list_workflow_secret_group_options
 from automation import filtersets, tables
-from automation.forms import WorkflowDesignerForm, WorkflowForm, WorkflowRunForm
-from automation.models import Workflow, WorkflowRun
+from automation.auth import list_workflow_secret_group_options
+from automation.forms import SecretForm, SecretGroupForm, WorkflowDesignerForm, WorkflowForm, WorkflowRunForm
+from automation.models import Secret, SecretGroup, Workflow, WorkflowRun
+from automation.nodes import prepare_workflow_node_webhook_request
 from automation.primitives import WORKFLOW_NODE_TEMPLATES, normalize_workflow_definition_nodes
 from automation.runtime import execute_workflow
-from automation.nodes import prepare_workflow_node_webhook_request
 from core.generic_views import (
     ObjectChangeLogView,
     ObjectDeleteView,
@@ -39,6 +40,155 @@ def _pretty_json(value):
     return json.dumps(value, indent=2, sort_keys=True)
 
 
+class SecretListView(RestrictedObjectListMixin, ObjectListView):
+    queryset = Secret.objects.select_related("secret_group__organization", "secret_group__workspace", "secret_group__environment")
+    table = tables.SecretTable
+    filterset = filtersets.SecretFilterSet
+    template_name = "automation/secret_list.html"
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("secret_group__organization", "secret_group__workspace", "secret_group__environment")
+            .order_by(
+                "secret_group__organization__name",
+                "secret_group__workspace__name",
+                "secret_group__environment__name",
+                "secret_group__name",
+                "name",
+            )
+        )
+
+
+class SecretDetailView(RestrictedObjectViewMixin, ObjectView):
+    model = Secret
+    template_name = "automation/secret_detail.html"
+
+    def get_queryset(self):
+        return super().get_queryset().select_related(
+            "secret_group__organization",
+            "secret_group__workspace",
+            "secret_group__environment",
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        try:
+            context["secret_value"] = self.object.get_value()
+            context["secret_value_error"] = ""
+        except ValidationError as exc:
+            if hasattr(exc, "message_dict"):
+                error_message = " ".join(
+                    " ".join(messages)
+                    for messages in exc.message_dict.values()
+                )
+            else:
+                error_message = " ".join(exc.messages)
+            context["secret_value"] = ""
+            context["secret_value_error"] = error_message
+
+        return context
+
+
+class SecretChangelogView(RestrictedObjectChangeLogMixin, ObjectChangeLogView):
+    model = Secret
+    queryset = Secret.objects.select_related(
+        "secret_group__organization",
+        "secret_group__workspace",
+        "secret_group__environment",
+    ).order_by(
+        "secret_group__organization__name",
+        "secret_group__workspace__name",
+        "secret_group__environment__name",
+        "secret_group__name",
+        "name",
+    )
+
+
+class SecretCreateView(RestrictedObjectEditMixin, ObjectEditView):
+    model = Secret
+    form_class = SecretForm
+    success_message = "Secret created."
+
+
+class SecretUpdateView(RestrictedObjectEditMixin, ObjectEditView):
+    model = Secret
+    form_class = SecretForm
+    success_message = "Secret updated."
+
+
+class SecretDeleteView(RestrictedObjectDeleteMixin, ObjectDeleteView):
+    model = Secret
+    success_message = "Secret deleted."
+
+
+class SecretGroupListView(RestrictedObjectListMixin, ObjectListView):
+    queryset = SecretGroup.objects.select_related("organization", "workspace", "environment")
+    table = tables.SecretGroupTable
+    filterset = filtersets.SecretGroupFilterSet
+    template_name = "automation/secretgroup_list.html"
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("organization", "workspace", "environment")
+            .order_by("organization__name", "workspace__name", "environment__name", "name")
+        )
+
+
+class SecretGroupDetailView(RestrictedObjectViewMixin, ObjectView):
+    model = SecretGroup
+    template_name = "automation/secretgroup_detail.html"
+
+    def get_queryset(self):
+        secret_qs = Secret.objects.select_related(
+            "secret_group__organization",
+            "secret_group__workspace",
+            "secret_group__environment",
+        ).order_by("name")
+        return (
+            super()
+            .get_queryset()
+            .select_related("organization", "workspace", "environment")
+            .prefetch_related(Prefetch("secrets", queryset=secret_qs))
+            .annotate(secret_count=Count("secrets", distinct=True))
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["secret_rows"] = [{"secret": secret} for secret in self.object.secrets.all()]
+        return context
+
+
+class SecretGroupChangelogView(RestrictedObjectChangeLogMixin, ObjectChangeLogView):
+    model = SecretGroup
+    queryset = SecretGroup.objects.select_related("organization", "workspace", "environment").order_by(
+        "organization__name",
+        "workspace__name",
+        "environment__name",
+        "name",
+    )
+
+
+class SecretGroupCreateView(RestrictedObjectEditMixin, ObjectEditView):
+    model = SecretGroup
+    form_class = SecretGroupForm
+    success_message = "Secret group created."
+
+
+class SecretGroupUpdateView(RestrictedObjectEditMixin, ObjectEditView):
+    model = SecretGroup
+    form_class = SecretGroupForm
+    success_message = "Secret group updated."
+
+
+class SecretGroupDeleteView(RestrictedObjectDeleteMixin, ObjectDeleteView):
+    model = SecretGroup
+    success_message = "Secret group deleted."
+
+
 def _build_run_display(run: WorkflowRun):
     return {
         "object": run,
@@ -47,21 +197,6 @@ def _build_run_display(run: WorkflowRun):
         "context_json": _pretty_json(run.context_data),
         "steps_json": _pretty_json(run.step_results),
     }
-
-
-def _hydrate_workflow_node_templates(*, secret_group_options):
-    hydrated_templates = []
-    for template in WORKFLOW_NODE_TEMPLATES:
-        hydrated_template = dict(template)
-        hydrated_fields = []
-        for field in template.get("fields", ()):
-            hydrated_field = dict(field)
-            if hydrated_field.get("key") == "auth_secret_group_id":
-                hydrated_field["options"] = list(secret_group_options)
-            hydrated_fields.append(hydrated_field)
-        hydrated_template["fields"] = hydrated_fields
-        hydrated_templates.append(hydrated_template)
-    return hydrated_templates
 
 
 def _group_workflow_node_templates_by_app(*, node_templates):
@@ -84,6 +219,25 @@ def _group_workflow_node_templates_by_app(*, node_templates):
         app_group["templates"].append(template)
 
     return grouped_templates
+
+
+def _hydrate_workflow_node_templates_for_workflow(workflow) -> list[dict]:
+    secret_group_options = list_workflow_secret_group_options(workflow)
+    hydrated_templates: list[dict] = []
+
+    for template in WORKFLOW_NODE_TEMPLATES:
+        hydrated_template = dict(template)
+        hydrated_fields = []
+        for field in template.get("fields", []):
+            hydrated_field = dict(field)
+            if hydrated_field.get("key") == "secret_group_id":
+                hydrated_field["type"] = "select"
+                hydrated_field["options"] = list(secret_group_options)
+            hydrated_fields.append(hydrated_field)
+        hydrated_template["fields"] = hydrated_fields
+        hydrated_templates.append(hydrated_template)
+
+    return hydrated_templates
 
 
 class WorkflowListView(RestrictedObjectListMixin, ObjectListView):
@@ -188,10 +342,7 @@ class WorkflowDesignerView(RestrictedObjectEditMixin, ObjectEditView):
     def get_context_data(self, request, form):
         context = super().get_context_data(request, form)
         normalized_definition = normalize_workflow_definition_nodes(self.object.definition)
-        secret_group_options = list_workflow_secret_group_options(self.object)
-        hydrated_templates = _hydrate_workflow_node_templates(
-            secret_group_options=secret_group_options,
-        )
+        hydrated_templates = _hydrate_workflow_node_templates_for_workflow(self.object)
         context.update(
             {
                 "workflow_definition": normalized_definition,
