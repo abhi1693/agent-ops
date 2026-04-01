@@ -1,6 +1,7 @@
 import {
   CANVAS_EDGE_MARGIN,
   NODE_CARD_HEIGHT,
+  NODE_CARD_WIDTH,
   NODE_COLUMN_GAP,
   NODE_HEIGHT,
   NODE_ROW_GAP,
@@ -26,7 +27,6 @@ import {
   formatKindLabel,
   getTemplateFieldOptions,
   getTemplateFieldValue,
-  getNodeSubtitle,
   isTemplateFieldVisible,
   parseJsonScript,
 } from './workflowDesigner/utils';
@@ -418,34 +418,40 @@ function canNodeEmitConnections(node: WorkflowNode): boolean {
   return node.kind !== 'response';
 }
 
+function getNodeCardOffsetX(): number {
+  return (NODE_WIDTH - NODE_CARD_WIDTH) / 2;
+}
+
 function getNodeCenter(node: WorkflowNode): Point {
   return {
-    x: node.position.x + NODE_WIDTH / 2,
+    x: node.position.x + getNodeCardOffsetX() + NODE_CARD_WIDTH / 2,
     y: node.position.y + NODE_CARD_HEIGHT / 2,
   };
 }
 
 function getConnectorPoint(node: WorkflowNode, side: ConnectorSide): Point {
+  const cardOffsetX = getNodeCardOffsetX();
+
   switch (side) {
     case 'top':
       return {
-        x: node.position.x + NODE_WIDTH / 2,
+        x: node.position.x + cardOffsetX + NODE_CARD_WIDTH / 2,
         y: node.position.y,
       };
     case 'right':
       return {
-        x: node.position.x + NODE_WIDTH,
+        x: node.position.x + cardOffsetX + NODE_CARD_WIDTH,
         y: node.position.y + NODE_CARD_HEIGHT / 2,
       };
     case 'bottom':
       return {
-        x: node.position.x + NODE_WIDTH / 2,
+        x: node.position.x + cardOffsetX + NODE_CARD_WIDTH / 2,
         y: node.position.y + NODE_CARD_HEIGHT,
       };
     case 'left':
     default:
       return {
-        x: node.position.x,
+        x: node.position.x + cardOffsetX,
         y: node.position.y + NODE_CARD_HEIGHT / 2,
       };
   }
@@ -999,16 +1005,6 @@ export function initWorkflowDesigner(): void {
         const nodeDefinition = nodeRegistry.definitionMap.get(node.type);
         const icon = nodeDefinition?.icon ?? 'mdi-vector-square';
         const title = node.label || nodeDefinition?.label || formatKindLabel(node.kind) || node.type;
-        const summary = getNodeSubtitle(node, nodeDefinition);
-        const appLabel = nodeDefinition?.app_label ?? 'Workflow';
-        const subtitle =
-          summary && summary !== title
-            ? summary
-            : appLabel !== 'Workflow'
-              ? appLabel
-              : node.kind === 'trigger'
-                ? 'Starts the workflow'
-                : '';
         const isSelected = selectedNodeId === node.id;
         const isConnectionSource = connectionDraft?.sourceId === node.id;
         const isConnectionCandidate = connectionDraft
@@ -1080,11 +1076,6 @@ export function initWorkflowDesigner(): void {
             </span>
             <span class="workflow-editor-node-copy">
               <span class="workflow-editor-node-title">${escapeHtml(title)}</span>
-              ${
-                subtitle
-                  ? `<span class="workflow-editor-node-subtitle">${escapeHtml(subtitle)}</span>`
-                  : ''
-              }
             </span>
           </article>
         `;
