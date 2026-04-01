@@ -50,6 +50,8 @@ type CanvasElements = {
   settingsTitle: HTMLElement;
 };
 
+type ConnectorSide = 'top' | 'right' | 'bottom' | 'left';
+
 type DragState = {
   nodeId: string;
   offsetX: number;
@@ -59,6 +61,7 @@ type DragState = {
 
 type ConnectionDraft = {
   hoveredTargetId: string | null;
+  hoveredTargetSide: ConnectorSide | null;
   pointerId: number;
   pointerX: number;
   pointerY: number;
@@ -72,6 +75,13 @@ type InsertDraft = {
   };
   sourceId: string;
 };
+
+type Point = {
+  x: number;
+  y: number;
+};
+
+const CONNECTOR_SIDES: ConnectorSide[] = ['top', 'right', 'bottom', 'left'];
 
 function getBrowserElements(root: ParentNode): BrowserElements | null {
   const browser = root.querySelector<HTMLElement>('[data-node-browser]');
@@ -231,6 +241,29 @@ function clampNodePosition(
   };
 }
 
+function nodesOverlap(
+  first: { x: number; y: number },
+  second: { x: number; y: number },
+  padding = 28,
+): boolean {
+  return !(
+    first.x + NODE_WIDTH + padding <= second.x ||
+    second.x + NODE_WIDTH + padding <= first.x ||
+    first.y + NODE_HEIGHT + padding <= second.y ||
+    second.y + NODE_HEIGHT + padding <= first.y
+  );
+}
+
+function hasNodeCollision(
+  definition: WorkflowDefinition,
+  position: { x: number; y: number },
+  ignoreNodeId?: string,
+): boolean {
+  return definition.nodes.some(
+    (node) => node.id !== ignoreNodeId && nodesOverlap(position, node.position),
+  );
+}
+
 function getSuggestedNodePosition(
   board: HTMLElement,
   definition: WorkflowDefinition,
@@ -240,6 +273,31 @@ function getSuggestedNodePosition(
     ? definition.nodes.find((node) => node.id === selectedNodeId)
     : undefined;
   if (selectedNode) {
+    const nextPosition = [
+      {
+        x: selectedNode.position.x + NODE_COLUMN_GAP,
+        y: selectedNode.position.y,
+      },
+      {
+        x: selectedNode.position.x,
+        y: selectedNode.position.y + NODE_ROW_GAP,
+      },
+      {
+        x: selectedNode.position.x - NODE_COLUMN_GAP,
+        y: selectedNode.position.y,
+      },
+      {
+        x: selectedNode.position.x,
+        y: selectedNode.position.y - NODE_ROW_GAP,
+      },
+    ]
+      .map((position) => clampNodePosition(board, position))
+      .find((position) => !hasNodeCollision(definition, position));
+
+    if (nextPosition) {
+      return nextPosition;
+    }
+
     return clampNodePosition(board, {
       x: selectedNode.position.x + NODE_COLUMN_GAP,
       y: selectedNode.position.y,
@@ -299,15 +357,6 @@ function getNodeElement(nodeLayer: HTMLElement, nodeId: string): HTMLElement | n
   );
 }
 
-function getNodeHandleElement(
-  root: ParentNode,
-  selector: '[data-workflow-node-input]' | '[data-workflow-node-output]',
-  nodeId: string,
-): HTMLElement | null {
-  const attributeName = selector === '[data-workflow-node-input]' ? 'data-workflow-node-input' : 'data-workflow-node-output';
-  return root.querySelector<HTMLElement>(`[${attributeName}="${nodeId}"]`);
-}
-
 function setNodeElementPosition(nodeElement: HTMLElement, node: WorkflowNode): void {
   nodeElement.style.left = `${node.position.x}px`;
   nodeElement.style.top = `${node.position.y}px`;
@@ -321,29 +370,134 @@ function canNodeEmitConnections(node: WorkflowNode): boolean {
   return node.kind !== 'response';
 }
 
+function getNodeCenter(node: WorkflowNode): Point {
+  return {
+    x: node.position.x + NODE_WIDTH / 2,
+    y: node.position.y + NODE_HEIGHT / 2,
+  };
+}
+
+function getConnectorPoint(node: WorkflowNode, side: ConnectorSide): Point {
+  switch (side) {
+    case 'top':
+      return {
+        x: node.position.x + NODE_WIDTH / 2,
+        y: node.position.y,
+      };
+    case 'right':
+      return {
+        x: node.position.x + NODE_WIDTH,
+        y: node.position.y + NODE_HEIGHT / 2,
+      };
+    case 'bottom':
+      return {
+        x: node.position.x + NODE_WIDTH / 2,
+        y: node.position.y + NODE_HEIGHT,
+      };
+    case 'left':
+    default:
+      return {
+        x: node.position.x,
+        y: node.position.y + NODE_HEIGHT / 2,
+      };
+  }
+}
+
+function getConnectorVector(side: ConnectorSide): Point {
+  switch (side) {
+    case 'top':
+      return { x: 0, y: -1 };
+    case 'right':
+      return { x: 1, y: 0 };
+    case 'bottom':
+      return { x: 0, y: 1 };
+    case 'left':
+    default:
+      return { x: -1, y: 0 };
+  }
+}
+
+function getOppositeConnectorSide(side: ConnectorSide): ConnectorSide {
+  switch (side) {
+    case 'top':
+      return 'bottom';
+    case 'right':
+      return 'left';
+    case 'bottom':
+      return 'top';
+    case 'left':
+    default:
+      return 'right';
+  }
+}
+
+function getPreferredConnectorSide(node: WorkflowNode, point: Point): ConnectorSide {
+  const center = getNodeCenter(node);
+  const deltaX = point.x - center.x;
+  const deltaY = point.y - center.y;
+
+  if (Math.abs(deltaX) >= Math.abs(deltaY)) {
+    return deltaX >= 0 ? 'right' : 'left';
+  }
+
+  return deltaY >= 0 ? 'bottom' : 'top';
+}
+
+function getConnectionSides(
+  sourceNode: WorkflowNode,
+  targetNode: WorkflowNode,
+): { sourceSide: ConnectorSide; targetSide: ConnectorSide } {
+  return {
+    sourceSide: getPreferredConnectorSide(sourceNode, getNodeCenter(targetNode)),
+    targetSide: getPreferredConnectorSide(targetNode, getNodeCenter(sourceNode)),
+  };
+}
+
 function buildConnectionPath(
-  source: { x: number; y: number },
-  target: { x: number; y: number },
+  source: Point,
+  sourceSide: ConnectorSide,
+  target: Point,
+  targetSide: ConnectorSide,
 ): string {
   const controlOffset = getConnectionControlOffset(source, target);
+  const sourceVector = getConnectorVector(sourceSide);
+  const targetVector = getConnectorVector(targetSide);
+  const sourceControl = {
+    x: source.x + sourceVector.x * controlOffset,
+    y: source.y + sourceVector.y * controlOffset,
+  };
+  const targetControl = {
+    x: target.x + targetVector.x * controlOffset,
+    y: target.y + targetVector.y * controlOffset,
+  };
 
-  return `M ${source.x} ${source.y} C ${source.x + controlOffset} ${source.y}, ${target.x - controlOffset} ${target.y}, ${target.x} ${target.y}`;
+  return `M ${source.x} ${source.y} C ${sourceControl.x} ${sourceControl.y}, ${targetControl.x} ${targetControl.y}, ${target.x} ${target.y}`;
 }
 
 function getConnectionControlOffset(
-  source: { x: number; y: number },
-  target: { x: number; y: number },
+  source: Point,
+  target: Point,
 ): number {
-  return Math.max(Math.abs(target.x - source.x) * 0.38, 64);
+  return Math.max(Math.max(Math.abs(target.x - source.x), Math.abs(target.y - source.y)) * 0.4, 64);
 }
 
 function getConnectionMidpoint(
-  source: { x: number; y: number },
-  target: { x: number; y: number },
+  source: Point,
+  sourceSide: ConnectorSide,
+  target: Point,
+  targetSide: ConnectorSide,
 ): { x: number; y: number } {
   const controlOffset = getConnectionControlOffset(source, target);
-  const startControl = { x: source.x + controlOffset, y: source.y };
-  const endControl = { x: target.x - controlOffset, y: target.y };
+  const sourceVector = getConnectorVector(sourceSide);
+  const targetVector = getConnectorVector(targetSide);
+  const startControl = {
+    x: source.x + sourceVector.x * controlOffset,
+    y: source.y + sourceVector.y * controlOffset,
+  };
+  const endControl = {
+    x: target.x + targetVector.x * controlOffset,
+    y: target.y + targetVector.y * controlOffset,
+  };
   const t = 0.5;
   const mt = 1 - t;
 
@@ -432,26 +586,40 @@ export function initWorkflowDesigner(): void {
     return !hasConnection(sourceId, targetId);
   }
 
-  function getHandleCenter(handleElement: HTMLElement): { x: number; y: number } {
+  function getPointFromClient(clientX: number, clientY: number): Point {
     const boardRect = canvas.board.getBoundingClientRect();
-    const handleRect = handleElement.getBoundingClientRect();
 
     return {
-      x: handleRect.left - boardRect.left + canvas.board.scrollLeft + handleRect.width / 2,
-      y: handleRect.top - boardRect.top + canvas.board.scrollTop + handleRect.height / 2,
+      x: clientX - boardRect.left + canvas.board.scrollLeft,
+      y: clientY - boardRect.top + canvas.board.scrollTop,
     };
   }
 
-  function getHoveredTargetId(clientX: number, clientY: number, sourceId: string): string | null {
+  function getHoveredTarget(
+    clientX: number,
+    clientY: number,
+    sourceId: string,
+  ): { nodeId: string; side: ConnectorSide } | null {
     const target = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
-    const inputHandle = target?.closest<HTMLElement>('[data-workflow-node-input]');
-    const targetId = inputHandle?.dataset.workflowNodeInput ?? null;
+    const connector = target?.closest<HTMLElement>('[data-workflow-node-connector]');
+    const nodeElement = target?.closest<HTMLElement>('[data-workflow-node-id]');
+    const targetId = connector?.dataset.workflowNodeConnector ?? nodeElement?.dataset.workflowNodeId ?? null;
 
     if (!targetId || !isValidConnection(sourceId, targetId)) {
       return null;
     }
 
-    return targetId;
+    const targetNode = getNode(targetId);
+    if (!targetNode) {
+      return null;
+    }
+
+    return {
+      nodeId: targetId,
+      side:
+        (connector?.dataset.workflowNodeConnectorSide as ConnectorSide | undefined) ??
+        getPreferredConnectorSide(targetNode, getPointFromClient(clientX, clientY)),
+    };
   }
 
   function getNodeDefinition(node: WorkflowNode | undefined): WorkflowNodeDefinition | undefined {
@@ -664,6 +832,54 @@ export function initWorkflowDesigner(): void {
         const isConnectionTarget = connectionDraft?.hoveredTargetId === node.id;
         const canReceiveConnections = canNodeReceiveConnections(node);
         const canEmitConnections = canNodeEmitConnections(node);
+        const sourceConnectionNode = connectionDraft ? getNode(connectionDraft.sourceId) : undefined;
+        const draftTargetPoint =
+          connectionDraft && isConnectionSource
+            ? connectionDraft.hoveredTargetId
+              ? (() => {
+                  const hoveredNode = getNode(connectionDraft.hoveredTargetId);
+                  return hoveredNode
+                    ? connectionDraft.hoveredTargetSide
+                      ? getConnectorPoint(hoveredNode, connectionDraft.hoveredTargetSide)
+                      : getNodeCenter(hoveredNode)
+                    : {
+                        x: connectionDraft.pointerX,
+                        y: connectionDraft.pointerY,
+                      };
+                })()
+              : {
+                  x: connectionDraft.pointerX,
+                  y: connectionDraft.pointerY,
+                }
+            : null;
+        const activeSourceSide =
+          draftTargetPoint && canEmitConnections
+            ? getPreferredConnectorSide(node, draftTargetPoint)
+            : null;
+        const activeTargetSide =
+          isConnectionTarget && canReceiveConnections && sourceConnectionNode
+            ? connectionDraft?.hoveredTargetSide ?? getPreferredConnectorSide(node, getNodeCenter(sourceConnectionNode))
+            : null;
+        const connectorModeClass = canReceiveConnections && canEmitConnections
+          ? ' is-bidirectional'
+          : canEmitConnections
+            ? ' is-output-only'
+            : ' is-input-only';
+        const connectors = (canReceiveConnections || canEmitConnections)
+          ? CONNECTOR_SIDES.map((side) => {
+              const isActiveSourceConnector = activeSourceSide === side;
+              const isActiveTargetConnector = activeTargetSide === side;
+
+              return `
+                <span
+                  class="workflow-editor-node-connector workflow-editor-node-connector--${side}${connectorModeClass}${isConnectionCandidate ? ' is-candidate' : ''}${isActiveSourceConnector ? ' is-output-active' : ''}${isActiveTargetConnector ? ' is-input-active' : ''}"
+                  data-workflow-node-connector="${escapeHtml(node.id)}"
+                  data-workflow-node-connector-side="${side}"
+                  aria-hidden="true"
+                ></span>
+              `;
+            }).join('')
+          : '';
 
         return `
           <article
@@ -671,16 +887,7 @@ export function initWorkflowDesigner(): void {
             data-workflow-node-id="${escapeHtml(node.id)}"
             tabindex="0"
           >
-            ${
-              canReceiveConnections
-                ? `<span class="workflow-editor-node-handle workflow-editor-node-handle--input${isConnectionCandidate ? ' is-candidate' : ''}${isConnectionTarget ? ' is-active' : ''}" data-workflow-node-input="${escapeHtml(node.id)}"></span>`
-                : ''
-            }
-            ${
-              canEmitConnections
-                ? `<span class="workflow-editor-node-handle workflow-editor-node-handle--output${isConnectionSource ? ' is-active' : ''}" data-workflow-node-output="${escapeHtml(node.id)}"></span>`
-                : ''
-            }
+            ${connectors}
             <button
               type="button"
               class="workflow-editor-node-settings-trigger"
@@ -721,15 +928,16 @@ export function initWorkflowDesigner(): void {
 
     const edgeMarkup = workflowDefinition.edges
       .map((edge) => {
-        const sourceHandle = getNodeHandleElement(canvas.nodeLayer, '[data-workflow-node-output]', edge.source);
-        const targetHandle = getNodeHandleElement(canvas.nodeLayer, '[data-workflow-node-input]', edge.target);
-        if (!sourceHandle || !targetHandle) {
+        const sourceNode = getNode(edge.source);
+        const targetNode = getNode(edge.target);
+        if (!sourceNode || !targetNode) {
           return '';
         }
 
-        const sourcePoint = getHandleCenter(sourceHandle);
-        const targetPoint = getHandleCenter(targetHandle);
-        const path = buildConnectionPath(sourcePoint, targetPoint);
+        const { sourceSide, targetSide } = getConnectionSides(sourceNode, targetNode);
+        const sourcePoint = getConnectorPoint(sourceNode, sourceSide);
+        const targetPoint = getConnectorPoint(targetNode, targetSide);
+        const path = buildConnectionPath(sourcePoint, sourceSide, targetPoint, targetSide);
         const isHovered = hoveredEdgeId === edge.id;
 
         return `
@@ -750,37 +958,38 @@ export function initWorkflowDesigner(): void {
         return '';
       }
 
-      const sourceHandle = getNodeHandleElement(
-        canvas.nodeLayer,
-        '[data-workflow-node-output]',
-        connectionDraft.sourceId,
-      );
-      if (!sourceHandle) {
+      const sourceNode = getNode(connectionDraft.sourceId);
+      if (!sourceNode) {
         return '';
       }
 
-      const sourcePoint = getHandleCenter(sourceHandle);
-      const targetPoint =
-        connectionDraft.hoveredTargetId
-          ? (() => {
-              const hoveredHandle = getNodeHandleElement(
-                canvas.nodeLayer,
-                '[data-workflow-node-input]',
-                connectionDraft.hoveredTargetId,
-              );
-              return hoveredHandle
-                ? getHandleCenter(hoveredHandle)
-                : {
-                    x: connectionDraft.pointerX,
-                    y: connectionDraft.pointerY,
-                  };
-            })()
-          : {
-              x: connectionDraft.pointerX,
-              y: connectionDraft.pointerY,
-            };
+      const targetPoint = connectionDraft.hoveredTargetId
+        ? (() => {
+            const hoveredNode = getNode(connectionDraft.hoveredTargetId);
+            if (!hoveredNode) {
+              return {
+                x: connectionDraft.pointerX,
+                y: connectionDraft.pointerY,
+              };
+            }
 
-      return `<path class="workflow-editor-edge-path workflow-editor-edge-path--draft" d="${buildConnectionPath(sourcePoint, targetPoint)}"></path>`;
+            const targetSide =
+              connectionDraft.hoveredTargetSide ??
+              getPreferredConnectorSide(hoveredNode, getNodeCenter(sourceNode));
+
+            return getConnectorPoint(hoveredNode, targetSide);
+          })()
+        : {
+            x: connectionDraft.pointerX,
+            y: connectionDraft.pointerY,
+          };
+      const sourceSide = getPreferredConnectorSide(sourceNode, targetPoint);
+      const sourcePoint = getConnectorPoint(sourceNode, sourceSide);
+      const targetSide = connectionDraft.hoveredTargetId
+        ? connectionDraft.hoveredTargetSide ?? getOppositeConnectorSide(sourceSide)
+        : getOppositeConnectorSide(sourceSide);
+
+      return `<path class="workflow-editor-edge-path workflow-editor-edge-path--draft" d="${buildConnectionPath(sourcePoint, sourceSide, targetPoint, targetSide)}"></path>`;
     })();
 
     canvas.edgeLayer.innerHTML = `${edgeMarkup}${draftMarkup}`;
@@ -798,16 +1007,17 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
-    const sourceHandle = getNodeHandleElement(canvas.nodeLayer, '[data-workflow-node-output]', hoveredEdge.source);
-    const targetHandle = getNodeHandleElement(canvas.nodeLayer, '[data-workflow-node-input]', hoveredEdge.target);
-    if (!sourceHandle || !targetHandle) {
+    const sourceNode = getNode(hoveredEdge.source);
+    const targetNode = getNode(hoveredEdge.target);
+    if (!sourceNode || !targetNode) {
       canvas.edgeControls.innerHTML = '';
       return;
     }
 
-    const sourcePoint = getHandleCenter(sourceHandle);
-    const targetPoint = getHandleCenter(targetHandle);
-    const midpoint = getConnectionMidpoint(sourcePoint, targetPoint);
+    const { sourceSide, targetSide } = getConnectionSides(sourceNode, targetNode);
+    const sourcePoint = getConnectorPoint(sourceNode, sourceSide);
+    const targetPoint = getConnectorPoint(targetNode, targetSide);
+    const midpoint = getConnectionMidpoint(sourcePoint, sourceSide, targetPoint, targetSide);
     const controlX = clamp(Math.round(midpoint.x), 20, Math.max(canvas.board.clientWidth - 20, 20));
     const controlY = clamp(Math.round(midpoint.y), 20, Math.max(canvas.board.clientHeight - 20, 20));
 
@@ -1075,13 +1285,15 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
+    const pointerPoint = getPointFromClient(clientX, clientY);
     selectedNodeId = sourceId;
     hoveredEdgeId = null;
     connectionDraft = {
       hoveredTargetId: null,
+      hoveredTargetSide: null,
       pointerId,
-      pointerX: clientX - canvas.board.getBoundingClientRect().left + canvas.board.scrollLeft,
-      pointerY: clientY - canvas.board.getBoundingClientRect().top + canvas.board.scrollTop,
+      pointerX: pointerPoint.x,
+      pointerY: pointerPoint.y,
       sourceId,
     };
     renderCanvas();
@@ -1179,20 +1391,19 @@ export function initWorkflowDesigner(): void {
 
   canvas.nodeLayer.addEventListener('pointerdown', (event) => {
     const target = event.target as HTMLElement;
-    const outputHandle = target.closest<HTMLElement>('[data-workflow-node-output]');
-    if (outputHandle?.dataset.workflowNodeOutput) {
-      beginConnection(
-        outputHandle.dataset.workflowNodeOutput,
-        event.pointerId,
-        event.clientX,
-        event.clientY,
-      );
-      event.preventDefault();
-      return;
-    }
-
-    if (target.closest('[data-workflow-node-input]')) {
-      return;
+    const connector = target.closest<HTMLElement>('[data-workflow-node-connector]');
+    if (connector?.dataset.workflowNodeConnector) {
+      const connectorNode = getNode(connector.dataset.workflowNodeConnector);
+      if (connectorNode && canNodeEmitConnections(connectorNode)) {
+        beginConnection(
+          connector.dataset.workflowNodeConnector,
+          event.pointerId,
+          event.clientX,
+          event.clientY,
+        );
+        event.preventDefault();
+        return;
+      }
     }
 
     if (target.closest('[data-open-node-settings]')) {
@@ -1278,19 +1489,22 @@ export function initWorkflowDesigner(): void {
 
   window.addEventListener('pointermove', (event) => {
     if (connectionDraft && event.pointerId === connectionDraft.pointerId) {
-      const boardRect = canvas.board.getBoundingClientRect();
-      connectionDraft.pointerX = event.clientX - boardRect.left + canvas.board.scrollLeft;
-      connectionDraft.pointerY = event.clientY - boardRect.top + canvas.board.scrollTop;
-      const nextHoveredTargetId = getHoveredTargetId(
+      const pointerPoint = getPointFromClient(event.clientX, event.clientY);
+      connectionDraft.pointerX = pointerPoint.x;
+      connectionDraft.pointerY = pointerPoint.y;
+      const nextHoveredTarget = getHoveredTarget(
         event.clientX,
         event.clientY,
         connectionDraft.sourceId,
       );
-      if (connectionDraft.hoveredTargetId !== nextHoveredTargetId) {
-        connectionDraft.hoveredTargetId = nextHoveredTargetId;
-        renderNodes();
-      } else {
-        connectionDraft.hoveredTargetId = nextHoveredTargetId;
+      const didHoverTargetChange =
+        connectionDraft.hoveredTargetId !== nextHoveredTarget?.nodeId ||
+        connectionDraft.hoveredTargetSide !== nextHoveredTarget?.side;
+      connectionDraft.hoveredTargetId = nextHoveredTarget?.nodeId ?? null;
+      connectionDraft.hoveredTargetSide = nextHoveredTarget?.side ?? null;
+      renderNodes();
+      if (didHoverTargetChange) {
+        renderEdgeControls();
       }
       renderEdges();
       return;

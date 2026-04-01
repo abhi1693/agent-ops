@@ -1269,6 +1269,10 @@ tr[data-virtual='true'] {
     0 0 0 2px rgba(255, 109, 90, 0.12);
 }
 
+.workflow-editor-node.is-connection-candidate {
+  border-color: rgba(59, 130, 246, 0.22);
+}
+
 .workflow-editor-node.is-connection-target {
   border-color: rgba(59, 130, 246, 0.42);
   box-shadow:
@@ -1387,9 +1391,8 @@ tr[data-virtual='true'] {
   transform: translateY(-1px);
 }
 
-.workflow-editor-node-handle {
+.workflow-editor-node-connector {
   position: absolute;
-  top: 50%;
   width: 0.95rem;
   height: 0.95rem;
   display: inline-flex;
@@ -1405,18 +1408,37 @@ tr[data-virtual='true'] {
     background-color 0.16s ease,
     box-shadow 0.16s ease,
     transform 0.16s ease;
+  z-index: 2;
 }
 
-.workflow-editor-node-handle--input {
-  left: 0;
+.workflow-editor-node-connector--top {
+  top: 0;
+  left: 50%;
 }
 
-.workflow-editor-node-handle--output {
+.workflow-editor-node-connector--right {
+  top: 50%;
   left: 100%;
 }
 
-.workflow-editor-node-handle--output:hover,
-.workflow-editor-node-handle--output.is-active {
+.workflow-editor-node-connector--bottom {
+  top: 100%;
+  left: 50%;
+}
+
+.workflow-editor-node-connector--left {
+  top: 50%;
+  left: 0;
+}
+
+.workflow-editor-node-connector.is-output-only,
+.workflow-editor-node-connector.is-bidirectional {
+  cursor: crosshair;
+}
+
+.workflow-editor-node-connector.is-output-only:hover,
+.workflow-editor-node-connector.is-bidirectional:hover,
+.workflow-editor-node-connector.is-output-active {
   border-color: rgba(255, 109, 90, 0.92);
   background: rgba(255, 109, 90, 0.12);
   box-shadow:
@@ -1425,12 +1447,12 @@ tr[data-virtual='true'] {
   transform: translate(-50%, -50%) scale(1.06);
 }
 
-.workflow-editor-node-handle--input.is-candidate {
+.workflow-editor-node-connector.is-candidate {
   border-color: rgba(59, 130, 246, 0.4);
   background: rgba(59, 130, 246, 0.08);
 }
 
-.workflow-editor-node-handle--input.is-active {
+.workflow-editor-node-connector.is-input-active {
   border-color: rgba(59, 130, 246, 0.92);
   background: rgba(59, 130, 246, 0.14);
   box-shadow:
