@@ -94,9 +94,11 @@ type Point = {
 };
 
 const CONNECTOR_SIDES: ConnectorSide[] = ['top', 'right', 'bottom', 'left'];
-const NODE_CONTEXT_MENU_WIDTH = 172;
-const NODE_CONTEXT_MENU_HEIGHT = 104;
+const NODE_CONTEXT_MENU_WIDTH = 224;
+const NODE_CONTEXT_MENU_HEIGHT = 142;
 const NODE_CONTEXT_MENU_MARGIN = 12;
+const NODE_CONTEXT_MENU_OFFSET_X = 10;
+const NODE_CONTEXT_MENU_OFFSET_Y = 6;
 
 function getBrowserElements(root: ParentNode): BrowserElements | null {
   const browser = root.querySelector<HTMLElement>('[data-node-browser]');
@@ -850,8 +852,8 @@ export function initWorkflowDesigner(): void {
 
   function getNodeContextMenuPosition(clientX: number, clientY: number): { x: number; y: number } {
     const boardRect = canvas.board.getBoundingClientRect();
-    const rawX = clientX - boardRect.left + canvas.board.scrollLeft;
-    const rawY = clientY - boardRect.top + canvas.board.scrollTop;
+    const rawX = clientX - boardRect.left + canvas.board.scrollLeft + NODE_CONTEXT_MENU_OFFSET_X;
+    const rawY = clientY - boardRect.top + canvas.board.scrollTop + NODE_CONTEXT_MENU_OFFSET_Y;
     const minX = canvas.board.scrollLeft + NODE_CONTEXT_MENU_MARGIN;
     const minY = canvas.board.scrollTop + NODE_CONTEXT_MENU_MARGIN;
     const maxX = Math.max(
@@ -906,27 +908,45 @@ export function initWorkflowDesigner(): void {
     }
 
     const title = node.label || formatKindLabel(node.kind) || node.type;
+    const nodeDefinition = getNodeDefinition(node);
+    const meta = [
+      formatKindLabel(node.kind),
+      nodeDefinition?.app_label && nodeDefinition.app_label !== 'Workflow'
+        ? nodeDefinition.app_label
+        : null,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .join(' • ');
     canvas.nodeMenu.hidden = false;
     canvas.nodeMenu.style.left = `${contextMenuState.x}px`;
     canvas.nodeMenu.style.top = `${contextMenuState.y}px`;
     canvas.nodeMenu.innerHTML = `
       <div class="workflow-editor-node-menu-sheet">
-        <div class="workflow-editor-node-menu-label">${escapeHtml(title)}</div>
+        <div class="workflow-editor-node-menu-head">
+          <div class="workflow-editor-node-menu-title">${escapeHtml(title)}</div>
+          ${meta ? `<div class="workflow-editor-node-menu-meta">${escapeHtml(meta)}</div>` : ''}
+        </div>
+        <div class="workflow-editor-node-menu-divider" aria-hidden="true"></div>
         <button
           type="button"
           class="workflow-editor-node-menu-action"
           data-node-menu-action="settings"
         >
-          <i class="mdi mdi-tune-variant"></i>
-          <span>Settings</span>
+          <span class="workflow-editor-node-menu-action-icon" aria-hidden="true">
+            <i class="mdi mdi-tune-variant"></i>
+          </span>
+          <span class="workflow-editor-node-menu-action-label">Settings</span>
         </button>
         <button
           type="button"
           class="workflow-editor-node-menu-action is-danger"
           data-node-menu-action="delete"
         >
-          <i class="mdi mdi-trash-can-outline"></i>
-          <span>Delete</span>
+          <span class="workflow-editor-node-menu-action-icon" aria-hidden="true">
+            <i class="mdi mdi-trash-can-outline"></i>
+          </span>
+          <span class="workflow-editor-node-menu-action-label">Delete</span>
+          <span class="workflow-editor-node-menu-action-shortcut" aria-hidden="true">Del</span>
         </button>
       </div>
     `;
@@ -997,11 +1017,6 @@ export function initWorkflowDesigner(): void {
         const isConnectionTarget = connectionDraft?.hoveredTargetId === node.id;
         const canReceiveConnections = canNodeReceiveConnections(node);
         const canEmitConnections = canNodeEmitConnections(node);
-        const visibleFields = nodeDefinition?.fields.filter((field) => isTemplateFieldVisible(node, field)) ?? [];
-        const hasAttention =
-          node.kind !== 'trigger' &&
-          visibleFields.length > 0 &&
-          visibleFields.some((field) => getTemplateFieldValue(node, field).trim() === '');
         const sourceConnectionNode = connectionDraft ? getNode(connectionDraft.sourceId) : undefined;
         const draftTargetPoint =
           connectionDraft && isConnectionSource
@@ -1053,7 +1068,7 @@ export function initWorkflowDesigner(): void {
 
         return `
           <article
-            class="workflow-editor-node workflow-editor-node--${escapeHtml(node.kind)}${hasAttention ? ' has-attention' : ''}${isSelected ? ' is-selected' : ''}${isConnectionSource ? ' is-connection-source' : ''}${isConnectionCandidate ? ' is-connection-candidate' : ''}${isConnectionTarget ? ' is-connection-target' : ''}"
+            class="workflow-editor-node workflow-editor-node--${escapeHtml(node.kind)}${isSelected ? ' is-selected' : ''}${isConnectionSource ? ' is-connection-source' : ''}${isConnectionCandidate ? ' is-connection-candidate' : ''}${isConnectionTarget ? ' is-connection-target' : ''}"
             data-workflow-node-id="${escapeHtml(node.id)}"
             tabindex="0"
           >
@@ -1062,15 +1077,6 @@ export function initWorkflowDesigner(): void {
               <span class="workflow-editor-node-icon">
                 <i class="mdi ${escapeHtml(icon)}"></i>
               </span>
-              ${
-                hasAttention
-                  ? `
-                    <span class="workflow-editor-node-alert" aria-label="Node needs configuration">
-                      <i class="mdi mdi-alert"></i>
-                    </span>
-                  `
-                  : ''
-              }
             </span>
             <span class="workflow-editor-node-copy">
               <span class="workflow-editor-node-title">${escapeHtml(title)}</span>
