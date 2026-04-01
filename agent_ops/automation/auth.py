@@ -42,13 +42,29 @@ def get_workflow_secret_groups_queryset(workflow):
 
 
 def list_workflow_secret_group_options(workflow) -> list[dict[str, str]]:
-    options = [{"value": "", "label": "No secret group"}]
+    default_label = "Use workflow secret group" if workflow.secret_group_id else "No secret group"
+    options = [{"value": "", "label": default_label}]
     for secret_group in get_workflow_secret_groups_queryset(workflow):
         label = secret_group.name
         if secret_group.scope_label:
             label = f"{secret_group.name} ({secret_group.scope_label})"
         options.append({"value": str(secret_group.pk), "label": label})
     return options
+
+
+def list_workflow_secret_name_options_by_group(workflow) -> dict[str, list[dict[str, str]]]:
+    secret_groups = list(get_workflow_secret_groups_queryset(workflow))
+    options_by_group = {str(secret_group.pk): [] for secret_group in secret_groups}
+    if options_by_group:
+        for secret in (
+            Secret.objects.filter(secret_group_id__in=[secret_group.pk for secret_group in secret_groups], enabled=True)
+            .order_by("name")
+        ):
+            options_by_group[str(secret.secret_group_id)].append({"value": secret.name, "label": secret.name})
+
+    default_group_key = str(workflow.secret_group_id) if workflow.secret_group_id else ""
+    options_by_group[""] = list(options_by_group.get(default_group_key, []))
+    return options_by_group
 
 
 def resolve_workflow_secret_group(

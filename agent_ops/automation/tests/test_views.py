@@ -266,6 +266,53 @@ class WorkflowViewTests(TestCase):
         self.assertContains(response, "No secret group")
         self.assertContains(response, "Shared node auth")
 
+    def test_workflow_designer_hydrates_secret_name_select_from_secret_groups(self):
+        workflow_group = self._create_secret_group(name="Workflow auth")
+        elastic_group = self._create_secret_group(name="Elastic")
+        self.workflow.secret_group = workflow_group
+        self.workflow.save(update_fields=("secret_group",))
+        self._bind_secret(
+            workflow=self.workflow,
+            secret_group=workflow_group,
+            secret_name="OPENAI_API_KEY",
+        )
+        self._bind_secret(
+            workflow=self.workflow,
+            secret_group=elastic_group,
+            secret_name="api-key",
+        )
+        self.workflow.secret_group = workflow_group
+        self.workflow.save(update_fields=("secret_group",))
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("workflow_designer", args=[self.workflow.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        template = next(
+            item
+            for item in response.context["workflow_node_templates"]
+            if item["type"] == "tool.elasticsearch_search"
+        )
+        fields_by_key = {field["key"]: field for field in template["fields"]}
+        field_keys = [field["key"] for field in template["fields"]]
+
+        self.assertLess(field_keys.index("secret_group_id"), field_keys.index("secret_name"))
+        self.assertEqual(fields_by_key["secret_group_id"]["type"], "select")
+        self.assertEqual(fields_by_key["secret_group_id"]["options"][0], {"value": "", "label": "Use workflow secret group"})
+        self.assertIn(
+            {"value": str(elastic_group.pk), "label": f"{elastic_group.name} ({elastic_group.scope_label})"},
+            fields_by_key["secret_group_id"]["options"],
+        )
+        self.assertEqual(fields_by_key["secret_name"]["type"], "select")
+        self.assertEqual(
+            fields_by_key["secret_name"]["options"],
+            [{"value": "OPENAI_API_KEY", "label": "OPENAI_API_KEY"}],
+        )
+        self.assertEqual(
+            fields_by_key["secret_name"]["options_by_field"]["secret_group_id"][str(elastic_group.pk)],
+            [{"value": "api-key", "label": "api-key"}],
+        )
+
     def test_workflow_designer_updates_definition(self):
         self.client.force_login(self.staff_user)
         updated_definition = {

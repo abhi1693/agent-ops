@@ -11,7 +11,10 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
 from automation import filtersets, tables
-from automation.auth import list_workflow_secret_group_options
+from automation.auth import (
+    list_workflow_secret_group_options,
+    list_workflow_secret_name_options_by_group,
+)
 from automation.forms import SecretForm, SecretGroupForm, WorkflowDesignerForm, WorkflowForm, WorkflowRunForm
 from automation.models import Secret, SecretGroup, Workflow, WorkflowRun
 from automation.nodes import prepare_workflow_node_webhook_request
@@ -223,6 +226,7 @@ def _group_workflow_node_templates_by_app(*, node_templates):
 
 def _hydrate_workflow_node_templates_for_workflow(workflow) -> list[dict]:
     secret_group_options = list_workflow_secret_group_options(workflow)
+    secret_name_options_by_group = list_workflow_secret_name_options_by_group(workflow)
     hydrated_templates: list[dict] = []
 
     for template in WORKFLOW_NODE_TEMPLATES:
@@ -233,7 +237,31 @@ def _hydrate_workflow_node_templates_for_workflow(workflow) -> list[dict]:
             if hydrated_field.get("key") == "secret_group_id":
                 hydrated_field["type"] = "select"
                 hydrated_field["options"] = list(secret_group_options)
+            elif hydrated_field.get("key") == "secret_name":
+                hydrated_field["type"] = "select"
+                hydrated_field["options"] = list(secret_name_options_by_group.get("", []))
+                hydrated_field["options_by_field"] = {
+                    "secret_group_id": {
+                        group_key: list(group_options)
+                        for group_key, group_options in secret_name_options_by_group.items()
+                    }
+                }
             hydrated_fields.append(hydrated_field)
+        secret_name_index = next(
+            (index for index, field in enumerate(hydrated_fields) if field.get("key") == "secret_name"),
+            None,
+        )
+        secret_group_index = next(
+            (index for index, field in enumerate(hydrated_fields) if field.get("key") == "secret_group_id"),
+            None,
+        )
+        if (
+            secret_name_index is not None
+            and secret_group_index is not None
+            and secret_group_index > secret_name_index
+        ):
+            secret_group_field = hydrated_fields.pop(secret_group_index)
+            hydrated_fields.insert(secret_name_index, secret_group_field)
         hydrated_template["fields"] = hydrated_fields
         hydrated_templates.append(hydrated_template)
 
