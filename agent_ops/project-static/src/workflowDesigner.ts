@@ -1,5 +1,6 @@
 import {
   CANVAS_EDGE_MARGIN,
+  NODE_CARD_HEIGHT,
   NODE_COLUMN_GAP,
   NODE_HEIGHT,
   NODE_ROW_GAP,
@@ -33,7 +34,9 @@ import {
 type BrowserElements = {
   browser: HTMLElement;
   browserContent: HTMLElement;
+  browserDescription: HTMLElement;
   browserEmpty: HTMLElement;
+  browserTitle: HTMLElement;
   openButton: HTMLButtonElement;
   searchInput: HTMLInputElement;
 };
@@ -43,6 +46,7 @@ type CanvasElements = {
   definitionInput: HTMLInputElement | HTMLTextAreaElement;
   edgeControls: HTMLElement;
   edgeLayer: SVGSVGElement;
+  emptyState: HTMLElement;
   nodeLayer: HTMLElement;
   settingsDescription: HTMLElement;
   settingsFields: HTMLElement;
@@ -51,6 +55,7 @@ type CanvasElements = {
 };
 
 type ConnectorSide = 'top' | 'right' | 'bottom' | 'left';
+type BrowserMode = 'default' | 'starter';
 
 type DragState = {
   nodeId: string;
@@ -86,18 +91,30 @@ const CONNECTOR_SIDES: ConnectorSide[] = ['top', 'right', 'bottom', 'left'];
 function getBrowserElements(root: ParentNode): BrowserElements | null {
   const browser = root.querySelector<HTMLElement>('[data-node-browser]');
   const browserContent = root.querySelector<HTMLElement>('[data-node-browser-content]');
+  const browserDescription = root.querySelector<HTMLElement>('[data-node-browser-description]');
   const browserEmpty = root.querySelector<HTMLElement>('[data-node-browser-empty]');
+  const browserTitle = root.querySelector<HTMLElement>('[data-node-browser-title]');
   const openButton = root.querySelector<HTMLButtonElement>('[data-open-node-browser]');
   const searchInput = root.querySelector<HTMLInputElement>('[data-node-browser-search]');
 
-  if (!browser || !browserContent || !browserEmpty || !openButton || !searchInput) {
+  if (
+    !browser ||
+    !browserContent ||
+    !browserDescription ||
+    !browserEmpty ||
+    !browserTitle ||
+    !openButton ||
+    !searchInput
+  ) {
     return null;
   }
 
   return {
     browser,
     browserContent,
+    browserDescription,
     browserEmpty,
+    browserTitle,
     openButton,
     searchInput,
   };
@@ -108,6 +125,7 @@ function getCanvasElements(root: ParentNode): CanvasElements | null {
   const definitionInput = root.querySelector<HTMLInputElement | HTMLTextAreaElement>('#id_definition');
   const edgeControls = root.querySelector<HTMLElement>('[data-workflow-edge-controls]');
   const edgeLayer = root.querySelector<SVGSVGElement>('[data-workflow-edge-layer]');
+  const emptyState = root.querySelector<HTMLElement>('[data-workflow-empty-state]');
   const nodeLayer = root.querySelector<HTMLElement>('[data-workflow-node-layer]');
   const settingsDescription = root.querySelector<HTMLElement>('[data-workflow-settings-description]');
   const settingsFields = root.querySelector<HTMLElement>('[data-workflow-settings-fields]');
@@ -119,6 +137,7 @@ function getCanvasElements(root: ParentNode): CanvasElements | null {
     !definitionInput ||
     !edgeControls ||
     !edgeLayer ||
+    !emptyState ||
     !nodeLayer ||
     !settingsDescription ||
     !settingsFields ||
@@ -133,6 +152,7 @@ function getCanvasElements(root: ParentNode): CanvasElements | null {
     definitionInput,
     edgeControls,
     edgeLayer,
+    emptyState,
     nodeLayer,
     settingsDescription,
     settingsFields,
@@ -156,66 +176,79 @@ function parsePersistedDefinition(
   }
 }
 
-function renderPaletteSections(sections: WorkflowPaletteSection[], query: string): string {
+function filterNodeDefinitions(
+  definitions: WorkflowNodeDefinition[],
+  query: string,
+): WorkflowNodeDefinition[] {
   const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return definitions;
+  }
 
+  return definitions.filter((definition) => {
+    const haystack = [
+      definition.label,
+      definition.description,
+      definition.type,
+      definition.kind,
+      definition.app_label ?? '',
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    return haystack.includes(normalizedQuery);
+  });
+}
+
+function renderPaletteDefinitions(
+  definitions: WorkflowNodeDefinition[],
+  mode: BrowserMode,
+): string {
+  return definitions
+    .map((definition) => {
+      const icon = definition.icon ?? 'mdi-vector-square';
+      const meta = definition.app_label && definition.app_label !== definition.label
+        ? definition.app_label
+        : formatKindLabel(definition.kind) || definition.kind;
+
+      return `
+        <button
+          type="button"
+          class="workflow-node-browser-item${mode === 'starter' ? ' workflow-node-browser-item--starter' : ''}"
+          data-node-browser-item="${escapeHtml(definition.type)}"
+          aria-label="${escapeHtml(definition.label)}"
+        >
+          <span class="workflow-node-browser-item-icon">
+            <i class="mdi ${escapeHtml(icon)}"></i>
+          </span>
+          <span class="workflow-node-browser-item-copy">
+            <span class="workflow-node-browser-item-title">${escapeHtml(definition.label)}</span>
+            <span class="workflow-node-browser-item-description">${escapeHtml(definition.description)}</span>
+            <span class="workflow-node-browser-item-meta">${escapeHtml(meta)}</span>
+          </span>
+        </button>
+      `;
+    })
+    .join('');
+}
+
+function renderPaletteSections(sections: WorkflowPaletteSection[], query: string): string {
   const filteredSections = sections
     .map((section) => ({
       ...section,
-      definitions: section.definitions.filter((definition) => {
-        if (!normalizedQuery) {
-          return true;
-        }
-
-        const haystack = [
-          definition.label,
-          definition.description,
-          definition.type,
-          definition.kind,
-          definition.app_label ?? '',
-        ]
-          .join(' ')
-          .toLowerCase();
-
-        return haystack.includes(normalizedQuery);
-      }),
+      definitions: filterNodeDefinitions(section.definitions, query),
     }))
     .filter((section) => section.definitions.length > 0);
 
   return filteredSections
-    .map((section) => {
-      const items = section.definitions
-        .map((definition) => {
-          const icon = definition.icon ?? 'mdi-vector-square';
-
-          return `
-            <button
-              type="button"
-              class="workflow-node-browser-item"
-              data-node-browser-item="${escapeHtml(definition.type)}"
-              aria-label="${escapeHtml(definition.label)}"
-            >
-              <span class="workflow-node-browser-item-icon">
-                <i class="mdi ${escapeHtml(icon)}"></i>
-              </span>
-              <span class="workflow-node-browser-item-copy">
-                <span class="workflow-node-browser-item-title">${escapeHtml(definition.label)}</span>
-                <span class="workflow-node-browser-item-meta">${escapeHtml(definition.kind)}</span>
-              </span>
-            </button>
-          `;
-        })
-        .join('');
-
-      return `
-        <section class="workflow-node-browser-section">
-          <div class="workflow-node-browser-section-title">${escapeHtml(section.label)}</div>
-          <div class="workflow-node-browser-grid">
-            ${items}
-          </div>
-        </section>
-      `;
-    })
+    .map((section) => `
+      <section class="workflow-node-browser-section">
+        <div class="workflow-node-browser-section-title">${escapeHtml(section.label)}</div>
+        <div class="workflow-node-browser-grid">
+          ${renderPaletteDefinitions(section.definitions, 'default')}
+        </div>
+      </section>
+    `)
     .join('');
 }
 
@@ -313,8 +346,8 @@ function getSuggestedNodePosition(
 
   const lastNode = definition.nodes[definition.nodes.length - 1];
   const bounds = getBoardBounds(board);
-  const nextX = lastNode.position.x + 56;
-  const nextY = lastNode.position.y + 36;
+  const nextX = lastNode.position.x + NODE_WIDTH + 24;
+  const nextY = lastNode.position.y + 24;
 
   if (nextX > bounds.maxX) {
     return clampNodePosition(board, {
@@ -373,7 +406,7 @@ function canNodeEmitConnections(node: WorkflowNode): boolean {
 function getNodeCenter(node: WorkflowNode): Point {
   return {
     x: node.position.x + NODE_WIDTH / 2,
-    y: node.position.y + NODE_HEIGHT / 2,
+    y: node.position.y + NODE_CARD_HEIGHT / 2,
   };
 }
 
@@ -387,18 +420,18 @@ function getConnectorPoint(node: WorkflowNode, side: ConnectorSide): Point {
     case 'right':
       return {
         x: node.position.x + NODE_WIDTH,
-        y: node.position.y + NODE_HEIGHT / 2,
+        y: node.position.y + NODE_CARD_HEIGHT / 2,
       };
     case 'bottom':
       return {
         x: node.position.x + NODE_WIDTH / 2,
-        y: node.position.y + NODE_HEIGHT,
+        y: node.position.y + NODE_CARD_HEIGHT,
       };
     case 'left':
     default:
       return {
         x: node.position.x,
-        y: node.position.y + NODE_HEIGHT / 2,
+        y: node.position.y + NODE_CARD_HEIGHT / 2,
       };
   }
 }
@@ -547,7 +580,7 @@ export function initWorkflowDesigner(): void {
   const nodeTemplates = parseJsonScript<WorkflowNodeTemplate[]>('workflow-node-templates-data', []);
   const nodeRegistry = buildNodeRegistry(nodeTemplates);
 
-  let isBrowserOpen = false;
+  let isBrowserOpen = workflowDefinition.nodes.length === 0;
   let searchQuery = '';
   let selectedNodeId: string | null = null;
   let settingsNodeId: string | null = null;
@@ -570,6 +603,10 @@ export function initWorkflowDesigner(): void {
 
   function hasConnection(sourceId: string, targetId: string): boolean {
     return workflowDefinition.edges.some((edge) => edge.source === sourceId && edge.target === targetId);
+  }
+
+  function isEmptyWorkflow(): boolean {
+    return workflowDefinition.nodes.length === 0;
   }
 
   function isValidConnection(sourceId: string, targetId: string): boolean {
@@ -807,13 +844,44 @@ export function initWorkflowDesigner(): void {
   }
 
   function renderBrowser(): void {
-    const sections = getAvailablePaletteSections(nodeRegistry, workflowDefinition);
-    const markup = renderPaletteSections(sections, searchQuery);
+    const emptyWorkflow = isEmptyWorkflow();
+    let title = 'Add node';
+    let description = insertDraft
+      ? 'Choose the next step to connect from here.'
+      : 'Choose the next step to add to this workflow.';
+    let emptyMessage = 'No matching nodes';
+    let markup = renderPaletteSections(getAvailablePaletteSections(nodeRegistry, workflowDefinition), searchQuery);
+
+    if (emptyWorkflow) {
+      const triggerDefinitions = filterNodeDefinitions(
+        nodeRegistry.definitions.filter((definition) => definition.kind === 'trigger'),
+        searchQuery,
+      );
+      title = 'What triggers this workflow?';
+      description = 'A trigger is the first step that decides how your workflow starts.';
+      emptyMessage = 'No matching triggers';
+      markup = triggerDefinitions.length > 0
+        ? `<div class="workflow-node-browser-list">${renderPaletteDefinitions(triggerDefinitions, 'starter')}</div>`
+        : '';
+    }
 
     browser.browser.hidden = !isBrowserOpen;
+    browser.browser.classList.toggle('is-starter-mode', emptyWorkflow);
+    browser.browserTitle.textContent = title;
+    browser.browserDescription.textContent = description;
+    browser.browserDescription.hidden = description.length === 0;
     browser.openButton.classList.toggle('is-active', isBrowserOpen);
+    browser.openButton.hidden = emptyWorkflow;
+    browser.searchInput.placeholder = 'Search nodes...';
     browser.browserContent.innerHTML = markup;
+    browser.browserEmpty.textContent = emptyMessage;
     browser.browserEmpty.hidden = markup.length > 0;
+  }
+
+  function renderEmptyState(): void {
+    const emptyWorkflow = isEmptyWorkflow();
+    canvas.board.classList.toggle('is-empty-workflow', emptyWorkflow);
+    canvas.emptyState.hidden = !emptyWorkflow;
   }
 
   function renderNodes(): void {
@@ -822,8 +890,16 @@ export function initWorkflowDesigner(): void {
         const nodeDefinition = nodeRegistry.definitionMap.get(node.type);
         const icon = nodeDefinition?.icon ?? 'mdi-vector-square';
         const title = node.label || nodeDefinition?.label || formatKindLabel(node.kind) || node.type;
-        const subtitle = getNodeSubtitle(node, nodeDefinition);
+        const summary = getNodeSubtitle(node, nodeDefinition);
         const appLabel = nodeDefinition?.app_label ?? 'Workflow';
+        const subtitle =
+          summary && summary !== title
+            ? summary
+            : appLabel !== 'Workflow'
+              ? appLabel
+              : node.kind === 'trigger'
+                ? 'Starts the workflow'
+                : '';
         const isSelected = selectedNodeId === node.id;
         const isConnectionSource = connectionDraft?.sourceId === node.id;
         const isConnectionCandidate = connectionDraft
@@ -832,6 +908,11 @@ export function initWorkflowDesigner(): void {
         const isConnectionTarget = connectionDraft?.hoveredTargetId === node.id;
         const canReceiveConnections = canNodeReceiveConnections(node);
         const canEmitConnections = canNodeEmitConnections(node);
+        const visibleFields = nodeDefinition?.fields.filter((field) => isTemplateFieldVisible(node, field)) ?? [];
+        const hasAttention =
+          node.kind !== 'trigger' &&
+          visibleFields.length > 0 &&
+          visibleFields.some((field) => getTemplateFieldValue(node, field).trim() === '');
         const sourceConnectionNode = connectionDraft ? getNode(connectionDraft.sourceId) : undefined;
         const draftTargetPoint =
           connectionDraft && isConnectionSource
@@ -883,30 +964,42 @@ export function initWorkflowDesigner(): void {
 
         return `
           <article
-            class="workflow-editor-node${isSelected ? ' is-selected' : ''}${isConnectionSource ? ' is-connection-source' : ''}${isConnectionCandidate ? ' is-connection-candidate' : ''}${isConnectionTarget ? ' is-connection-target' : ''}"
+            class="workflow-editor-node workflow-editor-node--${escapeHtml(node.kind)}${hasAttention ? ' has-attention' : ''}${isSelected ? ' is-selected' : ''}${isConnectionSource ? ' is-connection-source' : ''}${isConnectionCandidate ? ' is-connection-candidate' : ''}${isConnectionTarget ? ' is-connection-target' : ''}"
             data-workflow-node-id="${escapeHtml(node.id)}"
             tabindex="0"
           >
             ${connectors}
-            <button
-              type="button"
-              class="workflow-editor-node-settings-trigger"
-              data-open-node-settings="${escapeHtml(node.id)}"
-              aria-label="Open ${escapeHtml(title)} settings"
-            >
-              <i class="mdi mdi-tune-variant"></i>
-            </button>
-            <span class="workflow-editor-node-chip">${escapeHtml(formatKindLabel(node.kind))}</span>
-            <span class="workflow-editor-node-head">
+            <span class="workflow-editor-node-card">
+              <span class="workflow-editor-node-card-glow" aria-hidden="true"></span>
+              <button
+                type="button"
+                class="workflow-editor-node-settings-trigger"
+                data-open-node-settings="${escapeHtml(node.id)}"
+                aria-label="Open ${escapeHtml(title)} settings"
+              >
+                <i class="mdi mdi-tune-variant"></i>
+              </button>
               <span class="workflow-editor-node-icon">
                 <i class="mdi ${escapeHtml(icon)}"></i>
               </span>
-              <span class="workflow-editor-node-copy">
-                <span class="workflow-editor-node-title">${escapeHtml(title)}</span>
-                <span class="workflow-editor-node-subtitle">${escapeHtml(subtitle)}</span>
-              </span>
+              ${
+                hasAttention
+                  ? `
+                    <span class="workflow-editor-node-alert" aria-label="Node needs configuration">
+                      <i class="mdi mdi-alert"></i>
+                    </span>
+                  `
+                  : ''
+              }
             </span>
-            <span class="workflow-editor-node-footer">${escapeHtml(appLabel)}</span>
+            <span class="workflow-editor-node-copy">
+              <span class="workflow-editor-node-title">${escapeHtml(title)}</span>
+              ${
+                subtitle
+                  ? `<span class="workflow-editor-node-subtitle">${escapeHtml(subtitle)}</span>`
+                  : ''
+              }
+            </span>
           </article>
         `;
       })
@@ -1038,6 +1131,7 @@ export function initWorkflowDesigner(): void {
     renderNodes();
     renderEdges();
     renderEdgeControls();
+    renderEmptyState();
   }
 
   function closeBrowser(): void {
@@ -1274,8 +1368,15 @@ export function initWorkflowDesigner(): void {
     }
     hoveredEdgeId = null;
 
+    if (workflowDefinition.nodes.length === 0) {
+      isBrowserOpen = true;
+      searchQuery = '';
+      browser.searchInput.value = '';
+    }
+
     syncDefinitionInput();
     renderCanvas();
+    renderBrowser();
     renderSettingsPanel();
   }
 
@@ -1325,6 +1426,11 @@ export function initWorkflowDesigner(): void {
       } else {
         openBrowser();
       }
+      return;
+    }
+
+    if (target.closest('[data-open-empty-browser]')) {
+      openBrowser();
       return;
     }
 

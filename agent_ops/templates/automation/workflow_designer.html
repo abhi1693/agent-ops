@@ -57,6 +57,22 @@
           <svg class="workflow-editor-edge-layer" data-workflow-edge-layer aria-hidden="true"></svg>
           <div class="workflow-editor-edge-controls" data-workflow-edge-controls></div>
           <div class="workflow-editor-node-layer" data-workflow-node-layer></div>
+          <div class="workflow-editor-empty-state" data-workflow-empty-state hidden>
+            <div class="workflow-editor-empty-state-panel">
+              <button
+                type="button"
+                class="workflow-editor-empty-state-action"
+                data-open-empty-browser
+                aria-label="Add the first workflow step"
+              >
+                <span class="workflow-editor-empty-state-action-icon" aria-hidden="true">
+                  <i class="mdi mdi-plus"></i>
+                </span>
+                <span class="workflow-editor-empty-state-action-label">Add first step</span>
+                <span class="workflow-editor-empty-state-action-caption">Choose a trigger to start the workflow</span>
+              </button>
+            </div>
+          </div>
 
           <aside
             class="workflow-editor-settings-panel"
@@ -101,7 +117,10 @@
           >
             <header class="workflow-node-browser-head">
               <div class="workflow-node-browser-title-row">
-                <h2 class="workflow-node-browser-title">Add node</h2>
+                <div class="workflow-node-browser-title-copy">
+                  <h2 class="workflow-node-browser-title" data-node-browser-title>Add node</h2>
+                  <div class="workflow-node-browser-description" data-node-browser-description hidden></div>
+                </div>
                 <button
                   type="button"
                   class="workflow-node-browser-close"
