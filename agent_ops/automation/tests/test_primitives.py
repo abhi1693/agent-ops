@@ -73,10 +73,12 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
     def test_concrete_observability_templates_are_route_specific(self):
         prometheus_template = WORKFLOW_NODE_TEMPLATE_MAP["tool.prometheus_query"]
         elasticsearch_template = WORKFLOW_NODE_TEMPLATE_MAP["tool.elasticsearch_search"]
+        kubectl_template = WORKFLOW_NODE_TEMPLATE_MAP["tool.kubectl"]
         alertmanager_template = WORKFLOW_NODE_TEMPLATE_MAP["trigger.alertmanager_webhook"]
 
         prometheus_fields = {field["key"] for field in prometheus_template["fields"]}
         elasticsearch_fields = {field["key"] for field in elasticsearch_template["fields"]}
+        kubectl_fields = {field["key"] for field in kubectl_template["fields"]}
         alertmanager_fields = {field["key"] for field in alertmanager_template["fields"]}
 
         self.assertEqual(prometheus_template["config"]["output_key"], "prometheus.query")
@@ -95,6 +97,10 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertNotIn("operation", elasticsearch_fields)
         self.assertIn("query_json", elasticsearch_fields)
         self.assertIn("auth_scheme", elasticsearch_fields)
+        self.assertEqual(kubectl_template["config"]["kubeconfig_secret_mode"], "content")
+        self.assertIn("secret_name", kubectl_fields)
+        self.assertIn("secret_group_id", kubectl_fields)
+        self.assertIn("kubeconfig_secret_mode", kubectl_fields)
 
         self.assertNotIn("resource", alertmanager_template)
         self.assertNotIn("operation", alertmanager_template)

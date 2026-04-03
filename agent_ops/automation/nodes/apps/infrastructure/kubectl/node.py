@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import shutil
 import subprocess
+import tempfile
 
 from django.core.exceptions import ValidationError
 
@@ -17,8 +19,10 @@ from automation.tools.base import (
     _coerce_positive_int,
     _make_json_safe,
     _render_runtime_string,
+    _resolve_runtime_secret,
     _tool_result,
     _validate_external_output_key,
+    _validate_optional_secret_group_id,
     _validate_optional_string,
     _validate_required_string,
     tool_field_option,
@@ -34,10 +38,22 @@ def _validate_kubectl_tool(config: dict, node_id: str) -> None:
     _validate_optional_string(config, "binary_path", node_id=node_id)
     _validate_optional_string(config, "context_name", node_id=node_id)
     _validate_optional_string(config, "namespace", node_id=node_id)
+    if config.get("secret_name") not in (None, ""):
+        _validate_optional_string(config, "secret_name", node_id=node_id)
+    _validate_optional_secret_group_id(config, "secret_group_id", node_id=node_id)
     output_format = config.get("output_format", "text")
     if output_format not in {"text", "json"}:
         raise ValidationError(
             {"definition": f'Node "{node_id}" config.output_format must be one of: text, json.'}
+        )
+    kubeconfig_secret_mode = config.get("kubeconfig_secret_mode", "content")
+    if kubeconfig_secret_mode not in {"content", "path"}:
+        raise ValidationError(
+            {
+                "definition": (
+                    f'Node "{node_id}" config.kubeconfig_secret_mode must be one of: content, path.'
+                )
+            }
         )
     _coerce_positive_int(
         config.get("timeout_seconds"),
@@ -72,6 +88,25 @@ def _parse_kubectl_command(command: str) -> list[str]:
     return command_parts
 
 
+def _ensure_kubectl_output_format(command_parts: list[str], *, output_format: str) -> list[str]:
+    if output_format != "json":
+        return command_parts
+
+    for index, command_part in enumerate(command_parts):
+        if command_part == "-o":
+            return command_parts
+        if command_part.startswith("-o") and len(command_part) > 2:
+            return command_parts
+        if command_part == "--output":
+            return command_parts
+        if command_part.startswith("--output="):
+            return command_parts
+        if command_part == "--" and index < len(command_parts):
+            break
+
+    return [*command_parts, "-ojson"]
+
+
 def _execute_kubectl_tool(runtime: WorkflowToolExecutionContext) -> dict:
     output_key = _render_runtime_string(runtime, "output_key", required=True, default_mode="static")
     binary_path = _render_runtime_string(runtime, "binary_path", default_mode="static") or "kubectl"
@@ -79,6 +114,9 @@ def _execute_kubectl_tool(runtime: WorkflowToolExecutionContext) -> dict:
     namespace = _render_runtime_string(runtime, "namespace", default_mode="static")
     command = _render_runtime_string(runtime, "command", required=True, default_mode="expression")
     output_format = _render_runtime_string(runtime, "output_format", default_mode="static") or "text"
+    kubeconfig_secret_mode = (
+        _render_runtime_string(runtime, "kubeconfig_secret_mode", default_mode="static") or "content"
+    )
     timeout_seconds = _coerce_positive_int(
         runtime.config.get("timeout_seconds"),
         field_name="timeout_seconds",
@@ -88,9 +126,39 @@ def _execute_kubectl_tool(runtime: WorkflowToolExecutionContext) -> dict:
     )
 
     kubectl_binary = _resolve_kubectl_binary(binary_path)
-    command_parts = _parse_kubectl_command(command)
+    command_parts = _ensure_kubectl_output_format(
+        _parse_kubectl_command(command),
+        output_format=output_format,
+    )
+
+    kubeconfig_meta = None
+    kubeconfig_path: str | None = None
+    secret_name = _render_runtime_string(runtime, "secret_name", default_mode="static")
+    if secret_name:
+        kubeconfig_value, kubeconfig_meta = _resolve_runtime_secret(
+            runtime,
+            secret_name=secret_name,
+            secret_group_id=runtime.config.get("secret_group_id"),
+        )
+        if kubeconfig_secret_mode == "path":
+            kubeconfig_path = kubeconfig_value
+        else:
+            kubeconfig_file = tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                suffix=".kubeconfig",
+                delete=False,
+            )
+            try:
+                kubeconfig_file.write(kubeconfig_value)
+                kubeconfig_file.flush()
+            finally:
+                kubeconfig_file.close()
+            kubeconfig_path = kubeconfig_file.name
 
     argv = [kubectl_binary]
+    if kubeconfig_path:
+        argv.extend(["--kubeconfig", kubeconfig_path])
     if context_name:
         argv.extend(["--context", context_name])
     if namespace:
@@ -98,57 +166,67 @@ def _execute_kubectl_tool(runtime: WorkflowToolExecutionContext) -> dict:
     argv.extend(command_parts)
 
     try:
-        completed = subprocess.run(
-            argv,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-        )
-    except FileNotFoundError as exc:
-        raise ValidationError({"definition": f'Local binary "{kubectl_binary}" is not executable or not accessible.'}) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise ValidationError(
-            {"definition": f"kubectl command timed out after {timeout_seconds} seconds: {' '.join(argv)}"}
-        ) from exc
-
-    stdout = completed.stdout or ""
-    stderr = completed.stderr or ""
-    if completed.returncode != 0:
-        stderr_snippet = stderr.strip()[:400]
-        stdout_snippet = stdout.strip()[:400]
-        detail = stderr_snippet or stdout_snippet or "kubectl command failed without output."
-        raise ValidationError(
-            {"definition": f"kubectl exited with code {completed.returncode}: {detail}"}
-        )
-
-    parsed_output = None
-    if output_format == "json":
         try:
-            parsed_output = _make_json_safe(json.loads(stdout))
-        except ValueError as exc:
-            raise ValidationError({"definition": "kubectl stdout was not valid JSON."}) from exc
+            completed = subprocess.run(
+                argv,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+        except FileNotFoundError as exc:
+            raise ValidationError({"definition": f'Local binary "{kubectl_binary}" is not executable or not accessible.'}) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise ValidationError(
+                {"definition": f"kubectl command timed out after {timeout_seconds} seconds: {' '.join(argv)}"}
+            ) from exc
 
-    payload = {
-        "command": argv,
-        "stdout": stdout,
-        "stderr": stderr,
-        "output_format": output_format,
-    }
-    if parsed_output is not None:
-        payload["data"] = parsed_output
+        stdout = completed.stdout or ""
+        stderr = completed.stderr or ""
+        if completed.returncode != 0:
+            stderr_snippet = stderr.strip()[:400]
+            stdout_snippet = stdout.strip()[:400]
+            detail = stderr_snippet or stdout_snippet or "kubectl command failed without output."
+            raise ValidationError(
+                {"definition": f"kubectl exited with code {completed.returncode}: {detail}"}
+            )
 
-    runtime.set_path_value(runtime.context, output_key, payload)
-    result = {
-        "output_key": output_key,
-        "command": argv,
-        "output_format": output_format,
-    }
-    if parsed_output is not None and isinstance(parsed_output, dict):
-        items = parsed_output.get("items")
-        if isinstance(items, list):
-            result["item_count"] = len(items)
-    return _tool_result("kubectl", **result)
+        parsed_output = None
+        if output_format == "json":
+            try:
+                parsed_output = _make_json_safe(json.loads(stdout))
+            except ValueError as exc:
+                raise ValidationError({"definition": "kubectl stdout was not valid JSON."}) from exc
+
+        payload = {
+            "command": argv,
+            "stdout": stdout,
+            "stderr": stderr,
+            "output_format": output_format,
+        }
+        if parsed_output is not None:
+            payload["data"] = parsed_output
+
+        runtime.set_path_value(runtime.context, output_key, payload)
+        result = {
+            "output_key": output_key,
+            "command": argv,
+            "output_format": output_format,
+        }
+        if kubeconfig_meta is not None:
+            result["secret"] = kubeconfig_meta
+            result["kubeconfig_secret_mode"] = kubeconfig_secret_mode
+        if parsed_output is not None and isinstance(parsed_output, dict):
+            items = parsed_output.get("items")
+            if isinstance(items, list):
+                result["item_count"] = len(items)
+        return _tool_result("kubectl", **result)
+    finally:
+        if secret_name and kubeconfig_secret_mode == "content" and kubeconfig_path:
+            try:
+                os.unlink(kubeconfig_path)
+            except FileNotFoundError:
+                pass
 
 
 TOOL_DEFINITION = WorkflowToolDefinition(
@@ -157,7 +235,12 @@ TOOL_DEFINITION = WorkflowToolDefinition(
     description="Run the locally installed kubectl binary on the app host using its configured cluster access.",
     icon="mdi-kubernetes",
     category="Infrastructure",
-    config={"output_key": "kubectl.result", "output_format": "text", "timeout_seconds": 20},
+    config={
+        "output_key": "kubectl.result",
+        "output_format": "text",
+        "timeout_seconds": 20,
+        "kubeconfig_secret_mode": "content",
+    },
     fields=(
         tool_text_field(
             "output_key",
@@ -198,6 +281,30 @@ TOOL_DEFINITION = WorkflowToolDefinition(
             ui_group="advanced",
             placeholder="payments",
             help_text="Optional. Adds `--namespace` before the command.",
+        ),
+        tool_select_field(
+            "kubeconfig_secret_mode",
+            "Kubeconfig secret type",
+            ui_group="advanced",
+            options=(
+                tool_field_option("content"),
+                tool_field_option("path"),
+            ),
+            help_text="When a secret is configured, treat it either as raw kubeconfig content or as a filesystem path to an existing kubeconfig file.",
+        ),
+        tool_text_field(
+            "secret_name",
+            "Kubeconfig secret name",
+            ui_group="advanced",
+            placeholder="KUBECONFIG",
+            help_text="Optional. Resolve this secret and pass it to kubectl as either kubeconfig content or a kubeconfig path.",
+        ),
+        tool_text_field(
+            "secret_group_id",
+            "Secret group",
+            ui_group="advanced",
+            placeholder="Use workflow secret group",
+            help_text="Optional. Override the workflow secret group for this node.",
         ),
         tool_text_field(
             "binary_path",

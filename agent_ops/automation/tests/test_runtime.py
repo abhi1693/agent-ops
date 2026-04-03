@@ -1,5 +1,6 @@
 import os
 import subprocess
+import tempfile
 from json import loads
 from threading import Event, Thread
 from unittest.mock import patch
@@ -1509,6 +1510,207 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.output_data["response"]["data"]["items"][0]["metadata"]["name"], "api-0")
         self.assertEqual(run.step_results[1]["result"]["tool_name"], "kubectl")
         self.assertEqual(run.step_results[1]["result"]["item_count"], 1)
+
+    def test_execute_workflow_auto_adds_json_output_flag_for_kubectl(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="kubectl auto json workflow",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "tool.kubectl",
+                        "label": "kubectl",
+                        "config": {
+                            "output_key": "kubectl.result",
+                            "command": "get pods",
+                            "output_format": "json",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                ],
+            },
+        )
+
+        expected_stdout = '{"items":[{"metadata":{"name":"api-0"}}]}\n'
+
+        def fake_run(argv, check, capture_output, text, timeout):
+            self.assertEqual(
+                argv,
+                [
+                    "/usr/local/bin/kubectl",
+                    "get",
+                    "pods",
+                    "-ojson",
+                ],
+            )
+            self.assertFalse(check)
+            self.assertTrue(capture_output)
+            self.assertTrue(text)
+            self.assertEqual(timeout, 20)
+            return subprocess.CompletedProcess(argv, 0, stdout=expected_stdout, stderr="")
+
+        with patch("automation.nodes.apps.infrastructure.kubectl.node.shutil.which", return_value="/usr/local/bin/kubectl"):
+            with patch("automation.nodes.apps.infrastructure.kubectl.node.subprocess.run", side_effect=fake_run):
+                run = execute_workflow(workflow)
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.context_data["kubectl"]["result"]["data"]["items"][0]["metadata"]["name"], "api-0")
+
+    def test_execute_workflow_runs_kubectl_with_kubeconfig_secret_content(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="kubectl secret content workflow",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "tool.kubectl",
+                        "label": "kubectl",
+                        "config": {
+                            "output_key": "kubectl.result",
+                            "command": "get pods -o json",
+                            "output_format": "json",
+                            "secret_name": "KUBECONFIG_SECRET",
+                            "kubeconfig_secret_mode": "content",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                ],
+            },
+        )
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="KUBECONFIG_SECRET",
+        )
+
+        expected_stdout = '{"items":[{"metadata":{"name":"api-0"}}]}\n'
+        observed_kubeconfig_paths: list[str] = []
+
+        def fake_run(argv, check, capture_output, text, timeout):
+            self.assertEqual(argv[0], "/usr/local/bin/kubectl")
+            self.assertEqual(argv[1], "--kubeconfig")
+            kubeconfig_path = argv[2]
+            observed_kubeconfig_paths.append(kubeconfig_path)
+            self.assertTrue(os.path.exists(kubeconfig_path))
+            with open(kubeconfig_path, encoding="utf-8") as kubeconfig_file:
+                self.assertEqual(kubeconfig_file.read(), "apiVersion: v1\nclusters: []\n")
+            self.assertEqual(argv[3:], ["get", "pods", "-o", "json"])
+            self.assertFalse(check)
+            self.assertTrue(capture_output)
+            self.assertTrue(text)
+            self.assertEqual(timeout, 20)
+            return subprocess.CompletedProcess(argv, 0, stdout=expected_stdout, stderr="")
+
+        with patch.dict(os.environ, {"KUBECONFIG_SECRET": "apiVersion: v1\nclusters: []\n"}, clear=False):
+            with patch("automation.nodes.apps.infrastructure.kubectl.node.shutil.which", return_value="/usr/local/bin/kubectl"):
+                with patch("automation.nodes.apps.infrastructure.kubectl.node.subprocess.run", side_effect=fake_run):
+                    run = execute_workflow(workflow)
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.step_results[1]["result"]["tool_name"], "kubectl")
+        self.assertEqual(run.step_results[1]["result"]["secret"]["name"], "KUBECONFIG_SECRET")
+        self.assertEqual(run.step_results[1]["result"]["kubeconfig_secret_mode"], "content")
+        self.assertEqual(len(observed_kubeconfig_paths), 1)
+        self.assertFalse(os.path.exists(observed_kubeconfig_paths[0]))
+
+    def test_execute_workflow_runs_kubectl_with_kubeconfig_secret_path(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="kubectl secret path workflow",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "tool.kubectl",
+                        "label": "kubectl",
+                        "config": {
+                            "output_key": "kubectl.result",
+                            "command": "get ns -o json",
+                            "output_format": "json",
+                            "secret_name": "KUBECONFIG_PATH",
+                            "kubeconfig_secret_mode": "path",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                ],
+            },
+        )
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="KUBECONFIG_PATH",
+        )
+
+        expected_stdout = '{"items":[]}\n'
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".yaml", delete=False) as kubeconfig_file:
+            kubeconfig_file.write("apiVersion: v1\nclusters: []\n")
+            kubeconfig_path = kubeconfig_file.name
+
+        try:
+            def fake_run(argv, check, capture_output, text, timeout):
+                self.assertEqual(
+                    argv,
+                    [
+                        "/usr/local/bin/kubectl",
+                        "--kubeconfig",
+                        kubeconfig_path,
+                        "get",
+                        "ns",
+                        "-o",
+                        "json",
+                    ],
+                )
+                self.assertFalse(check)
+                self.assertTrue(capture_output)
+                self.assertTrue(text)
+                self.assertEqual(timeout, 20)
+                return subprocess.CompletedProcess(argv, 0, stdout=expected_stdout, stderr="")
+
+            with patch.dict(os.environ, {"KUBECONFIG_PATH": kubeconfig_path}, clear=False):
+                with patch("automation.nodes.apps.infrastructure.kubectl.node.shutil.which", return_value="/usr/local/bin/kubectl"):
+                    with patch("automation.nodes.apps.infrastructure.kubectl.node.subprocess.run", side_effect=fake_run):
+                        run = execute_workflow(workflow)
+        finally:
+            if os.path.exists(kubeconfig_path):
+                os.unlink(kubeconfig_path)
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.step_results[1]["result"]["tool_name"], "kubectl")
+        self.assertEqual(run.step_results[1]["result"]["secret"]["name"], "KUBECONFIG_PATH")
+        self.assertEqual(run.step_results[1]["result"]["kubeconfig_secret_mode"], "path")
 
     def test_execute_workflow_calls_mcp_server_tool(self):
         workflow = Workflow.objects.create(
