@@ -14,22 +14,28 @@ import {
   getExecutionElements,
 } from './workflowDesigner/dom';
 import {
-  renderPaletteDefinitions,
-  renderPaletteSections,
-} from './workflowDesigner/panels/browserPanel';
+  renderBrowserState,
+  getDefaultBrowserView,
+  getPreviousBrowserView,
+  type BrowserView,
+} from './workflowDesigner/panels/browserState';
 import {
   renderSettingsIdentitySection,
   renderSettingsOverviewSection,
   renderSettingsSection,
 } from './workflowDesigner/panels/settingsPanel';
 import { buildNodeRegistry, getAvailablePaletteSections } from './workflowDesigner/registry/nodeRegistry';
+import {
+  isModelDefinition,
+  isToolCompatibleDefinition,
+} from './workflowDesigner/registry/modelDefinitions';
 import { normalizeWorkflowDefinition, serializeWorkflowDefinition } from './workflowDesigner/schema/workflowSchema';
 import { createGraphStore } from './workflowDesigner/state/graphStore';
 import type {
+  AgentAuxiliaryPortId,
   WorkflowCatalogPayload,
   WorkflowConnection,
   WorkflowDefinition,
-  WorkflowNodeCatalogSection,
   WorkflowNodeKind,
   WorkflowNode,
   WorkflowNodeDefinition,
@@ -60,7 +66,6 @@ import {
 import { createViewportController } from './workflowDesigner/viewport/controller';
 
 type ConnectorSide = 'top' | 'right' | 'bottom' | 'left';
-type AgentAuxiliaryPortId = 'ai_languageModel' | 'ai_tool';
 
 type DragState = {
   nodeId: string;
@@ -102,33 +107,6 @@ type ContextMenuState = {
   x: number;
   y: number;
 };
-
-type NextStepCategoryId = 'ai' | 'data' | 'flow' | 'core';
-
-type BrowserView =
-  | {
-      kind: 'next-step-root';
-    }
-  | {
-      backTo?: 'next-step-root';
-      kind: 'trigger-root';
-    }
-  | {
-      backTo: 'next-step-root' | 'trigger-root';
-      kind: 'trigger-apps';
-    }
-  | {
-      appId: string;
-      backTo: 'app-actions' | 'trigger-apps';
-      kind: 'app-details';
-    }
-  | {
-      category: NextStepCategoryId;
-      kind: 'category-details';
-    }
-  | {
-      kind: 'app-actions';
-    };
 
 type Point = {
   x: number;
@@ -195,62 +173,6 @@ function isTerminalRunStatus(status: string): boolean {
   return TERMINAL_RUN_STATUSES.has(status);
 }
 
-function isAgentLanguageModelDefinition(
-  definition: Pick<WorkflowNodeDefinition, 'is_model'> | null | undefined,
-): boolean {
-  return Boolean(definition?.is_model);
-}
-
-function isAgentToolCompatibleNode(
-  definition: Pick<WorkflowNodeDefinition, 'is_model' | 'kind'>,
-): boolean {
-  return definition.kind === 'tool' && !isAgentLanguageModelDefinition(definition);
-}
-
-function getCatalogSectionLabel(
-  catalogSection: WorkflowNodeCatalogSection | string | null | undefined,
-): string | null {
-  switch (catalogSection) {
-    case 'triggers':
-      return 'Triggers';
-    case 'flow':
-      return 'Flow';
-    case 'data':
-      return 'Data';
-    case 'apps':
-      return 'Apps';
-    default:
-      return null;
-  }
-}
-
-const NEXT_STEP_CATEGORY_META: Record<NextStepCategoryId, {
-  description: string;
-  icon: string;
-  label: string;
-}> = {
-  ai: {
-    description: 'Build autonomous agents, summarize or search documents, etc.',
-    icon: 'mdi-robot-outline',
-    label: 'AI',
-  },
-  data: {
-    description: 'Manipulate, filter or convert data',
-    icon: 'mdi-pencil-outline',
-    label: 'Data transformation',
-  },
-  flow: {
-    description: 'Branch, merge or control the flow.',
-    icon: 'mdi-source-branch',
-    label: 'Flow',
-  },
-  core: {
-    description: 'Run built-in workflow steps.',
-    icon: 'mdi-toolbox-outline',
-    label: 'Core',
-  },
-};
-
 function parsePersistedDefinition(
   definitionInput: HTMLInputElement | HTMLTextAreaElement,
 ): WorkflowPersistedDefinition | null {
@@ -264,34 +186,6 @@ function parsePersistedDefinition(
     console.error(error);
     return null;
   }
-}
-
-function getProviderMonogram(label: string, appId?: string): string {
-  const normalizedAppId = (appId ?? '').trim().toLowerCase();
-  if (normalizedAppId === 'openai') {
-    return 'OA';
-  }
-  if (normalizedAppId === 'deepseek') {
-    return 'DS';
-  }
-  if (normalizedAppId === 'fireworks') {
-    return 'FW';
-  }
-  if (normalizedAppId === 'groq') {
-    return 'GQ';
-  }
-  if (normalizedAppId === 'mistral') {
-    return 'MS';
-  }
-  if (normalizedAppId === 'openrouter') {
-    return 'OR';
-  }
-  if (normalizedAppId === 'xai') {
-    return 'XA';
-  }
-
-  const compactLabel = label.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-  return compactLabel.slice(0, 2) || 'AI';
 }
 
 function getDefinitionField(
@@ -353,41 +247,6 @@ function getEffectiveModelLabel(
   return matchedOption?.label ?? configuredModel;
 }
 
-function filterNodeDefinitions(
-  definitions: WorkflowNodeDefinition[],
-  query: string,
-): WorkflowNodeDefinition[] {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) {
-    return definitions;
-  }
-
-  return definitions.filter((definition) => {
-    const fieldTerms = definition.fields.reduce<string[]>((terms, field) => {
-      terms.push(field.key, field.label);
-      (field.options ?? []).forEach((option) => {
-        terms.push(option.label, option.value);
-      });
-      return terms;
-    }, []);
-    const haystack = [
-      definition.label,
-      definition.description,
-      definition.type,
-      definition.kind,
-      definition.catalog_section ?? '',
-      definition.app_label ?? '',
-      definition.app_description ?? '',
-      typeof definition.config?.model === 'string' ? definition.config.model : '',
-      ...fieldTerms,
-    ]
-      .join(' ')
-      .toLowerCase();
-
-    return haystack.includes(normalizedQuery);
-  });
-}
-
 function getRealAppId(definition: WorkflowNodeDefinition | undefined): string {
   const appId = definition?.app_id?.trim();
   if (!appId || appId === 'builtins') {
@@ -403,90 +262,6 @@ function getRealAppLabel(definition: WorkflowNodeDefinition | undefined): string
   }
 
   return getRealAppId(definition) ? definition.app_label?.trim() ?? '' : '';
-}
-
-function renderBrowserIcon(params: {
-  appId?: string;
-  icon?: string | null;
-  isModelProvider?: boolean;
-  label: string;
-}): string {
-  if (params.isModelProvider) {
-    return `<span class="workflow-node-browser-item-monogram">${escapeHtml(
-      getProviderMonogram(params.label, params.appId),
-    )}</span>`;
-  }
-
-  if (params.icon && params.icon.trim().length > 0) {
-    return `<i class="mdi ${escapeHtml(params.icon)}"></i>`;
-  }
-
-  return `<span class="workflow-node-browser-item-monogram">${escapeHtml(
-    getProviderMonogram(params.label, params.appId),
-  )}</span>`;
-}
-
-function renderBrowserListItem(params: {
-  action: 'navigate' | 'select';
-  actionValue: string;
-  appId?: string;
-  description: string;
-  icon?: string | null;
-  isModelProvider?: boolean;
-  label: string;
-  meta?: string;
-}): string {
-  const actionAttributes = params.action === 'select'
-    ? `data-node-browser-item="${escapeHtml(params.actionValue)}"`
-    : `data-node-browser-nav="${escapeHtml(params.actionValue)}"`;
-  const trailingMarkup = params.action === 'navigate'
-    ? `
-        <span class="workflow-node-browser-item-chevron" aria-hidden="true">
-          <i class="mdi mdi-chevron-right"></i>
-        </span>
-      `
-    : '';
-
-  return `
-    <button
-      type="button"
-      class="workflow-node-browser-item${params.action === 'navigate' ? ' is-navigation' : ''}"
-      ${actionAttributes}
-      ${params.appId ? `data-app-id="${escapeHtml(params.appId)}"` : ''}
-      aria-label="${escapeHtml(params.label)}"
-    >
-      <span class="workflow-node-browser-item-icon${params.isModelProvider ? ' is-model-provider' : ''}">
-        ${renderBrowserIcon({
-          appId: params.appId,
-          icon: params.icon,
-          isModelProvider: params.isModelProvider,
-          label: params.label,
-        })}
-      </span>
-      <span class="workflow-node-browser-item-copy">
-        <span class="workflow-node-browser-item-title">${escapeHtml(params.label)}</span>
-        <span class="workflow-node-browser-item-description">${escapeHtml(params.description)}</span>
-        ${params.meta ? `<span class="workflow-node-browser-item-meta">${escapeHtml(params.meta)}</span>` : ''}
-      </span>
-      ${trailingMarkup}
-    </button>
-  `;
-}
-
-function renderBrowserDefinitionList(definitions: WorkflowNodeDefinition[]): string {
-  return definitions
-    .map((definition) =>
-      renderBrowserListItem({
-        action: 'select',
-        actionValue: definition.type,
-        appId: getRealAppId(definition),
-        description: definition.description,
-        icon: definition.icon,
-        isModelProvider: isAgentLanguageModelDefinition(definition),
-        label: definition.label,
-        meta: definition.catalog_section ? getCatalogSectionLabel(definition.catalog_section) ?? undefined : undefined,
-      }))
-    .join('');
 }
 
 function getBoardBounds(
@@ -777,7 +552,7 @@ function getCompatibleAgentAuxiliaryPort(
     return null;
   }
 
-  if (isAgentLanguageModelDefinition(sourceDefinition)) {
+  if (isModelDefinition(sourceDefinition)) {
     return 'ai_languageModel';
   }
   if (sourceNode.kind === 'tool') {
@@ -803,8 +578,8 @@ function getAgentAuxiliaryAllowedNodeTypes(
   return definitions
     .filter((definition) =>
       portId === 'ai_languageModel'
-        ? isAgentLanguageModelDefinition(definition)
-        : isAgentToolCompatibleNode(definition),
+        ? isModelDefinition(definition)
+        : isToolCompatibleDefinition(definition),
     )
     .map((definition) => definition.type);
 }
@@ -2081,131 +1856,23 @@ export function initWorkflowDesigner(): void {
     `;
   }
 
-  function getDefaultBrowserView(): BrowserView {
-    return isEmptyWorkflow() ? { kind: 'trigger-root' } : { kind: 'next-step-root' };
-  }
-
   function setBrowserView(nextView: BrowserView): void {
     browserView = nextView;
     searchQuery = '';
     browser.searchInput.value = '';
   }
 
-  function getAppNodeDefinitions(
-    appId: string,
-    definitions: WorkflowNodeDefinition[] = nodeRegistry.definitions,
-  ): WorkflowNodeDefinition[] {
-    return definitions
-      .filter((definition) => definition.app_id === appId && !isAgentLanguageModelDefinition(definition))
-      .sort((first, second) => {
-        if (first.kind !== second.kind) {
-          if (first.kind === 'trigger') {
-            return -1;
-          }
-          if (second.kind === 'trigger') {
-            return 1;
-          }
-        }
-
-        return first.label.localeCompare(second.label);
-      });
-  }
-
-  function getAppTriggerDefinitions(
-    definitions: WorkflowNodeDefinition[] = nodeRegistry.definitions,
-  ): WorkflowNodeDefinition[] {
-    return definitions.filter(
-      (definition) => definition.kind === 'trigger' && getRealAppId(definition) !== '' && getRealAppId(definition) !== 'core',
-    );
-  }
-
-  function getAppActionDefinitions(
-    definitions: WorkflowNodeDefinition[] = nodeRegistry.definitions,
-  ): WorkflowNodeDefinition[] {
-    return definitions.filter((definition) =>
-      getRealAppId(definition) !== ''
-      && getRealAppId(definition) !== 'core'
-      && definition.kind !== 'trigger'
-      && !isAgentLanguageModelDefinition(definition));
-  }
-
-  function getNextStepCategoryDefinitions(
-    category: NextStepCategoryId,
-    definitions: WorkflowNodeDefinition[] = nodeRegistry.definitions,
-  ): WorkflowNodeDefinition[] {
-    if (category === 'ai') {
-      return definitions
-        .filter((definition) => definition.kind === 'agent')
-        .sort((first, second) => first.label.localeCompare(second.label));
-    }
-
-    if (category === 'data') {
-      return definitions
-        .filter((definition) => definition.catalog_section === 'data')
-        .sort((first, second) => first.label.localeCompare(second.label));
-    }
-
-    if (category === 'flow') {
-      return definitions
-        .filter((definition) => definition.kind === 'condition')
-        .sort((first, second) => first.label.localeCompare(second.label));
-    }
-
-    return definitions
-      .filter((definition) => {
-        const appId = getRealAppId(definition);
-        return (appId === '' || appId === 'core')
-          && definition.kind !== 'trigger'
-          && definition.kind !== 'agent'
-          && definition.kind !== 'condition'
-          && !isAgentLanguageModelDefinition(definition)
-          && definition.catalog_section !== 'data';
-      })
-      .sort((first, second) => first.label.localeCompare(second.label));
-  }
-
   function goBackBrowserView(): void {
-    if (browserView.kind === 'app-details') {
-      setBrowserView(
-        browserView.backTo === 'trigger-apps'
-          ? { backTo: isEmptyWorkflow() ? 'trigger-root' : 'next-step-root', kind: 'trigger-apps' }
-          : { kind: 'app-actions' },
-      );
-      renderBrowser();
-      return;
-    }
-
-    if (browserView.kind === 'trigger-apps') {
-      setBrowserView(
-        browserView.backTo === 'next-step-root'
-          ? { backTo: 'next-step-root', kind: 'trigger-root' }
-          : { kind: 'trigger-root' },
-      );
-      renderBrowser();
-      return;
-    }
-
-    if (browserView.kind === 'category-details' || browserView.kind === 'app-actions') {
-      setBrowserView({ kind: 'next-step-root' });
-      renderBrowser();
-      return;
-    }
-
-    if (browserView.kind === 'trigger-root' && browserView.backTo === 'next-step-root') {
-      setBrowserView({ kind: 'next-step-root' });
+    const previousView = getPreviousBrowserView(browserView, isEmptyWorkflow());
+    if (previousView) {
+      setBrowserView(previousView);
       renderBrowser();
     }
   }
 
   function renderBrowser(): void {
-    const emptyWorkflow = isEmptyWorkflow();
     const insertPort = getAgentAuxiliaryPortDefinition(insertDraft?.targetPort);
     const allowedNodeTypes = insertDraft?.allowedNodeTypes ?? null;
-    const availableDefinitions = allowedNodeTypes
-      ? nodeRegistry.definitions.filter((definition) => allowedNodeTypes.includes(definition.type))
-      : nodeRegistry.definitions;
-    const selectedNode = getNode(selectedNodeId);
-    const selectedNodeDefinition = getNodeDefinition(selectedNode);
     const filteredSections = getAvailablePaletteSections(nodeRegistry, workflowDefinition)
       .map((section) => ({
         ...section,
@@ -2214,341 +1881,28 @@ export function initWorkflowDesigner(): void {
           : section.definitions,
       }))
       .filter((section) => section.definitions.length > 0);
-    const browserRenderHelpers = {
-      formatKindLabel,
-      getCatalogSectionLabel,
-      getProviderMonogram,
-      isModelProvider: isAgentLanguageModelDefinition,
-    };
-    const renderDefinitions = (definitions: WorkflowNodeDefinition[]): string =>
-      renderPaletteDefinitions(definitions, browserRenderHelpers);
-    const renderSections = (sections: WorkflowPaletteSection[]): string =>
-      renderPaletteSections(
-        sections
-          .map((section) => ({
-            ...section,
-            definitions: filterNodeDefinitions(section.definitions, searchQuery),
-          }))
-          .filter((section) => section.definitions.length > 0),
-        renderDefinitions,
-      );
-    let title = 'Add node';
-    let description = insertDraft
-      ? 'Choose the next step to connect from here.'
-      : 'Choose the next step to add to this workflow.';
-    let emptyMessage = 'No matching nodes';
-    let markup = renderSections(filteredSections);
-    let searchPlaceholder = 'Search nodes, apps, or actions';
-    let hideSearch = false;
-
-    if (browserView.kind === 'trigger-root') {
-      const triggerDefinitions = availableDefinitions.filter((definition) => definition.kind === 'trigger');
-      const manualTrigger = triggerDefinitions.find((definition) => definition.type === 'core.manual_trigger');
-      const scheduleTrigger = triggerDefinitions.find((definition) => definition.type === 'core.schedule_trigger');
-      const appTriggerDefinitions = getAppTriggerDefinitions(availableDefinitions);
-      const rootItems = [
-        ...(manualTrigger ? [renderBrowserListItem({
-          action: 'select',
-          actionValue: manualTrigger.type,
-          appId: getRealAppId(manualTrigger),
-          description: manualTrigger.description,
-          icon: 'mdi-cursor-default-click-outline',
-          label: 'Trigger manually',
-        })] : []),
-        ...(appTriggerDefinitions.length > 0 ? [renderBrowserListItem({
-          action: 'navigate',
-          actionValue: 'trigger-apps',
-          description: 'Start the workflow from an event in one of your apps.',
-          icon: 'mdi-connection',
-          label: 'On app event',
-        })] : []),
-        ...(scheduleTrigger ? [renderBrowserListItem({
-          action: 'select',
-          actionValue: scheduleTrigger.type,
-          appId: getRealAppId(scheduleTrigger),
-          description: scheduleTrigger.description,
-          icon: 'mdi-clock-outline',
-          label: 'On a schedule',
-        })] : []),
-        ...triggerDefinitions
-          .filter((definition) =>
-            definition.type !== manualTrigger?.type
-            && definition.type !== scheduleTrigger?.type
-            && !appTriggerDefinitions.some((appDefinition) => appDefinition.type === definition.type))
-          .map((definition) =>
-            renderBrowserListItem({
-              action: 'select',
-              actionValue: definition.type,
-              appId: getRealAppId(definition),
-              description: definition.description,
-              icon: definition.icon,
-              label: definition.label,
-            })),
-      ];
-      const normalizedQuery = searchQuery.trim().toLowerCase();
-      const filteredItems = normalizedQuery.length === 0
-        ? rootItems
-        : rootItems.filter((itemMarkup) => itemMarkup.toLowerCase().includes(normalizedQuery));
-
-      title = browserView.backTo === 'next-step-root' ? 'Add another trigger' : 'What triggers this workflow?';
-      description = browserView.backTo === 'next-step-root'
-        ? 'Triggers start your workflow. Workflows can have multiple triggers.'
-        : 'A trigger is a step that starts your workflow';
-      emptyMessage = 'No matching triggers';
-      searchPlaceholder = 'Search nodes...';
-      markup = filteredItems.join('');
-    } else if (browserView.kind === 'trigger-apps') {
-      const appItems = Array.from(
-        getAppTriggerDefinitions(availableDefinitions).reduce<Map<string, WorkflowNodeDefinition>>((items, definition) => {
-          const appId = getRealAppId(definition);
-          if (!appId || items.has(appId)) {
-            return items;
-          }
-
-          items.set(appId, definition);
-          return items;
-        }, new Map()),
-      )
-        .map(([appId, definition]) => ({
-          appId,
-          definition,
-        }))
-        .filter(({ definition }) => {
-          const normalizedQuery = searchQuery.trim().toLowerCase();
-          if (!normalizedQuery) {
-            return true;
-          }
-
-          return [
-            definition.app_label ?? '',
-            definition.app_description ?? '',
-            definition.label,
-          ]
-            .join(' ')
-            .toLowerCase()
-            .includes(normalizedQuery);
-        })
-        .sort((first, second) =>
-          (first.definition.app_label ?? first.definition.label).localeCompare(
-            second.definition.app_label ?? second.definition.label,
-          ));
-
-      title = 'On app event';
-      description = '';
-      emptyMessage = 'No matching apps';
-      searchPlaceholder = 'Search nodes...';
-      markup = appItems
-        .map(({ appId, definition }) =>
-          renderBrowserListItem({
-            action: 'navigate',
-            actionValue: 'app-details',
-            appId,
-            description: definition.app_description || definition.description,
-            icon: definition.app_icon || definition.icon,
-            label: definition.app_label || definition.label,
-            meta: 'Trigger nodes',
-          }))
-        .join('');
-    } else if (browserView.kind === 'app-details') {
-      const appDefinitions = getAppNodeDefinitions(browserView.appId, availableDefinitions);
-      const triggerDefinitions = appDefinitions.filter((definition) => definition.kind === 'trigger');
-      const actionDefinitions = appDefinitions.filter((definition) => definition.kind !== 'trigger');
-      const appDefinition = appDefinitions[0];
-      const detailSections = browserView.backTo === 'trigger-apps'
-        ? [{
-          count: triggerDefinitions.length,
-          definitions: triggerDefinitions,
-          title: 'Triggers',
-        }]
-        : [{
-          count: actionDefinitions.length,
-          definitions: actionDefinitions,
-          title: 'Actions',
-        }];
-
-      title = appDefinition?.app_label || appDefinition?.label || 'Node details';
-      description = appDefinition?.app_description || '';
-      emptyMessage = 'No nodes available for this app';
-      hideSearch = true;
-      markup = appDefinitions.length > 0
-        ? `
-            <div class="workflow-node-browser-details">
-              ${detailSections
-                .filter((section) => section.count > 0)
-                .map((section) => `
-                  <section class="workflow-node-browser-detail-section">
-                    <div class="workflow-node-browser-detail-title">${section.title} (${section.count})</div>
-                    <div class="workflow-node-browser-grid">${renderBrowserDefinitionList(section.definitions)}</div>
-                  </section>
-                `)
-                .join('')}
-            </div>
-          `
-        : '';
-    } else if (insertPort) {
-      title = insertPort.id === 'ai_languageModel' ? 'Attach model provider' : 'Attach tool';
-      description = insertPort.id === 'ai_languageModel'
-        ? 'Choose a provider-backed model node. Each one includes curated presets and an optional custom override.'
-        : 'Choose any tool or integration node to attach to this agent.';
-      emptyMessage = insertPort.id === 'ai_languageModel'
-        ? 'No matching model providers'
-        : 'No matching tools';
-      searchPlaceholder = insertPort.id === 'ai_languageModel' ? 'Search model providers' : 'Search tools';
-      if (insertPort.id === 'ai_languageModel') {
-        const modelDefinitions = filterNodeDefinitions(
-          nodeRegistry.definitions.filter(
-            (definition) =>
-              isAgentLanguageModelDefinition(definition)
-              && (!allowedNodeTypes || allowedNodeTypes.includes(definition.type)),
-          ),
-          searchQuery,
-        );
-        markup = modelDefinitions.length > 0
-          ? `<div class="workflow-node-browser-list workflow-node-browser-list--providers">${renderDefinitions(modelDefinitions)}</div>`
-          : '';
-      }
-    } else if (browserView.kind === 'next-step-root') {
-      const actionDefinitions = getAppActionDefinitions(availableDefinitions);
-      const rootItems = [
-        ...(getNextStepCategoryDefinitions('ai', availableDefinitions).length > 0 ? [renderBrowserListItem({
-          action: 'navigate',
-          actionValue: 'next-ai',
-          description: NEXT_STEP_CATEGORY_META.ai.description,
-          icon: NEXT_STEP_CATEGORY_META.ai.icon,
-          label: NEXT_STEP_CATEGORY_META.ai.label,
-        })] : []),
-        ...(actionDefinitions.length > 0 ? [renderBrowserListItem({
-          action: 'navigate',
-          actionValue: 'app-actions',
-          description: 'Do something in an app or service like Elasticsearch or Prometheus.',
-          icon: 'mdi-earth',
-          label: 'Action in an app',
-        })] : []),
-        ...(getNextStepCategoryDefinitions('data', availableDefinitions).length > 0 ? [renderBrowserListItem({
-          action: 'navigate',
-          actionValue: 'next-data',
-          description: NEXT_STEP_CATEGORY_META.data.description,
-          icon: NEXT_STEP_CATEGORY_META.data.icon,
-          label: NEXT_STEP_CATEGORY_META.data.label,
-        })] : []),
-        ...(getNextStepCategoryDefinitions('flow', availableDefinitions).length > 0 ? [renderBrowserListItem({
-          action: 'navigate',
-          actionValue: 'next-flow',
-          description: NEXT_STEP_CATEGORY_META.flow.description,
-          icon: NEXT_STEP_CATEGORY_META.flow.icon,
-          label: NEXT_STEP_CATEGORY_META.flow.label,
-        })] : []),
-        ...(getNextStepCategoryDefinitions('core', availableDefinitions).length > 0 ? [renderBrowserListItem({
-          action: 'navigate',
-          actionValue: 'next-core',
-          description: NEXT_STEP_CATEGORY_META.core.description,
-          icon: NEXT_STEP_CATEGORY_META.core.icon,
-          label: NEXT_STEP_CATEGORY_META.core.label,
-        })] : []),
-        ...(availableDefinitions.some((definition) => definition.kind === 'trigger') ? [renderBrowserListItem({
-          action: 'navigate',
-          actionValue: 'trigger-root',
-          description: 'Triggers start your workflow. Workflows can have multiple triggers.',
-          icon: 'mdi-lightning-bolt-outline',
-          label: 'Add another trigger',
-        })] : []),
-      ];
-      const normalizedQuery = searchQuery.trim().toLowerCase();
-      const filteredItems = normalizedQuery.length === 0
-        ? rootItems
-        : rootItems.filter((itemMarkup) => itemMarkup.toLowerCase().includes(normalizedQuery));
-
-      title = 'What happens next?';
-      description = '';
-      emptyMessage = 'No matching node categories';
-      searchPlaceholder = 'Search nodes...';
-      markup = filteredItems.join('');
-    } else if (browserView.kind === 'app-actions') {
-      const appItems = Array.from(
-        getAppActionDefinitions(availableDefinitions).reduce<Map<string, WorkflowNodeDefinition>>((items, definition) => {
-          const appId = getRealAppId(definition);
-          if (!appId || items.has(appId)) {
-            return items;
-          }
-
-          items.set(appId, definition);
-          return items;
-        }, new Map()),
-      )
-        .map(([appId, definition]) => ({
-          appId,
-          definition,
-        }))
-        .filter(({ definition }) => {
-          const normalizedQuery = searchQuery.trim().toLowerCase();
-          if (!normalizedQuery) {
-            return true;
-          }
-
-          return [
-            definition.app_label ?? '',
-            definition.app_description ?? '',
-            definition.label,
-          ]
-            .join(' ')
-            .toLowerCase()
-            .includes(normalizedQuery);
-        })
-        .sort((first, second) =>
-          (first.definition.app_label ?? first.definition.label).localeCompare(
-            second.definition.app_label ?? second.definition.label,
-          ));
-
-      title = 'Action in an app';
-      description = '';
-      emptyMessage = 'No matching apps';
-      searchPlaceholder = 'Search nodes...';
-      markup = appItems
-        .map(({ appId, definition }) =>
-          renderBrowserListItem({
-            action: 'navigate',
-            actionValue: 'app-details',
-            appId,
-            description: definition.app_description || definition.description,
-            icon: definition.app_icon || definition.icon,
-            label: definition.app_label || definition.label,
-            meta: 'Action nodes',
-          }))
-        .join('');
-    } else if (browserView.kind === 'category-details') {
-      const categoryMeta = NEXT_STEP_CATEGORY_META[browserView.category];
-      const categoryDefinitions = filterNodeDefinitions(
-        getNextStepCategoryDefinitions(browserView.category, availableDefinitions),
-        searchQuery,
-      );
-
-      title = categoryMeta.label;
-      description = categoryMeta.description;
-      emptyMessage = `No matching ${categoryMeta.label.toLowerCase()} nodes`;
-      searchPlaceholder = 'Search nodes...';
-      markup = categoryDefinitions.length > 0
-        ? `<div class="workflow-node-browser-list">${renderBrowserDefinitionList(categoryDefinitions)}</div>`
-        : '';
-    }
+    const browserState = renderBrowserState({
+      allowedNodeTypes,
+      browserView,
+      definitions: nodeRegistry.definitions,
+      filteredSections,
+      insertPort: insertPort?.id,
+      isEmptyWorkflow: isEmptyWorkflow(),
+      searchQuery,
+    });
 
     browser.browser.hidden = !isBrowserOpen;
-    browser.browser.classList.toggle('is-starter-mode', emptyWorkflow);
-    browser.browserTitle.textContent = title;
-    browser.browserDescription.textContent = description;
-    browser.browserDescription.hidden = description.length === 0;
-    browser.backButton.hidden = !(
-      (browserView.kind === 'trigger-root' && browserView.backTo === 'next-step-root')
-      || browserView.kind === 'trigger-apps'
-      || browserView.kind === 'app-details'
-      || browserView.kind === 'app-actions'
-      || browserView.kind === 'category-details'
-    );
+    browser.browser.classList.toggle('is-starter-mode', isEmptyWorkflow());
+    browser.browserTitle.textContent = browserState.title;
+    browser.browserDescription.textContent = browserState.description;
+    browser.browserDescription.hidden = browserState.description.length === 0;
+    browser.backButton.hidden = !browserState.showBackButton;
     browser.openButton.classList.toggle('is-active', isBrowserOpen);
-    browser.searchWrap.hidden = hideSearch;
-    browser.searchInput.placeholder = searchPlaceholder;
-    browser.browserContent.innerHTML = markup;
-    browser.browserEmpty.textContent = emptyMessage;
-    browser.browserEmpty.hidden = markup.length > 0;
+    browser.searchWrap.hidden = browserState.hideSearch;
+    browser.searchInput.placeholder = browserState.searchPlaceholder;
+    browser.browserContent.innerHTML = browserState.markup;
+    browser.browserEmpty.textContent = browserState.emptyMessage;
+    browser.browserEmpty.hidden = browserState.markup.length > 0;
   }
 
   function renderEmptyState(): void {
@@ -2991,10 +2345,11 @@ export function initWorkflowDesigner(): void {
   }
 
   function closeBrowser(): void {
+    const emptyWorkflow = isEmptyWorkflow();
     isBrowserOpen = false;
     insertDraft = null;
     contextMenuState = null;
-    browserView = getDefaultBrowserView();
+    browserView = getDefaultBrowserView(emptyWorkflow);
     searchQuery = '';
     browser.searchInput.value = '';
     renderBrowser();
@@ -3007,9 +2362,10 @@ export function initWorkflowDesigner(): void {
   }
 
   function openBrowser(): void {
+    const emptyWorkflow = isEmptyWorkflow();
     isBrowserOpen = true;
     contextMenuState = null;
-    setBrowserView(getDefaultBrowserView());
+    setBrowserView(getDefaultBrowserView(emptyWorkflow));
     renderBrowser();
     renderNodeContextMenu();
     window.setTimeout(() => {

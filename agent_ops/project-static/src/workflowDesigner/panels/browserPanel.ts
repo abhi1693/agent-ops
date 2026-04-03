@@ -8,7 +8,6 @@ import { escapeHtml } from '../utils';
 type BrowserRenderHelpers = {
   formatKindLabel: (kind: string) => string;
   getCatalogSectionLabel: (catalogSection: WorkflowNodeCatalogSection | string | null | undefined) => string | null;
-  getProviderMonogram: (label: string, appId?: string) => string;
   isModelProvider: (definition: WorkflowNodeDefinition) => boolean;
 };
 
@@ -38,9 +37,7 @@ export function renderPaletteDefinitions(
         ? definition.app_description || definition.description
         : definition.description;
       const iconMarkup = isModelProvider
-        ? `<span class="workflow-node-browser-item-monogram">${escapeHtml(
-            helpers.getProviderMonogram(definition.label, appId),
-          )}</span>`
+        ? '<i class="mdi mdi-robot-outline"></i>'
         : `<i class="mdi ${escapeHtml(icon)}"></i>`;
 
       return `

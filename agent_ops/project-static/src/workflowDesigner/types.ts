@@ -50,6 +50,8 @@ export type WorkflowConnection = {
   scope_label?: string;
 };
 
+export type AgentAuxiliaryPortId = 'ai_languageModel' | 'ai_tool';
+
 export type WorkflowNodeKind = 'trigger' | 'agent' | 'tool' | 'condition' | 'response';
 
 export type WorkflowNodeCategoryId =
