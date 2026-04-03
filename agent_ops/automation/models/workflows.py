@@ -137,10 +137,11 @@ def _validate_workflow_nodes(nodes):
             )
         expected_kind = _persisted_kind_for_catalog_node(catalog_definition)
         if expected_kind != kind:
+            catalog_node_id = getattr(catalog_definition, "id", None) or getattr(catalog_definition, "type", node_type)
             raise ValidationError(
                 {
                     "definition": (
-                        f'Node "{node_id}" type "{catalog_definition.id}" does not match kind "{kind}".'
+                        f'Node "{node_id}" type "{catalog_node_id}" does not match kind "{kind}".'
                     )
                 }
             )
@@ -164,13 +165,16 @@ def _validate_workflow_nodes(nodes):
 
 
 def _persisted_kind_for_catalog_node(node_definition) -> str:
-    if node_definition.mode == "trigger" or node_definition.kind == "trigger":
+    mode = getattr(node_definition, "mode", None)
+    kind = getattr(node_definition, "kind", None)
+
+    if mode == "trigger" or kind == "trigger":
         return "trigger"
-    if node_definition.kind == "agent":
+    if kind == "agent":
         return "agent"
-    if node_definition.kind == "output":
+    if kind in {"output", "response"}:
         return "response"
-    if node_definition.kind == "control":
+    if kind in {"control", "condition"}:
         return "condition"
     return "tool"
 

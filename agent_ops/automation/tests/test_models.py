@@ -1,8 +1,10 @@
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
+from unittest.mock import patch
 
 from automation.models import Workflow
+from automation.nodes import get_workflow_node_definition
 from core.models import PrimaryModel
 from tenancy.models import Environment, Organization, Workspace
 
@@ -334,6 +336,39 @@ class WorkflowModelTests(TestCase):
         )
 
         workflow.full_clean()
+
+    def test_workflow_validation_accepts_python_backed_node_definitions_without_mode(self):
+        workflow = Workflow(
+            environment=self.environment,
+            name="Python-backed node validation",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.manual_trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        with patch(
+            "automation.models.workflows.get_catalog_node",
+            side_effect=lambda node_type: get_workflow_node_definition(node_type),
+        ):
+            workflow.full_clean()
 
     def test_workflow_accepts_webhook_trigger_and_external_tool_nodes(self):
         workflow = Workflow(
