@@ -8,6 +8,10 @@ import {
   getExecutionElements,
 } from './workflowDesigner/dom';
 import {
+  renderEdgeRemoveButtonMarkup,
+  renderNodeContextMenuMarkup,
+} from './workflowDesigner/markup';
+import {
   buildConnectionPath,
   clampNodePosition,
   getAgentAuxiliaryPortPoint,
@@ -1136,36 +1140,7 @@ export function initWorkflowDesigner(): void {
     canvas.nodeMenu.hidden = false;
     canvas.nodeMenu.style.left = `${contextMenuState.x}px`;
     canvas.nodeMenu.style.top = `${contextMenuState.y}px`;
-    canvas.nodeMenu.innerHTML = `
-      <div class="workflow-editor-node-menu-sheet">
-        <div class="workflow-editor-node-menu-head">
-          <div class="workflow-editor-node-menu-title">${escapeHtml(title)}</div>
-          ${meta ? `<div class="workflow-editor-node-menu-meta">${escapeHtml(meta)}</div>` : ''}
-        </div>
-        <div class="workflow-editor-node-menu-divider" aria-hidden="true"></div>
-        <button
-          type="button"
-          class="workflow-editor-node-menu-action"
-          data-node-menu-action="settings"
-        >
-          <span class="workflow-editor-node-menu-action-icon" aria-hidden="true">
-            <i class="mdi mdi-tune-variant"></i>
-          </span>
-          <span class="workflow-editor-node-menu-action-label">Settings</span>
-        </button>
-        <button
-          type="button"
-          class="workflow-editor-node-menu-action is-danger"
-          data-node-menu-action="delete"
-        >
-          <span class="workflow-editor-node-menu-action-icon" aria-hidden="true">
-            <i class="mdi mdi-trash-can-outline"></i>
-          </span>
-          <span class="workflow-editor-node-menu-action-label">Delete</span>
-          <span class="workflow-editor-node-menu-action-shortcut" aria-hidden="true">Del</span>
-        </button>
-      </div>
-    `;
+    canvas.nodeMenu.innerHTML = renderNodeContextMenuMarkup({ meta, title });
   }
 
   function setBrowserView(nextView: BrowserView): void {
@@ -1634,17 +1609,11 @@ export function initWorkflowDesigner(): void {
     const controlX = clamp(Math.round(controlPoint.x), 20, Math.max(canvas.board.clientWidth - 20, 20));
     const controlY = clamp(Math.round(controlPoint.y), 20, Math.max(canvas.board.clientHeight - 20, 20));
 
-    canvas.edgeControls.innerHTML = `
-      <button
-        type="button"
-        class="workflow-editor-edge-remove"
-        data-remove-edge="${escapeHtml(hoveredEdge.id)}"
-        style="left: ${controlX}px; top: ${controlY}px;"
-        aria-label="Remove connection"
-      >
-        <i class="mdi mdi-close"></i>
-      </button>
-    `;
+    canvas.edgeControls.innerHTML = renderEdgeRemoveButtonMarkup({
+      edgeId: hoveredEdge.id,
+      x: controlX,
+      y: controlY,
+    });
   }
 
   function renderCanvas(): void {

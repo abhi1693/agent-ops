@@ -270,6 +270,60 @@ export function renderNodeMarkup(params: {
   `;
 }
 
+export function renderNodeContextMenuMarkup(params: {
+  meta: string;
+  title: string;
+}): string {
+  return `
+    <div class="workflow-editor-node-menu-sheet">
+      <div class="workflow-editor-node-menu-head">
+        <div class="workflow-editor-node-menu-title">${escapeHtml(params.title)}</div>
+        ${params.meta ? `<div class="workflow-editor-node-menu-meta">${escapeHtml(params.meta)}</div>` : ''}
+      </div>
+      <div class="workflow-editor-node-menu-divider" aria-hidden="true"></div>
+      <button
+        type="button"
+        class="workflow-editor-node-menu-action"
+        data-node-menu-action="settings"
+      >
+        <span class="workflow-editor-node-menu-action-icon" aria-hidden="true">
+          <i class="mdi mdi-tune-variant"></i>
+        </span>
+        <span class="workflow-editor-node-menu-action-label">Settings</span>
+      </button>
+      <button
+        type="button"
+        class="workflow-editor-node-menu-action is-danger"
+        data-node-menu-action="delete"
+      >
+        <span class="workflow-editor-node-menu-action-icon" aria-hidden="true">
+          <i class="mdi mdi-trash-can-outline"></i>
+        </span>
+        <span class="workflow-editor-node-menu-action-label">Delete</span>
+        <span class="workflow-editor-node-menu-action-shortcut" aria-hidden="true">Del</span>
+      </button>
+    </div>
+  `;
+}
+
+export function renderEdgeRemoveButtonMarkup(params: {
+  edgeId: string;
+  x: number;
+  y: number;
+}): string {
+  return `
+    <button
+      type="button"
+      class="workflow-editor-edge-remove"
+      data-remove-edge="${escapeHtml(params.edgeId)}"
+      style="left: ${params.x}px; top: ${params.y}px;"
+      aria-label="Remove connection"
+    >
+      <i class="mdi mdi-close"></i>
+    </button>
+  `;
+}
+
 function renderPaletteDefinitionCards(definitions: WorkflowNodeDefinition[]): string {
   return definitions
     .map(
