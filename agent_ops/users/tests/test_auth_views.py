@@ -416,21 +416,6 @@ class AuthViewTests(TestCase):
         self.assertEqual(group.permissions.get(), self.change_user_permission)
         self.assertEqual(group.object_permissions.get(), object_permission)
 
-    def test_staff_user_can_create_group_and_add_another(self) -> None:
-        self.client.force_login(self.staff_user)
-
-        response = self.client.post(
-            reverse("group_add"),
-            {
-                "name": "Operators",
-                "description": "Operational staff",
-                "_addanother": "1",
-            },
-        )
-
-        self.assertRedirects(response, reverse("group_add"))
-        self.assertTrue(Group.objects.filter(name="Operators").exists())
-
     def test_staff_user_can_delete_group(self) -> None:
         group = Group.objects.create(name="Contractors", description="Temporary access")
         self.client.force_login(self.staff_user)
@@ -480,7 +465,8 @@ class AuthViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Add user")
-        self.assertContains(response, "Create &amp; Add Another", html=True)
+        self.assertContains(response, '>Create</button>', html=False)
+        self.assertNotContains(response, "Create &amp; Add Another", html=True)
         self.assertContains(response, "User")
 
     def test_staff_user_can_render_group_add_form(self) -> None:
@@ -490,7 +476,8 @@ class AuthViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Add group")
-        self.assertContains(response, "Create &amp; Add Another", html=True)
+        self.assertContains(response, '>Create</button>', html=False)
+        self.assertNotContains(response, "Create &amp; Add Another", html=True)
         self.assertContains(response, "Permissions")
 
     def test_staff_user_can_render_object_permission_add_form(self) -> None:
@@ -500,7 +487,8 @@ class AuthViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Add object permission")
-        self.assertContains(response, "Create &amp; Add Another", html=True)
+        self.assertContains(response, '>Create</button>', html=False)
+        self.assertNotContains(response, "Create &amp; Add Another", html=True)
         self.assertContains(response, "Scope")
         self.assertContains(response, "Actions")
         self.assertNotContains(response, ">null</textarea>", html=False)

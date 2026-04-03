@@ -506,7 +506,6 @@ class WorkflowDesignerView(RestrictedObjectEditMixin, ObjectEditView):
     template_name = "automation/workflow_designer.html"
     success_message = "Workflow designer updated."
     submit_label = "Save workflow"
-    show_add_another = False
 
     def get_page_title(self):
         return f"Designer: {self.object}"

@@ -176,7 +176,6 @@ class ObjectEditView(QuerysetBackedObjectView):
     page_title = None
     submit_label = None
     success_message = None
-    show_add_another = True
 
     def dispatch(self, request, *args, **kwargs):
         self.object = self.get_object(**kwargs)
@@ -213,15 +212,6 @@ class ObjectEditView(QuerysetBackedObjectView):
             return self.submit_label
         return "Save" if self.is_editing() else "Create"
 
-    def get_addanother_url(self):
-        try:
-            return reverse(f"{self.get_queryset().model._meta.model_name}_add")
-        except NoReverseMatch:
-            return None
-
-    def get_show_add_another(self):
-        return not self.is_editing() and self.show_add_another and self.get_addanother_url() is not None
-
     def get_success_message(self, obj, created):
         if self.success_message:
             return self.success_message
@@ -240,7 +230,6 @@ class ObjectEditView(QuerysetBackedObjectView):
             "submit_label": self.get_submit_label(),
             "return_url": self.get_return_url(request, self.object),
             "is_editing": self.is_editing(),
-            "show_add_another": self.get_show_add_another(),
             **self.get_extra_context(request, self.object),
         }
 
@@ -251,15 +240,11 @@ class ObjectEditView(QuerysetBackedObjectView):
     def post(self, request, *args, **kwargs):
         form = self.get_form(data=request.POST, files=request.FILES)
         if form.is_valid():
-            addanother_url = self.get_addanother_url() if self.get_show_add_another() else None
             created = self.object.pk is None
             self.object = self.form_save(form)
             success_message = self.get_success_message(self.object, created)
             if success_message:
                 messages.success(request, success_message)
-
-            if "_addanother" in request.POST and addanother_url:
-                return redirect(addanother_url)
 
             return redirect(self.get_return_url(request, self.object))
 

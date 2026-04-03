@@ -37,9 +37,13 @@
         </div>
       {% endif %}
 
-      <div class="object-edit-actions">
-        <a href="{{ cancel_url }}" class="btn btn-outline-secondary">Cancel</a>
-        <button type="submit" class="btn btn-danger">Delete</button>
+      <div class="row">
+        <div class="offset-lg-3 col-lg-9">
+          <div class="object-edit-actions d-flex justify-content-end gap-2 flex-wrap">
+            <a href="{{ cancel_url }}" class="btn btn-outline-secondary">Cancel</a>
+            <button type="submit" class="btn btn-danger">Delete</button>
+          </div>
+        </div>
       </div>
     </form>
   </div>

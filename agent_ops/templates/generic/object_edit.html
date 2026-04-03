@@ -75,20 +75,13 @@
         </div>
       {% endif %}
 
-      <div class="object-edit-actions">
-        <a href="{{ return_url }}" class="btn btn-outline-secondary">Cancel</a>
-        {% if is_editing %}
-          <button type="submit" name="_update" class="btn btn-primary">{{ submit_label }}</button>
-        {% elif show_add_another %}
-          <div class="btn-group" role="group" aria-label="Actions">
-            <button type="submit" name="_create" class="btn btn-primary">{{ submit_label }}</button>
-            <button type="submit" name="_addanother" class="btn btn-outline-primary">
-              Create &amp; Add Another
-            </button>
+      <div class="row">
+        <div class="offset-lg-3 col-lg-9">
+          <div class="object-edit-actions d-flex justify-content-end gap-2 flex-wrap">
+            <a href="{{ return_url }}" class="btn btn-outline-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">{{ submit_label }}</button>
           </div>
-        {% else %}
-          <button type="submit" name="_create" class="btn btn-primary">{{ submit_label }}</button>
-        {% endif %}
+        </div>
       </div>
     </form>
   </div>

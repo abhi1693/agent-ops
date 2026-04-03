@@ -92,7 +92,6 @@ class PreferenceUpdateView(LoginRequiredMixin, TemplateView):
         context["submit_label"] = "Save preferences"
         context["return_url"] = reverse("profile")
         context["is_editing"] = True
-        context["show_add_another"] = False
         return context
 
 
@@ -111,7 +110,6 @@ class TokenCreateView(LoginRequiredMixin, ObjectEditView):
     form_class = TokenCreateForm
     page_title = "Create API token"
     submit_label = "Create token"
-    show_add_another = False
 
     def get_form(self, data=None, files=None):
         return self.get_form_class()(
