@@ -107,6 +107,14 @@ def _node_fields_from_tool_fields(
             label=field.label,
             type=field.type,
             options=_node_field_options_from_tool_options(field.options),
+            visible_when=field.visible_when,
+            options_by_field={
+                config_key: {
+                    config_value: _node_field_options_from_tool_options(options)
+                    for config_value, options in option_map.items()
+                }
+                for config_key, option_map in field.options_by_field.items()
+            },
             ui_group=field.ui_group,
             binding=field.binding,
             placeholder=field.placeholder,

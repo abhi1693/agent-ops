@@ -1501,7 +1501,8 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "kubectl",
                         "config": {
                             "output_key": "kubectl.result",
-                            "command": "kubectl get pods -o json",
+                            "action": "get",
+                            "resource_type": "pods",
                             "output_format": "json",
                             "context_name": "prod-cluster",
                             "namespace": "payments",
@@ -1540,8 +1541,7 @@ class WorkflowRuntimeTests(TestCase):
                     "payments",
                     "get",
                     "pods",
-                    "-o",
-                    "json",
+                    "-ojson",
                 ],
             )
             self.assertFalse(check)
@@ -1580,7 +1580,8 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "kubectl",
                         "config": {
                             "output_key": "kubectl.result",
-                            "command": "get pods",
+                            "action": "get",
+                            "resource_type": "pods",
                             "output_format": "json",
                         },
                         "position": {"x": 320, "y": 40},
@@ -1637,7 +1638,10 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "kubectl",
                         "config": {
                             "output_key": "kubectl.result",
-                            "command": "logs api-0 -n payments",
+                            "action": "logs",
+                            "resource_type": "pods",
+                            "resource_name": "api-0",
+                            "namespace": "payments",
                             "output_format": "auto",
                         },
                         "position": {"x": 320, "y": 40},
@@ -1654,10 +1658,10 @@ class WorkflowRuntimeTests(TestCase):
                 argv,
                 [
                     "/usr/local/bin/kubectl",
-                    "logs",
-                    "api-0",
-                    "-n",
+                    "--namespace",
                     "payments",
+                    "logs",
+                    "pod/api-0",
                 ],
             )
             self.assertFalse(check)
@@ -1693,6 +1697,7 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "kubectl",
                         "config": {
                             "output_key": "kubectl.result",
+                            "action": "custom",
                             "command": "delete pod api-0 -n payments",
                         },
                         "position": {"x": 320, "y": 40},
@@ -1729,6 +1734,7 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "kubectl",
                         "config": {
                             "output_key": "kubectl.result",
+                            "action": "custom",
                             "command": "delete pod api-0 -n payments",
                             "command_policy": "allow_mutating",
                             "output_format": "text",
@@ -1787,7 +1793,8 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "kubectl",
                         "config": {
                             "output_key": "kubectl.result",
-                            "command": "get pods -o json",
+                            "action": "get",
+                            "resource_type": "pods",
                             "output_format": "json",
                             "secret_name": "KUBECONFIG_SECRET",
                             "kubeconfig_secret_mode": "content",
@@ -1816,7 +1823,7 @@ class WorkflowRuntimeTests(TestCase):
             self.assertTrue(os.path.exists(kubeconfig_path))
             with open(kubeconfig_path, encoding="utf-8") as kubeconfig_file:
                 self.assertEqual(kubeconfig_file.read(), "apiVersion: v1\nclusters: []\n")
-            self.assertEqual(argv[3:], ["get", "pods", "-o", "json"])
+            self.assertEqual(argv[3:], ["get", "pods", "-ojson"])
             self.assertFalse(check)
             self.assertTrue(capture_output)
             self.assertTrue(text)
@@ -1855,7 +1862,8 @@ class WorkflowRuntimeTests(TestCase):
                         "label": "kubectl",
                         "config": {
                             "output_key": "kubectl.result",
-                            "command": "get ns -o json",
+                            "action": "get",
+                            "resource_type": "ns",
                             "output_format": "json",
                             "secret_name": "KUBECONFIG_PATH",
                             "kubeconfig_secret_mode": "path",
@@ -1888,8 +1896,7 @@ class WorkflowRuntimeTests(TestCase):
                         kubeconfig_path,
                         "get",
                         "ns",
-                        "-o",
-                        "json",
+                        "-ojson",
                     ],
                 )
                 self.assertFalse(check)
@@ -2141,6 +2148,9 @@ class WorkflowRuntimeTests(TestCase):
                             "base_url": "https://{{ trigger.payload.base_url }}",
                             "query": "up",
                             "output_key": "prometheus.query",
+                            "__input_modes": {
+                                "base_url": "expression",
+                            },
                         },
                         "position": {"x": 320, "y": 40},
                     },

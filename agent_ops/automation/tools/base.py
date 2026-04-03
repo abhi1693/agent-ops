@@ -42,6 +42,8 @@ class WorkflowToolFieldDefinition:
     label: str
     type: WorkflowToolFieldType
     options: tuple[WorkflowToolFieldOption, ...] = ()
+    visible_when: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    options_by_field: dict[str, dict[str, tuple[WorkflowToolFieldOption, ...]]] = field(default_factory=dict)
     ui_group: WorkflowToolFieldUiGroup | None = None
     binding: WorkflowToolFieldBinding | None = None
     placeholder: str | None = None
@@ -51,6 +53,8 @@ class WorkflowToolFieldDefinition:
     def __post_init__(self) -> None:
         if self.type != "select" and self.options:
             raise ValueError(f'Field "{self.key}" can only define options for select fields.')
+        if self.type != "select" and self.options_by_field:
+            raise ValueError(f'Field "{self.key}" can only define options_by_field for select fields.')
         if self.type != "textarea" and self.rows is not None:
             raise ValueError(f'Field "{self.key}" can only define rows for textarea fields.')
         if self.rows is not None and self.rows < 1:
@@ -74,6 +78,19 @@ class WorkflowToolFieldDefinition:
         }
         if self.options:
             payload["options"] = [option.serialize() for option in self.options]
+        if self.visible_when:
+            payload["visible_when"] = {
+                key: list(values)
+                for key, values in self.visible_when.items()
+            }
+        if self.options_by_field:
+            payload["options_by_field"] = {
+                config_key: {
+                    config_value: [option.serialize() for option in options]
+                    for config_value, options in option_map.items()
+                }
+                for config_key, option_map in self.options_by_field.items()
+            }
         if self.ui_group is not None:
             payload["ui_group"] = self.ui_group
         if self.binding is not None:
@@ -100,6 +117,7 @@ def tool_text_field(
     binding: WorkflowToolFieldBinding | None = None,
     placeholder: str | None = None,
     help_text: str | None = None,
+    visible_when: dict[str, tuple[str, ...]] | None = None,
 ) -> WorkflowToolFieldDefinition:
     return WorkflowToolFieldDefinition(
         key=key,
@@ -109,6 +127,7 @@ def tool_text_field(
         binding=binding,
         placeholder=placeholder,
         help_text=help_text,
+        visible_when=visible_when or {},
     )
 
 
@@ -121,6 +140,7 @@ def tool_textarea_field(
     binding: WorkflowToolFieldBinding | None = None,
     placeholder: str | None = None,
     help_text: str | None = None,
+    visible_when: dict[str, tuple[str, ...]] | None = None,
 ) -> WorkflowToolFieldDefinition:
     return WorkflowToolFieldDefinition(
         key=key,
@@ -131,6 +151,7 @@ def tool_textarea_field(
         rows=rows,
         placeholder=placeholder,
         help_text=help_text,
+        visible_when=visible_when or {},
     )
 
 
@@ -142,6 +163,8 @@ def tool_select_field(
     ui_group: WorkflowToolFieldUiGroup | None = None,
     binding: WorkflowToolFieldBinding | None = None,
     help_text: str | None = None,
+    visible_when: dict[str, tuple[str, ...]] | None = None,
+    options_by_field: dict[str, dict[str, tuple[WorkflowToolFieldOption, ...]]] | None = None,
 ) -> WorkflowToolFieldDefinition:
     return WorkflowToolFieldDefinition(
         key=key,
@@ -151,6 +174,8 @@ def tool_select_field(
         ui_group=ui_group,
         binding=binding,
         help_text=help_text,
+        visible_when=visible_when or {},
+        options_by_field=options_by_field or {},
     )
 
 

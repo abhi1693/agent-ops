@@ -29,6 +29,7 @@ import {
   formatKindLabel,
   getConfigString,
   inferTemplateFieldInputMode,
+  getRuntimeTemplateFieldInputModeDefault,
   getTemplateFieldBinding,
   getTemplateFieldInputMode,
   getTemplateFieldOptions,
@@ -1751,7 +1752,7 @@ export function initWorkflowDesigner(): void {
       currentModesValue && typeof currentModesValue === 'object' && !Array.isArray(currentModesValue)
         ? { ...(currentModesValue as Record<string, unknown>) }
         : {};
-    const defaultMode = inferTemplateFieldInputMode(node, field);
+    const defaultMode = getRuntimeTemplateFieldInputModeDefault(field);
 
     if (mode === defaultMode) {
       delete nextModes[key];
@@ -2771,7 +2772,8 @@ export function initWorkflowDesigner(): void {
     options?: { rerenderSettings?: boolean },
   ): void {
     const settingsNode = getNode(settingsNodeId);
-    if (!settingsNode) {
+    const nodeDefinition = getNodeDefinition(settingsNode);
+    if (!settingsNode || !nodeDefinition) {
       return;
     }
 
@@ -2781,6 +2783,34 @@ export function initWorkflowDesigner(): void {
     } else {
       nextConfig[key] = value;
     }
+
+    const field = nodeDefinition.fields.find((item) => item.key === key);
+    if (field && supportsTemplateFieldInputMode(field)) {
+      const currentModesValue = nextConfig[WORKFLOW_NODE_INPUT_MODES_KEY];
+      const nextModes =
+        currentModesValue && typeof currentModesValue === 'object' && !Array.isArray(currentModesValue)
+          ? { ...(currentModesValue as Record<string, unknown>) }
+          : {};
+      if (value === '') {
+        delete nextModes[key];
+      } else {
+        const runtimeDefaultMode = getRuntimeTemplateFieldInputModeDefault(field);
+        const selectedMode = getTemplateFieldInputMode(settingsNode, field);
+
+        if (selectedMode === runtimeDefaultMode) {
+          delete nextModes[key];
+        } else {
+          nextModes[key] = selectedMode;
+        }
+      }
+
+      if (Object.keys(nextModes).length > 0) {
+        nextConfig[WORKFLOW_NODE_INPUT_MODES_KEY] = nextModes;
+      } else {
+        delete nextConfig[WORKFLOW_NODE_INPUT_MODES_KEY];
+      }
+    }
+
     settingsNode.config = nextConfig;
 
     syncNodeTargetEdges(settingsNode, getNodeDefinition(settingsNode));

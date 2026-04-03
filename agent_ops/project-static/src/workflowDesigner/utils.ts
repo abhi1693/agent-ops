@@ -247,20 +247,21 @@ export function supportsTemplateFieldInputMode(
 export function getDefaultTemplateFieldInputMode(
   field: WorkflowNodeTemplateField,
 ): WorkflowNodeFieldInputMode {
-  return getTemplateFieldBinding(field) === 'template' ? 'expression' : 'static';
+  void field;
+  return 'static';
 }
 
-function looksLikeTemplateExpression(value: string): boolean {
-  return value.includes('{{') || value.includes('{%');
+export function getRuntimeTemplateFieldInputModeDefault(
+  field: WorkflowNodeTemplateField,
+): WorkflowNodeFieldInputMode {
+  return getTemplateFieldBinding(field) === 'template' ? 'expression' : 'static';
 }
 
 export function inferTemplateFieldInputMode(
   node: WorkflowNode,
   field: WorkflowNodeTemplateField,
 ): WorkflowNodeFieldInputMode {
-  if (looksLikeTemplateExpression(getTemplateFieldValue(node, field))) {
-    return 'expression';
-  }
+  void node;
   return getDefaultTemplateFieldInputMode(field);
 }
 

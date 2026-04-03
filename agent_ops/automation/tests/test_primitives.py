@@ -97,13 +97,22 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertNotIn("operation", elasticsearch_fields)
         self.assertIn("query_json", elasticsearch_fields)
         self.assertIn("auth_scheme", elasticsearch_fields)
-        self.assertEqual(kubectl_template["config"]["output_format"], "json")
+        kubectl_fields_by_key = {
+            field["key"]: field
+            for field in kubectl_template["fields"]
+        }
+        self.assertEqual(kubectl_template["config"]["action"], "get")
+        self.assertEqual(kubectl_template["config"]["output_format"], "auto")
         self.assertEqual(kubectl_template["config"]["kubeconfig_secret_mode"], "content")
+        self.assertIn("action", kubectl_fields)
+        self.assertIn("resource_type", kubectl_fields)
         self.assertIn("secret_name", kubectl_fields)
         self.assertIn("secret_group_id", kubectl_fields)
         self.assertIn("kubeconfig_secret_mode", kubectl_fields)
         self.assertIn("command_policy", kubectl_fields)
         self.assertEqual(kubectl_template["config"]["command_policy"], "read_only")
+        self.assertEqual(kubectl_fields_by_key["command"]["visible_when"]["action"], ["custom"])
+        self.assertEqual(kubectl_fields_by_key["resource_type"]["visible_when"]["action"], ["get", "describe", "logs"])
 
         self.assertNotIn("resource", alertmanager_template)
         self.assertNotIn("operation", alertmanager_template)

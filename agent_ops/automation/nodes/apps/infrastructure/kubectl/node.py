@@ -36,6 +36,24 @@ from automation.tools.base import (
 _READ_ONLY_POLICY = "read_only"
 _ALLOW_MUTATING_POLICY = "allow_mutating"
 _SUPPORTED_COMMAND_POLICIES = {_READ_ONLY_POLICY, _ALLOW_MUTATING_POLICY}
+
+_ACTION_GET = "get"
+_ACTION_DESCRIBE = "describe"
+_ACTION_LOGS = "logs"
+_ACTION_TOP = "top"
+_ACTION_ROLLOUT_STATUS = "rollout_status"
+_ACTION_CUSTOM = "custom"
+_SUPPORTED_ACTIONS = {
+    _ACTION_GET,
+    _ACTION_DESCRIBE,
+    _ACTION_LOGS,
+    _ACTION_TOP,
+    _ACTION_ROLLOUT_STATUS,
+    _ACTION_CUSTOM,
+}
+_SUPPORTED_TOP_TARGETS = {"pod", "node"}
+_SUPPORTED_ROLLOUT_KINDS = {"deployment", "daemonset", "statefulset"}
+
 _READ_ONLY_TOP_LEVEL_COMMANDS = {
     "api-resources",
     "api-versions",
@@ -69,23 +87,86 @@ _LEADING_FLAGS_WITH_VALUES = {
     "--field-selector",
     "--output",
     "-o",
+    "-c",
+    "--container",
+    "--tail",
+    "--since",
+}
+_SINGULAR_RESOURCE_TYPE_MAP = {
+    "pods": "pod",
+    "deployments": "deployment",
+    "daemonsets": "daemonset",
+    "statefulsets": "statefulset",
+    "replicasets": "replicaset",
+    "jobs": "job",
+    "cronjobs": "cronjob",
+    "services": "service",
 }
 
 
 def _validate_kubectl_tool(config: dict, node_id: str) -> None:
     _validate_external_output_key(config, node_id)
-    _validate_required_string(config, "command", node_id=node_id)
+
+    action = config.get("action", _ACTION_GET)
+    if action not in _SUPPORTED_ACTIONS:
+        raise ValidationError(
+            {
+                "definition": (
+                    f'Node "{node_id}" config.action must be one of: '
+                    f'{", ".join(sorted(_SUPPORTED_ACTIONS))}.'
+                )
+            }
+        )
+
+    if action == _ACTION_CUSTOM:
+        _validate_required_string(config, "command", node_id=node_id)
+    if action in {_ACTION_GET, _ACTION_DESCRIBE, _ACTION_LOGS}:
+        _validate_required_string(config, "resource_type", node_id=node_id)
+    if action in {_ACTION_DESCRIBE, _ACTION_LOGS, _ACTION_ROLLOUT_STATUS}:
+        _validate_required_string(config, "resource_name", node_id=node_id)
+    if action == _ACTION_TOP:
+        top_target = config.get("top_target", "pod")
+        if top_target not in _SUPPORTED_TOP_TARGETS:
+            raise ValidationError(
+                {
+                    "definition": (
+                        f'Node "{node_id}" config.top_target must be one of: '
+                        f'{", ".join(sorted(_SUPPORTED_TOP_TARGETS))}.'
+                    )
+                }
+            )
+    if action == _ACTION_ROLLOUT_STATUS:
+        rollout_kind = config.get("rollout_kind", "deployment")
+        if rollout_kind not in _SUPPORTED_ROLLOUT_KINDS:
+            raise ValidationError(
+                {
+                    "definition": (
+                        f'Node "{node_id}" config.rollout_kind must be one of: '
+                        f'{", ".join(sorted(_SUPPORTED_ROLLOUT_KINDS))}.'
+                    )
+                }
+            )
+
+    _validate_optional_string(config, "resource_type", node_id=node_id)
+    _validate_optional_string(config, "resource_name", node_id=node_id)
+    _validate_optional_string(config, "label_selector", node_id=node_id)
+    _validate_optional_string(config, "container_name", node_id=node_id)
+    _validate_optional_string(config, "tail_lines", node_id=node_id)
+    _validate_optional_string(config, "since", node_id=node_id)
     _validate_optional_string(config, "binary_path", node_id=node_id)
     _validate_optional_string(config, "context_name", node_id=node_id)
     _validate_optional_string(config, "namespace", node_id=node_id)
+
     if config.get("secret_name") not in (None, ""):
         _validate_optional_string(config, "secret_name", node_id=node_id)
     _validate_optional_secret_group_id(config, "secret_group_id", node_id=node_id)
-    output_format = config.get("output_format", "text")
+
+    output_format = config.get("output_format", "auto")
     if output_format not in {"text", "json", "auto"}:
         raise ValidationError(
             {"definition": f'Node "{node_id}" config.output_format must be one of: auto, text, json.'}
         )
+
     command_policy = config.get("command_policy", _READ_ONLY_POLICY)
     if command_policy not in _SUPPORTED_COMMAND_POLICIES:
         raise ValidationError(
@@ -96,6 +177,7 @@ def _validate_kubectl_tool(config: dict, node_id: str) -> None:
                 )
             }
         )
+
     kubeconfig_secret_mode = config.get("kubeconfig_secret_mode", "content")
     if kubeconfig_secret_mode not in {"content", "path"}:
         raise ValidationError(
@@ -105,6 +187,7 @@ def _validate_kubectl_tool(config: dict, node_id: str) -> None:
                 )
             }
         )
+
     _coerce_positive_int(
         config.get("timeout_seconds"),
         field_name="timeout_seconds",
@@ -166,8 +249,6 @@ def _is_read_only_kubectl_command(command_parts: list[str]) -> bool:
 
     top_level_command = trimmed_parts[0]
     if top_level_command in _READ_ONLY_TOP_LEVEL_COMMANDS:
-        if top_level_command == "auth":
-            return True
         return True
 
     if top_level_command == "rollout":
@@ -208,14 +289,72 @@ def _ensure_kubectl_output_format(command_parts: list[str], *, output_format: st
     return [*command_parts, "-ojson"]
 
 
+def _normalize_resource_reference(resource_type: str, resource_name: str) -> str:
+    normalized_type = _SINGULAR_RESOURCE_TYPE_MAP.get(resource_type.strip().lower(), resource_type.strip().lower())
+    return f"{normalized_type}/{resource_name.strip()}"
+
+
+def _build_guided_kubectl_command_parts(runtime: WorkflowToolExecutionContext, *, action: str) -> list[str]:
+    if action == _ACTION_GET:
+        resource_type = _render_runtime_string(runtime, "resource_type", required=True, default_mode="static")
+        resource_name = _render_runtime_string(runtime, "resource_name", default_mode="static")
+        label_selector = _render_runtime_string(runtime, "label_selector", default_mode="static")
+        command_parts = ["get", resource_type]
+        if resource_name:
+            command_parts.append(resource_name)
+        if label_selector:
+            command_parts.extend(["--selector", label_selector])
+        return command_parts
+
+    if action == _ACTION_DESCRIBE:
+        resource_type = _render_runtime_string(runtime, "resource_type", required=True, default_mode="static")
+        resource_name = _render_runtime_string(runtime, "resource_name", required=True, default_mode="static")
+        return ["describe", resource_type, resource_name]
+
+    if action == _ACTION_LOGS:
+        resource_type = _render_runtime_string(runtime, "resource_type", required=True, default_mode="static")
+        resource_name = _render_runtime_string(runtime, "resource_name", required=True, default_mode="static")
+        container_name = _render_runtime_string(runtime, "container_name", default_mode="static")
+        tail_lines = _render_runtime_string(runtime, "tail_lines", default_mode="static")
+        since = _render_runtime_string(runtime, "since", default_mode="static")
+        command_parts = ["logs", _normalize_resource_reference(resource_type, resource_name)]
+        if container_name:
+            command_parts.extend(["-c", container_name])
+        if tail_lines:
+            command_parts.extend(["--tail", tail_lines])
+        if since:
+            command_parts.extend(["--since", since])
+        return command_parts
+
+    if action == _ACTION_TOP:
+        top_target = _render_runtime_string(runtime, "top_target", default="pod") or "pod"
+        resource_name = _render_runtime_string(runtime, "resource_name", default_mode="static")
+        label_selector = _render_runtime_string(runtime, "label_selector", default_mode="static")
+        command_parts = ["top", top_target]
+        if resource_name:
+            command_parts.append(resource_name)
+        if label_selector and top_target == "pod":
+            command_parts.extend(["--selector", label_selector])
+        return command_parts
+
+    if action == _ACTION_ROLLOUT_STATUS:
+        rollout_kind = _render_runtime_string(runtime, "rollout_kind", default="deployment") or "deployment"
+        resource_name = _render_runtime_string(runtime, "resource_name", required=True, default_mode="static")
+        return ["rollout", "status", f"{rollout_kind}/{resource_name}"]
+
+    raise ValidationError({"definition": f'Unsupported kubectl action "{action}".'})
+
+
 def _execute_kubectl_tool(runtime: WorkflowToolExecutionContext) -> dict:
     output_key = _render_runtime_string(runtime, "output_key", required=True, default_mode="static")
+    action = _render_runtime_string(runtime, "action", default=_ACTION_GET) or _ACTION_GET
     binary_path = _render_runtime_string(runtime, "binary_path", default_mode="static") or "kubectl"
     context_name = _render_runtime_string(runtime, "context_name", default_mode="static")
     namespace = _render_runtime_string(runtime, "namespace", default_mode="static")
-    command = _render_runtime_string(runtime, "command", required=True, default_mode="expression")
-    output_format = _render_runtime_string(runtime, "output_format", default_mode="static") or "text"
-    command_policy = _render_runtime_string(runtime, "command_policy", default_mode="static") or _READ_ONLY_POLICY
+    output_format = _render_runtime_string(runtime, "output_format", default_mode="static") or "auto"
+    configured_command_policy = (
+        _render_runtime_string(runtime, "command_policy", default_mode="static") or _READ_ONLY_POLICY
+    )
     kubeconfig_secret_mode = (
         _render_runtime_string(runtime, "kubeconfig_secret_mode", default_mode="static") or "content"
     )
@@ -228,17 +367,24 @@ def _execute_kubectl_tool(runtime: WorkflowToolExecutionContext) -> dict:
     )
 
     kubectl_binary = _resolve_kubectl_binary(binary_path)
-    parsed_command_parts = _parse_kubectl_command(command)
-    if command_policy == _READ_ONLY_POLICY and not _is_read_only_kubectl_command(parsed_command_parts):
-        raise ValidationError(
-            {
-                "definition": (
-                    "kubectl command was blocked by the read-only safety policy. "
-                    "Use a read-only subcommand such as get, describe, logs, top, or rollout status, "
-                    'or set config.command_policy to "allow_mutating" for an explicit write-enabled node.'
-                )
-            }
-        )
+    if action == _ACTION_CUSTOM:
+        command = _render_runtime_string(runtime, "command", required=True, default_mode="static")
+        parsed_command_parts = _parse_kubectl_command(command)
+        command_policy = configured_command_policy
+        if command_policy == _READ_ONLY_POLICY and not _is_read_only_kubectl_command(parsed_command_parts):
+            raise ValidationError(
+                {
+                    "definition": (
+                        "kubectl command was blocked by the read-only safety policy. "
+                        "Use a read-only subcommand such as get, describe, logs, top, or rollout status, "
+                        'or set config.command_policy to "allow_mutating" for an explicit write-enabled node.'
+                    )
+                }
+            )
+    else:
+        parsed_command_parts = _build_guided_kubectl_command_parts(runtime, action=action)
+        command_policy = _READ_ONLY_POLICY
+
     command_parts = _ensure_kubectl_output_format(
         parsed_command_parts,
         output_format=output_format,
@@ -317,6 +463,7 @@ def _execute_kubectl_tool(runtime: WorkflowToolExecutionContext) -> dict:
                 parsed_output = None
 
         payload = {
+            "action": action,
             "command": argv,
             "stdout": stdout,
             "stderr": stderr,
@@ -328,6 +475,7 @@ def _execute_kubectl_tool(runtime: WorkflowToolExecutionContext) -> dict:
 
         runtime.set_path_value(runtime.context, output_key, payload)
         result = {
+            "action": action,
             "output_key": output_key,
             "command": argv,
             "command_policy": command_policy,
@@ -354,15 +502,18 @@ TOOL_DEFINITION = WorkflowToolDefinition(
     name="kubectl",
     label="kubectl",
     description=(
-        "Run the locally installed kubectl binary on the app host using its configured cluster access. "
-        "Defaults to a read-only safety policy suitable for investigation workflows."
+        "Run Kubernetes investigation actions against the locally installed kubectl binary. "
+        "Choose a guided action like get, logs, top, or rollout status, or drop to a custom command when needed."
     ),
     icon="mdi-kubernetes",
     category="Infrastructure",
     config={
         "output_key": "kubectl.result",
+        "action": "get",
         "command_policy": "read_only",
-        "output_format": "json",
+        "output_format": "auto",
+        "top_target": "pod",
+        "rollout_kind": "deployment",
         "timeout_seconds": 20,
         "kubeconfig_secret_mode": "content",
     },
@@ -374,6 +525,109 @@ TOOL_DEFINITION = WorkflowToolDefinition(
             binding="path",
             placeholder="kubectl.result",
         ),
+        tool_select_field(
+            "action",
+            "Action",
+            ui_group="input",
+            options=(
+                tool_field_option(_ACTION_GET, "Get"),
+                tool_field_option(_ACTION_DESCRIBE, "Describe"),
+                tool_field_option(_ACTION_LOGS, "Logs"),
+                tool_field_option(_ACTION_TOP, "Top"),
+                tool_field_option(_ACTION_ROLLOUT_STATUS, "Rollout status"),
+                tool_field_option(_ACTION_CUSTOM, "Custom command"),
+            ),
+            help_text="Choose a guided kubectl action. Use custom command only when the guided actions are not enough.",
+        ),
+        tool_text_field(
+            "resource_type",
+            "Resource type",
+            ui_group="input",
+            binding="template",
+            placeholder="pods",
+            help_text="Examples: pods, deployments, jobs, services.",
+            visible_when={
+                "action": (_ACTION_GET, _ACTION_DESCRIBE, _ACTION_LOGS),
+            },
+        ),
+        tool_text_field(
+            "resource_name",
+            "Resource name",
+            ui_group="input",
+            binding="template",
+            placeholder="api-0",
+            help_text="Optional for get. Required for describe, logs, and rollout status.",
+            visible_when={
+                "action": (_ACTION_GET, _ACTION_DESCRIBE, _ACTION_LOGS, _ACTION_TOP, _ACTION_ROLLOUT_STATUS),
+            },
+        ),
+        tool_text_field(
+            "label_selector",
+            "Label selector",
+            ui_group="input",
+            binding="template",
+            placeholder="app=payments-api",
+            help_text="Optional. Used for get, or for top when the target is pod.",
+            visible_when={
+                "action": (_ACTION_GET, _ACTION_TOP),
+            },
+        ),
+        tool_text_field(
+            "container_name",
+            "Container",
+            ui_group="input",
+            binding="template",
+            placeholder="app",
+            visible_when={
+                "action": (_ACTION_LOGS,),
+            },
+        ),
+        tool_text_field(
+            "tail_lines",
+            "Tail lines",
+            ui_group="input",
+            binding="template",
+            placeholder="200",
+            help_text="Optional. Passed to `kubectl logs --tail`.",
+            visible_when={
+                "action": (_ACTION_LOGS,),
+            },
+        ),
+        tool_text_field(
+            "since",
+            "Since",
+            ui_group="input",
+            binding="template",
+            placeholder="15m",
+            help_text="Optional. Passed to `kubectl logs --since`.",
+            visible_when={
+                "action": (_ACTION_LOGS,),
+            },
+        ),
+        tool_select_field(
+            "top_target",
+            "Top target",
+            ui_group="input",
+            options=(
+                tool_field_option("pod", "Pod"),
+                tool_field_option("node", "Node"),
+            ),
+            visible_when={
+                "action": (_ACTION_TOP,),
+            },
+        ),
+        tool_select_field(
+            "rollout_kind",
+            "Rollout kind",
+            ui_group="input",
+            options=tuple(
+                tool_field_option(kind, kind.title())
+                for kind in sorted(_SUPPORTED_ROLLOUT_KINDS)
+            ),
+            visible_when={
+                "action": (_ACTION_ROLLOUT_STATUS,),
+            },
+        ),
         tool_textarea_field(
             "command",
             "kubectl command",
@@ -382,6 +636,9 @@ TOOL_DEFINITION = WorkflowToolDefinition(
             binding="template",
             placeholder="get pods -A -o json",
             help_text="Arguments passed after the kubectl binary. A leading `kubectl` is ignored if you include it.",
+            visible_when={
+                "action": (_ACTION_CUSTOM,),
+            },
         ),
         tool_select_field(
             "command_policy",
@@ -395,6 +652,9 @@ TOOL_DEFINITION = WorkflowToolDefinition(
                 "Read-only blocks mutating kubectl operations such as apply, delete, patch, exec, and port-forward. "
                 "Use allow mutating only for explicit remediation workflows."
             ),
+            visible_when={
+                "action": (_ACTION_CUSTOM,),
+            },
         ),
         tool_select_field(
             "output_format",
@@ -407,13 +667,17 @@ TOOL_DEFINITION = WorkflowToolDefinition(
             ),
             help_text=(
                 "Auto adds `-o json` for `kubectl get` commands when no output flag is present, "
-                "while leaving text-oriented commands such as logs or rollout status unchanged."
+                "while leaving text-oriented commands such as logs, top, describe, or rollout status unchanged."
             ),
+            visible_when={
+                "action": (_ACTION_GET, _ACTION_CUSTOM),
+            },
         ),
         tool_text_field(
             "context_name",
             "Kube context",
             ui_group="advanced",
+            binding="template",
             placeholder="prod-cluster",
             help_text="Optional. Adds `--context` before the command.",
         ),
@@ -421,6 +685,7 @@ TOOL_DEFINITION = WorkflowToolDefinition(
             "namespace",
             "Namespace",
             ui_group="advanced",
+            binding="template",
             placeholder="payments",
             help_text="Optional. Adds `--namespace` before the command.",
         ),
