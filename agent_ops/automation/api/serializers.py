@@ -243,7 +243,6 @@ class WorkflowSerializer(ValidatedModelSerializer):
             "scope_label",
             "enabled",
             "definition",
-            "metadata",
             "node_count",
             "edge_count",
             "created",

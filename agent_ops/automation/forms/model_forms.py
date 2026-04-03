@@ -151,11 +151,6 @@ class WorkflowForm(forms.ModelForm):
                 "enabled",
             ),
         },
-        {
-            "title": "Metadata",
-            "description": "Store designer-level metadata here. The graph itself is edited in the workflow designer.",
-            "fields": ("metadata",),
-        },
     )
     organization = forms.ModelChoiceField(queryset=Organization.objects.none(), required=False)
     workspace = forms.ModelChoiceField(queryset=Workspace.objects.none(), required=False)
@@ -172,13 +167,11 @@ class WorkflowForm(forms.ModelForm):
             "name",
             "description",
             "enabled",
-            "metadata",
         )
 
     def __init__(self, *args, request=None, **kwargs):
         super().__init__(*args, **kwargs)
         _configure_scope_fields(self, request)
-        self.fields["metadata"].widget.attrs["rows"] = 6
         apply_standard_widget_classes(self)
 
 

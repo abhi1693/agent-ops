@@ -206,7 +206,6 @@ class WorkflowViewTests(TestCase):
                 "name": "Draft workflow",
                 "description": "Created before the graph is designed.",
                 "enabled": "on",
-                "metadata": "{}",
             },
         )
 
@@ -459,7 +458,6 @@ class WorkflowViewTests(TestCase):
             workflow=self.workflow,
             version=1,
             definition=self.workflow.definition,
-            metadata=self.workflow.metadata,
         )
         WorkflowRun.objects.create(
             workflow=self.workflow,
@@ -482,7 +480,6 @@ class WorkflowViewTests(TestCase):
             workflow=self.workflow,
             version=1,
             definition=self.workflow.definition,
-            metadata=self.workflow.metadata,
         )
         run = WorkflowRun.objects.create(
             workflow=self.workflow,

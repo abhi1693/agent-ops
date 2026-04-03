@@ -466,7 +466,6 @@ class WorkflowRuntimeTests(TestCase):
         workflow = Workflow.objects.create(
             environment=self.environment,
             name="Durable runtime state",
-            metadata={"category": "runtime"},
             definition={
                 "nodes": [
                     {
@@ -499,7 +498,6 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(WorkflowVersion.objects.count(), 1)
         self.assertEqual(run.workflow_version.workflow_id, workflow.id)
         self.assertEqual(run.workflow_version.version, 1)
-        self.assertEqual(run.workflow_version.metadata, {"category": "runtime"})
 
         step_runs = list(run.step_runs.order_by("sequence"))
         self.assertEqual(WorkflowStepRun.objects.count(), 2)

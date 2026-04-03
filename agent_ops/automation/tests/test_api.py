@@ -168,7 +168,6 @@ class WorkflowAPITests(TestCase):
                 "description": "Qualify inbound leads with agents and tools.",
                 "enabled": True,
                 "definition": _definition("New lead"),
-                "metadata": {"category": "sales"},
             },
             content_type="application/json",
         )
@@ -201,7 +200,6 @@ class WorkflowAPITests(TestCase):
                 "name": "Shared workflow",
                 "enabled": True,
                 "definition": _definition("Trigger"),
-                "metadata": {},
             },
             content_type="application/json",
         )
@@ -225,7 +223,6 @@ class WorkflowAPITests(TestCase):
                 "name": "Shared workflow",
                 "enabled": True,
                 "definition": _definition("Trigger"),
-                "metadata": {"category": "shared"},
             },
             content_type="application/json",
         )

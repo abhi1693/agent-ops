@@ -258,7 +258,6 @@ class Workflow(PrimaryModel):
     name = models.CharField(max_length=150)
     enabled = models.BooleanField(default=True)
     definition = models.JSONField(default=_default_definition, blank=True)
-    metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ("organization__name", "workspace__name", "environment__name", "name")
@@ -327,7 +326,6 @@ class Workflow(PrimaryModel):
             environment=self.environment,
         )
         _validate_workflow_definition(self.definition)
-        _validate_json_object(self.metadata, field_name="metadata")
 
         if self.organization is None:
             raise ValidationError({"organization": "A workflow must be scoped to at least an organization."})

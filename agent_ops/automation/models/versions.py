@@ -13,12 +13,9 @@ from core.models import ChangeLoggedModel
 from .workflows import _get_scope_related_object, _validate_json_object
 
 
-def _build_snapshot_checksum(*, definition: dict, metadata: dict) -> str:
+def _build_snapshot_checksum(*, definition: dict) -> str:
     payload = json.dumps(
-        {
-            "definition": definition,
-            "metadata": metadata,
-        },
+        definition,
         cls=DjangoJSONEncoder,
         sort_keys=True,
         separators=(",", ":"),
@@ -35,7 +32,6 @@ class WorkflowVersion(ChangeLoggedModel):
     version = models.PositiveIntegerField()
     definition_checksum = models.CharField(max_length=64)
     definition = models.JSONField(default=dict, blank=True)
-    metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ("workflow_id", "-version")
@@ -64,12 +60,10 @@ class WorkflowVersion(ChangeLoggedModel):
     def clean(self):
         super().clean()
         _validate_json_object(self.definition, field_name="definition")
-        _validate_json_object(self.metadata, field_name="metadata")
 
     def save(self, *args, **kwargs):
         self.definition_checksum = _build_snapshot_checksum(
             definition=dict(self.definition or {}),
-            metadata=dict(self.metadata or {}),
         )
         return super().save(*args, **kwargs)
 
@@ -83,10 +77,8 @@ class WorkflowVersion(ChangeLoggedModel):
 
 def ensure_workflow_version_snapshot(workflow) -> WorkflowVersion:
     normalized_definition = normalize_workflow_definition_nodes(workflow.definition or {})
-    normalized_metadata = dict(workflow.metadata or {})
     definition_checksum = _build_snapshot_checksum(
         definition=normalized_definition,
-        metadata=normalized_metadata,
     )
 
     existing_version = WorkflowVersion.objects.filter(
@@ -118,7 +110,6 @@ def ensure_workflow_version_snapshot(workflow) -> WorkflowVersion:
                 version=next_version,
                 definition_checksum=definition_checksum,
                 definition=normalized_definition,
-                metadata=normalized_metadata,
             )
         except IntegrityError:
             return WorkflowVersion.objects.get(
