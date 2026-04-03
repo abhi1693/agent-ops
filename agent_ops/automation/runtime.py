@@ -313,6 +313,10 @@ def _update_run_scheduler_state(
     return scheduler_state
 
 
+def _persist_run_scheduler_state(run: WorkflowRun) -> None:
+    run.save(update_fields=("scheduler_state", "last_updated"))
+
+
 def _get_default_next_node_id(outgoing_targets: list[str]) -> str | None:
     if len(outgoing_targets) == 1:
         return outgoing_targets[0]
@@ -546,86 +550,88 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
     secret_values: list[str] = []
     step_results: list[dict[str, Any]] = []
 
-    with transaction.atomic():
-        if run.workflow_version_id is None:
-            run.workflow_version = ensure_workflow_version_snapshot(run.workflow)
-            run.save(update_fields=("workflow_version", "last_updated"))
+    if run.workflow_version_id is None:
+        run.workflow_version = ensure_workflow_version_snapshot(run.workflow)
+        run.save(update_fields=("workflow_version", "last_updated"))
 
-        definition, nodes, nodes_by_id, adjacency, auxiliary_connections_by_target = _load_runtime_definition(run)
-        context = _build_execution_context(
-            run.workflow,
-            workflow_version=run.workflow_version,
-            input_data=run.input_data or {},
-            trigger_type=run.trigger_mode,
-            trigger_metadata=run.trigger_metadata or {},
-        )
-        ready_node_ids: list[str] = []
-        active_node_ids: set[str] = set()
-        activated_node_ids: set[str] = set()
-        completed_node_ids: set[str] = set()
-        failed_node_ids: set[str] = set()
-        skipped_node_ids: set[str] = set()
-        selected_predecessors: dict[str, set[str]] = {}
-        skipped_predecessors: dict[str, set[str]] = {}
-        incoming_predecessors: dict[str, set[str]] = {node["id"]: set() for node in nodes}
-        for source_id, target_ids in adjacency.items():
-            for target_id in target_ids:
-                incoming_predecessors.setdefault(target_id, set()).add(source_id)
+    definition, nodes, nodes_by_id, adjacency, auxiliary_connections_by_target = _load_runtime_definition(run)
+    context = _build_execution_context(
+        run.workflow,
+        workflow_version=run.workflow_version,
+        input_data=run.input_data or {},
+        trigger_type=run.trigger_mode,
+        trigger_metadata=run.trigger_metadata or {},
+    )
+    ready_node_ids: list[str] = []
+    active_node_ids: set[str] = set()
+    activated_node_ids: set[str] = set()
+    completed_node_ids: set[str] = set()
+    failed_node_ids: set[str] = set()
+    skipped_node_ids: set[str] = set()
+    selected_predecessors: dict[str, set[str]] = {}
+    skipped_predecessors: dict[str, set[str]] = {}
+    incoming_predecessors: dict[str, set[str]] = {node["id"]: set() for node in nodes}
+    for source_id, target_ids in adjacency.items():
+        for target_id in target_ids:
+            incoming_predecessors.setdefault(target_id, set()).add(source_id)
 
-        scheduler_state = _update_run_scheduler_state(
-            run,
-            ready_node_ids=ready_node_ids,
-            active_node_ids=active_node_ids,
-            activated_node_ids=activated_node_ids,
-            completed_node_ids=completed_node_ids,
-            failed_node_ids=failed_node_ids,
-            skipped_node_ids=skipped_node_ids,
-            selected_predecessors=selected_predecessors,
-            skipped_predecessors=skipped_predecessors,
+    scheduler_state = _update_run_scheduler_state(
+        run,
+        ready_node_ids=ready_node_ids,
+        active_node_ids=active_node_ids,
+        activated_node_ids=activated_node_ids,
+        completed_node_ids=completed_node_ids,
+        failed_node_ids=failed_node_ids,
+        skipped_node_ids=skipped_node_ids,
+        selected_predecessors=selected_predecessors,
+        skipped_predecessors=skipped_predecessors,
+    )
+    run.status = WorkflowRun.StatusChoices.RUNNING
+    run.error = ""
+    run.finished_at = None
+    run.output_data = {}
+    run.context_data = {}
+    run.scheduler_state = scheduler_state
+    run.step_results = []
+    run.save(
+        update_fields=(
+            "status",
+            "error",
+            "finished_at",
+            "output_data",
+            "context_data",
+            "scheduler_state",
+            "step_results",
+            "last_updated",
         )
-        run.status = WorkflowRun.StatusChoices.RUNNING
-        run.error = ""
-        run.finished_at = None
-        run.output_data = {}
-        run.context_data = {}
-        run.scheduler_state = scheduler_state
-        run.step_results = []
-        run.save(
-            update_fields=(
-                "status",
-                "error",
-                "finished_at",
-                "output_data",
-                "context_data",
-                "scheduler_state",
-                "step_results",
-                "last_updated",
+    )
+
+    try:
+        validate_workflow_runtime_definition(nodes=nodes, edges=definition.get("edges", []))
+        target_node_id = run.target_node_id or None
+        if target_node_id is not None and target_node_id not in nodes_by_id:
+            raise ValidationError({"definition": f'Workflow does not define node "{target_node_id}".'})
+
+        if run.execution_mode == WorkflowRun.ExecutionModeChoices.NODE_PREVIEW:
+            node = nodes_by_id[target_node_id]
+            outgoing_targets = adjacency.get(node["id"], [])
+            default_next_node_id = _get_default_next_node_id(outgoing_targets)
+            activated_node_ids.add(node["id"])
+            active_node_ids.add(node["id"])
+            scheduler_state = _update_run_scheduler_state(
+                run,
+                ready_node_ids=ready_node_ids,
+                active_node_ids=active_node_ids,
+                activated_node_ids=activated_node_ids,
+                completed_node_ids=completed_node_ids,
+                failed_node_ids=failed_node_ids,
+                skipped_node_ids=skipped_node_ids,
+                selected_predecessors=selected_predecessors,
+                skipped_predecessors=skipped_predecessors,
             )
-        )
+            _persist_run_scheduler_state(run)
 
-        try:
-            validate_workflow_runtime_definition(nodes=nodes, edges=definition.get("edges", []))
-            target_node_id = run.target_node_id or None
-            if target_node_id is not None and target_node_id not in nodes_by_id:
-                raise ValidationError({"definition": f'Workflow does not define node "{target_node_id}".'})
-
-            if run.execution_mode == WorkflowRun.ExecutionModeChoices.NODE_PREVIEW:
-                node = nodes_by_id[target_node_id]
-                outgoing_targets = adjacency.get(node["id"], [])
-                default_next_node_id = _get_default_next_node_id(outgoing_targets)
-                activated_node_ids.add(node["id"])
-                active_node_ids.add(node["id"])
-                scheduler_state = _update_run_scheduler_state(
-                    run,
-                    ready_node_ids=ready_node_ids,
-                    active_node_ids=active_node_ids,
-                    activated_node_ids=activated_node_ids,
-                    completed_node_ids=completed_node_ids,
-                    failed_node_ids=failed_node_ids,
-                    skipped_node_ids=skipped_node_ids,
-                    selected_predecessors=selected_predecessors,
-                    skipped_predecessors=skipped_predecessors,
-                )
+            with transaction.atomic():
                 step_run = WorkflowStepRun.objects.create(
                     run=run,
                     workflow_version=run.workflow_version,
@@ -668,6 +674,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                         selected_predecessors=selected_predecessors,
                         skipped_predecessors=skipped_predecessors,
                     )
+                    _persist_run_scheduler_state(run)
                     _record_step_failure(
                         step_run=step_run,
                         default_next_node_id=default_next_node_id,
@@ -690,6 +697,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                     selected_predecessors=selected_predecessors,
                     skipped_predecessors=skipped_predecessors,
                 )
+                _persist_run_scheduler_state(run)
                 _record_step_success(
                     step_run=step_run,
                     node=node,
@@ -698,20 +706,48 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                     secret_paths=secret_paths,
                     secret_values=secret_values,
                 )
-                return _finalize_workflow_run_success(
-                    run=run,
-                    run_status=result.run_status or WorkflowRun.StatusChoices.SUCCEEDED,
-                    response_payload=_build_node_response_payload(node, result),
-                    context=context,
-                    scheduler_state=scheduler_state,
-                    step_results=step_results,
-                    secret_paths=secret_paths,
-                    secret_values=secret_values,
-                )
+            return _finalize_workflow_run_success(
+                run=run,
+                run_status=result.run_status or WorkflowRun.StatusChoices.SUCCEEDED,
+                response_payload=_build_node_response_payload(node, result),
+                context=context,
+                scheduler_state=scheduler_state,
+                step_results=step_results,
+                secret_paths=secret_paths,
+                secret_values=secret_values,
+            )
 
-            trigger_node = next(node for node in nodes if node["kind"] == "trigger")
-            ready_node_ids.append(trigger_node["id"])
-            activated_node_ids.add(trigger_node["id"])
+        trigger_node = next(node for node in nodes if node["kind"] == "trigger")
+        ready_node_ids.append(trigger_node["id"])
+        activated_node_ids.add(trigger_node["id"])
+        scheduler_state = _update_run_scheduler_state(
+            run,
+            ready_node_ids=ready_node_ids,
+            active_node_ids=active_node_ids,
+            activated_node_ids=activated_node_ids,
+            completed_node_ids=completed_node_ids,
+            failed_node_ids=failed_node_ids,
+            skipped_node_ids=skipped_node_ids,
+            selected_predecessors=selected_predecessors,
+            skipped_predecessors=skipped_predecessors,
+        )
+        _persist_run_scheduler_state(run)
+        max_steps = max(len(nodes) * 4, 1)
+        step_count = 0
+        response_payload: dict[str, Any] = {}
+        run_status = WorkflowRun.StatusChoices.SUCCEEDED
+        reached_stop_node = run.execution_mode != WorkflowRun.ExecutionModeChoices.NODE_PATH
+
+        while ready_node_ids:
+            step_count += 1
+            if step_count > max_steps:
+                raise ValidationError({"definition": "Workflow execution exceeded the supported step limit."})
+
+            current_node_id = ready_node_ids.pop(0)
+            if current_node_id in completed_node_ids or current_node_id in failed_node_ids:
+                continue
+
+            active_node_ids.add(current_node_id)
             scheduler_state = _update_run_scheduler_state(
                 run,
                 ready_node_ids=ready_node_ids,
@@ -723,36 +759,13 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                 selected_predecessors=selected_predecessors,
                 skipped_predecessors=skipped_predecessors,
             )
-            max_steps = max(len(nodes) * 4, 1)
-            step_count = 0
-            response_payload: dict[str, Any] = {}
-            run_status = WorkflowRun.StatusChoices.SUCCEEDED
-            reached_stop_node = run.execution_mode != WorkflowRun.ExecutionModeChoices.NODE_PATH
+            _persist_run_scheduler_state(run)
+            node = nodes_by_id[current_node_id]
+            outgoing_targets = adjacency.get(current_node_id, [])
+            default_next_node_id = _get_default_next_node_id(outgoing_targets)
+            should_break = False
 
-            while ready_node_ids:
-                step_count += 1
-                if step_count > max_steps:
-                    raise ValidationError({"definition": "Workflow execution exceeded the supported step limit."})
-
-                current_node_id = ready_node_ids.pop(0)
-                if current_node_id in completed_node_ids or current_node_id in failed_node_ids:
-                    continue
-
-                active_node_ids.add(current_node_id)
-                scheduler_state = _update_run_scheduler_state(
-                    run,
-                    ready_node_ids=ready_node_ids,
-                    active_node_ids=active_node_ids,
-                    activated_node_ids=activated_node_ids,
-                    completed_node_ids=completed_node_ids,
-                    failed_node_ids=failed_node_ids,
-                    skipped_node_ids=skipped_node_ids,
-                    selected_predecessors=selected_predecessors,
-                    skipped_predecessors=skipped_predecessors,
-                )
-                node = nodes_by_id[current_node_id]
-                outgoing_targets = adjacency.get(current_node_id, [])
-                default_next_node_id = _get_default_next_node_id(outgoing_targets)
+            with transaction.atomic():
                 step_run = WorkflowStepRun.objects.create(
                     run=run,
                     workflow_version=run.workflow_version,
@@ -771,7 +784,6 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                         secret_values=_sorted_secret_values(secret_values),
                     ),
                 )
-
                 try:
                     result = _execute_node(
                         workflow=run.workflow,
@@ -796,6 +808,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                         selected_predecessors=selected_predecessors,
                         skipped_predecessors=skipped_predecessors,
                     )
+                    _persist_run_scheduler_state(run)
                     _record_step_failure(
                         step_run=step_run,
                         default_next_node_id=default_next_node_id,
@@ -870,9 +883,9 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                         selected_predecessors=selected_predecessors,
                         skipped_predecessors=skipped_predecessors,
                     )
-                    break
-
-                if result.terminal:
+                    _persist_run_scheduler_state(run)
+                    should_break = True
+                elif result.terminal:
                     response_payload = result.response or {}
                     if result.run_status:
                         run_status = result.run_status
@@ -889,62 +902,67 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                         selected_predecessors=selected_predecessors,
                         skipped_predecessors=skipped_predecessors,
                     )
-                    break
+                    _persist_run_scheduler_state(run)
+                    should_break = True
+                else:
+                    scheduler_state = _update_run_scheduler_state(
+                        run,
+                        ready_node_ids=ready_node_ids,
+                        active_node_ids=active_node_ids,
+                        activated_node_ids=activated_node_ids,
+                        completed_node_ids=completed_node_ids,
+                        failed_node_ids=failed_node_ids,
+                        skipped_node_ids=skipped_node_ids,
+                        selected_predecessors=selected_predecessors,
+                        skipped_predecessors=skipped_predecessors,
+                    )
+                    _persist_run_scheduler_state(run)
 
-                scheduler_state = _update_run_scheduler_state(
-                    run,
-                    ready_node_ids=ready_node_ids,
-                    active_node_ids=active_node_ids,
-                    activated_node_ids=activated_node_ids,
-                    completed_node_ids=completed_node_ids,
-                    failed_node_ids=failed_node_ids,
-                    skipped_node_ids=skipped_node_ids,
-                    selected_predecessors=selected_predecessors,
-                    skipped_predecessors=skipped_predecessors,
-                )
+            if should_break:
+                break
 
-            if not reached_stop_node:
-                raise ValidationError(
-                    {"definition": f'Workflow execution did not reach node "{target_node_id}".'}
-                )
-
-            if not response_payload:
-                response_payload = {
-                    "node_id": step_results[-1]["node_id"] if step_results else None,
-                    "response": None,
-                }
-
-            return _finalize_workflow_run_success(
-                run=run,
-                run_status=run_status,
-                response_payload=response_payload,
-                context=context,
-                scheduler_state=scheduler_state,
-                step_results=step_results,
-                secret_paths=secret_paths,
-                secret_values=secret_values,
+        if not reached_stop_node:
+            raise ValidationError(
+                {"definition": f'Workflow execution did not reach node "{target_node_id}".'}
             )
-        except Exception as exc:
-            scheduler_state = _update_run_scheduler_state(
-                run,
-                ready_node_ids=ready_node_ids,
-                active_node_ids=active_node_ids,
-                activated_node_ids=activated_node_ids,
-                completed_node_ids=completed_node_ids,
-                failed_node_ids=failed_node_ids,
-                skipped_node_ids=skipped_node_ids,
-                selected_predecessors=selected_predecessors,
-                skipped_predecessors=skipped_predecessors,
-            )
-            return _finalize_workflow_run_failure(
-                run=run,
-                error=exc,
-                context=context,
-                scheduler_state=scheduler_state,
-                step_results=step_results,
-                secret_paths=secret_paths,
-                secret_values=secret_values,
-            )
+
+        if not response_payload:
+            response_payload = {
+                "node_id": step_results[-1]["node_id"] if step_results else None,
+                "response": None,
+            }
+
+        return _finalize_workflow_run_success(
+            run=run,
+            run_status=run_status,
+            response_payload=response_payload,
+            context=context,
+            scheduler_state=scheduler_state,
+            step_results=step_results,
+            secret_paths=secret_paths,
+            secret_values=secret_values,
+        )
+    except Exception as exc:
+        scheduler_state = _update_run_scheduler_state(
+            run,
+            ready_node_ids=ready_node_ids,
+            active_node_ids=active_node_ids,
+            activated_node_ids=activated_node_ids,
+            completed_node_ids=completed_node_ids,
+            failed_node_ids=failed_node_ids,
+            skipped_node_ids=skipped_node_ids,
+            selected_predecessors=selected_predecessors,
+            skipped_predecessors=skipped_predecessors,
+        )
+        return _finalize_workflow_run_failure(
+            run=run,
+            error=exc,
+            context=context,
+            scheduler_state=scheduler_state,
+            step_results=step_results,
+            secret_paths=secret_paths,
+            secret_values=secret_values,
+        )
 
 
 def enqueue_workflow(

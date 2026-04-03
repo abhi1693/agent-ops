@@ -135,11 +135,14 @@ type DesignerRunResponse = {
   };
   poll_url?: string;
   run: {
+    active_node_ids: string[];
     badge_class: string;
     context_json: string | null;
     error: string;
+    failed_node_ids: string[];
     id: number;
     input_json: string | null;
+    last_completed_node_id: string | null;
     output_json: string | null;
     status: string;
     step_count: number;
@@ -1095,6 +1098,9 @@ export function initWorkflowDesigner(): void {
   let insertDraft: InsertDraft | null = null;
   let isExecutionPending = false;
   let activeExecutionNodeId: string | null = null;
+  let executionActiveNodeIds: string[] = [];
+  let executionFailedNodeIds: string[] = [];
+  let executionSucceededNodeId: string | null = null;
 
   function syncDefinitionInput(): void {
     canvas.definitionInput.value = JSON.stringify(serializeWorkflowDefinition(workflowDefinition));
@@ -1106,6 +1112,19 @@ export function initWorkflowDesigner(): void {
     }
 
     return workflowDefinition.nodes.find((node) => node.id === nodeId);
+  }
+
+  function getInitialExecutionNodeId(nodeId: string | null): string | null {
+    if (nodeId) {
+      return nodeId;
+    }
+
+    const triggerNode = workflowDefinition.nodes.find((node) => node.kind === 'trigger');
+    if (triggerNode) {
+      return triggerNode.id;
+    }
+
+    return workflowDefinition.nodes[0]?.id ?? null;
   }
 
   function setExecutionStatus(label: string, badgeClass = 'text-bg-secondary'): void {
@@ -1133,7 +1152,9 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
-    const isNodeExecutionPending = isExecutionPending && activeExecutionNodeId === settingsNode.id;
+    const isNodeExecutionPending =
+      executionActiveNodeIds.includes(settingsNode.id)
+      || (isExecutionPending && activeExecutionNodeId === settingsNode.id);
     execution.nodeRunButton.hidden = false;
     execution.nodeRunButton.disabled = isExecutionPending;
     execution.nodeRunButton.innerHTML = `
@@ -1216,6 +1237,19 @@ export function initWorkflowDesigner(): void {
       badgeClass: 'text-bg-secondary',
       label: payload.run.status,
     };
+    executionActiveNodeIds = payload.run.active_node_ids ?? [];
+    executionFailedNodeIds = payload.run.failed_node_ids ?? [];
+    executionSucceededNodeId = null;
+    if (payload.run.status === 'succeeded') {
+      executionSucceededNodeId = payload.run.last_completed_node_id;
+      executionFailedNodeIds = [];
+      executionActiveNodeIds = [];
+    } else if (payload.run.status === 'failed') {
+      executionActiveNodeIds = [];
+    } else if (payload.run.status !== 'running') {
+      executionActiveNodeIds = [];
+      executionFailedNodeIds = [];
+    }
     const modeLabel = payload.mode.startsWith('node')
       ? payload.node?.label ?? 'Node run'
       : 'Workflow run';
@@ -1245,6 +1279,8 @@ export function initWorkflowDesigner(): void {
       execution.resultError.textContent = '';
     }
     setExecutionStatus(statusPresentation.label, statusPresentation.badgeClass);
+    renderCanvas();
+    renderSettingsPanel();
   }
 
   function buildExecutionRequestBody(inputData: Record<string, unknown>): string {
@@ -1314,7 +1350,10 @@ export function initWorkflowDesigner(): void {
     }
 
     isExecutionPending = true;
-    activeExecutionNodeId = nodeId;
+    activeExecutionNodeId = getInitialExecutionNodeId(nodeId);
+    executionActiveNodeIds = activeExecutionNodeId ? [activeExecutionNodeId] : [];
+    executionFailedNodeIds = [];
+    executionSucceededNodeId = null;
     execution.runButton.disabled = true;
     setExecutionStatus(nodeId ? 'Running node' : 'Running workflow', 'text-bg-primary');
     renderCanvas();
@@ -1342,7 +1381,12 @@ export function initWorkflowDesigner(): void {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Execution failed.';
       showExecutionError(message);
+      executionActiveNodeIds = [];
+      executionFailedNodeIds = [];
+      executionSucceededNodeId = null;
       setExecutionStatus('Failed', 'text-bg-danger');
+      renderCanvas();
+      renderSettingsPanel();
     } finally {
       isExecutionPending = false;
       activeExecutionNodeId = null;
@@ -2215,7 +2259,11 @@ export function initWorkflowDesigner(): void {
         const agentDisplayTitle = node.kind === 'agent' && isDefaultAgentTitle ? 'AI Agent' : title;
         const showAgentKindLabel = node.kind === 'agent' && !isDefaultAgentTitle;
         const isSelected = selectedNodeId === node.id;
-        const isNodeExecutionPending = isExecutionPending && activeExecutionNodeId === node.id;
+        const isNodeExecutionPending =
+          executionActiveNodeIds.includes(node.id)
+          || (isExecutionPending && activeExecutionNodeId === node.id);
+        const isNodeExecutionSucceeded = executionSucceededNodeId === node.id;
+        const isNodeExecutionFailed = executionFailedNodeIds.includes(node.id);
         const isConnectionSource = connectionDraft?.sourceId === node.id;
         const isConnectionCandidate = connectionDraft
           ? isValidConnection(connectionDraft.sourceId, node.id)
@@ -2284,6 +2332,37 @@ export function initWorkflowDesigner(): void {
               `;
             }).join('')
           : '';
+        const executionIndicatorMarkup = isNodeExecutionPending
+          ? `
+            <span
+              class="workflow-editor-node-execution-indicator is-running"
+              aria-label="Node running"
+              title="Node running"
+            >
+              <i class="mdi mdi-loading mdi-spin"></i>
+            </span>
+          `
+          : isNodeExecutionSucceeded
+            ? `
+              <span
+                class="workflow-editor-node-execution-indicator is-succeeded"
+                aria-label="Node succeeded"
+                title="Node succeeded"
+              >
+                <i class="mdi mdi-check"></i>
+              </span>
+            `
+            : isNodeExecutionFailed
+              ? `
+                <span
+                  class="workflow-editor-node-execution-indicator is-failed"
+                  aria-label="Node failed"
+                  title="Node failed"
+                >
+                  <i class="mdi mdi-close"></i>
+                </span>
+              `
+              : '';
         const auxiliaryPorts = node.kind === 'agent'
           ? `
             <span class="workflow-editor-node-auxiliary">
@@ -2423,12 +2502,13 @@ export function initWorkflowDesigner(): void {
 
         return `
           <article
-            class="workflow-editor-node workflow-editor-node--${escapeHtml(node.kind)}${isSelected ? ' is-selected' : ''}${isConnectionSource ? ' is-connection-source' : ''}${isConnectionCandidate ? ' is-connection-candidate' : ''}${isConnectionTarget ? ' is-connection-target' : ''}${agentNeedsModel ? ' is-agent-incomplete' : ''}"
+            class="workflow-editor-node workflow-editor-node--${escapeHtml(node.kind)}${isSelected ? ' is-selected' : ''}${isConnectionSource ? ' is-connection-source' : ''}${isConnectionCandidate ? ' is-connection-candidate' : ''}${isConnectionTarget ? ' is-connection-target' : ''}${agentNeedsModel ? ' is-agent-incomplete' : ''}${isNodeExecutionPending ? ' is-executing' : ''}${isNodeExecutionSucceeded ? ' is-execution-succeeded' : ''}${isNodeExecutionFailed ? ' is-execution-failed' : ''}"
             data-workflow-node-id="${escapeHtml(node.id)}"
             tabindex="0"
           >
             ${nodeToolbarMarkup}
             ${connectors}
+            ${executionIndicatorMarkup}
             ${cardMarkup}
             ${copyMarkup}
           </article>

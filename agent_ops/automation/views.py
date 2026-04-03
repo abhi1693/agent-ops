@@ -295,6 +295,15 @@ def _build_designer_run_payload(run: WorkflowRun, *, mode: str, node: dict | Non
     else:
         message = run.error
 
+    scheduler_state = run.scheduler_state if isinstance(run.scheduler_state, dict) else {}
+    active_node_ids = scheduler_state.get("active_node_ids")
+    failed_node_ids = scheduler_state.get("failed_node_ids")
+    last_completed_node_id = None
+    if run.step_results:
+        last_step = run.step_results[-1]
+        if isinstance(last_step, dict):
+            last_completed_node_id = last_step.get("node_id")
+
     payload = {
         "mode": mode,
         "message": message,
@@ -311,6 +320,13 @@ def _build_designer_run_payload(run: WorkflowRun, *, mode: str, node: dict | Non
             "output_json": _pretty_json(run.output_data),
             "context_json": _pretty_json(run.context_data),
             "steps_json": _pretty_json(run.step_results),
+            "active_node_ids": active_node_ids if isinstance(active_node_ids, list) else [],
+            "failed_node_ids": failed_node_ids if isinstance(failed_node_ids, list) else [],
+            "last_completed_node_id": (
+                last_completed_node_id
+                if isinstance(last_completed_node_id, str) and last_completed_node_id
+                else None
+            ),
         },
     }
     if node is not None:

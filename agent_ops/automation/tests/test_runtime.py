@@ -1,12 +1,18 @@
 import os
 import subprocess
 from json import loads
+from threading import Event, Thread
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 
-from automation.models import Workflow, WorkflowStepRun, WorkflowVersion
-from automation.runtime import execute_workflow, execute_workflow_node_preview
+from automation.models import Workflow, WorkflowRun, WorkflowStepRun, WorkflowVersion
+from automation.runtime import (
+    _initialize_workflow_run,
+    execute_workflow,
+    execute_workflow_node_preview,
+    execute_workflow_run,
+)
 from automation.models import Secret, SecretGroup
 from tenancy.models import Environment, Organization, Workspace
 
@@ -2071,3 +2077,108 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.step_results[1]["result"]["connected_tool_count"], 0)
         self.assertEqual(run.output_data["response"]["text"], "{\"summary\":\"Investigate the failing deployment.\"}")
         self.assertEqual(run.context_data["llm"]["response"]["usage"]["total_tokens"], 46)
+
+
+class WorkflowRuntimeVisibilityTests(TransactionTestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Acme")
+        self.workspace = Workspace.objects.create(
+            organization=self.organization,
+            name="Operations",
+        )
+        self.environment = Environment.objects.create(
+            workspace=self.workspace,
+            name="production",
+        )
+
+    def test_execute_workflow_run_exposes_active_node_state_while_running(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Visible runtime progress",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "set-1",
+                        "kind": "tool",
+                        "type": "n8n-nodes-base.set",
+                        "label": "Set value",
+                        "config": {
+                            "output_key": "draft",
+                            "value": "ready",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "draft",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "set-1"},
+                    {"id": "edge-2", "source": "set-1", "target": "response-1"},
+                ],
+            },
+        )
+        run = _initialize_workflow_run(
+            workflow,
+            input_data={"ticket_id": "T-99"},
+            trigger_mode="manual",
+            trigger_metadata={},
+            actor=None,
+            execution_mode=WorkflowRun.ExecutionModeChoices.WORKFLOW,
+        )
+        entered_trigger = Event()
+        continue_trigger = Event()
+        completed = Event()
+        errors: list[Exception] = []
+
+        def delaying_execute_node(*args, **kwargs):
+            node = kwargs["node"]
+            if node["id"] == "trigger-1":
+                entered_trigger.set()
+                if not continue_trigger.wait(timeout=5):
+                    raise AssertionError("Timed out waiting to resume trigger execution.")
+            return original_execute_node(*args, **kwargs)
+
+        def run_workflow():
+            try:
+                execute_workflow_run(WorkflowRun.objects.get(pk=run.pk))
+            except Exception as exc:  # pragma: no cover - surfaced below
+                errors.append(exc)
+            finally:
+                completed.set()
+
+        original_execute_node = __import__("automation.runtime", fromlist=["_execute_node"])._execute_node
+        with patch("automation.runtime._execute_node", side_effect=delaying_execute_node):
+            worker = Thread(target=run_workflow, daemon=True)
+            worker.start()
+
+            self.assertTrue(entered_trigger.wait(timeout=5))
+
+            observed_run = WorkflowRun.objects.get(pk=run.pk)
+            self.assertEqual(observed_run.status, WorkflowRun.StatusChoices.RUNNING)
+            self.assertEqual(observed_run.scheduler_state["active_node_ids"], ["trigger-1"])
+
+            continue_trigger.set()
+            self.assertTrue(completed.wait(timeout=5))
+            worker.join(timeout=5)
+
+        if errors:
+            raise errors[0]
+
+        observed_run.refresh_from_db()
+        self.assertEqual(observed_run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(observed_run.output_data["response"], "ready")
