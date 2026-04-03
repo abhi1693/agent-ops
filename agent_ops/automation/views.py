@@ -2,6 +2,7 @@ import json
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Count, Prefetch
 from django.http import JsonResponse
 from django.shortcuts import redirect
@@ -16,7 +17,7 @@ from automation.auth import (
     list_workflow_secret_name_options_by_group,
 )
 from automation.forms import SecretForm, SecretGroupForm, WorkflowDesignerForm, WorkflowForm, WorkflowRunForm
-from automation.models import Secret, SecretGroup, Workflow, WorkflowRun
+from automation.models import Secret, SecretGroup, Workflow, WorkflowRun, WorkflowStepRun, WorkflowVersion
 from automation.nodes.base import WORKFLOW_NODE_CATALOG_SECTION_ORDER, WORKFLOW_NODE_CATALOG_SECTIONS
 from automation.nodes import prepare_workflow_node_webhook_request
 from automation.primitives import WORKFLOW_NODE_TEMPLATES, normalize_workflow_definition_nodes
@@ -650,7 +651,35 @@ class WorkflowDesignerRunStatusView(View):
 
 class WorkflowDeleteView(RestrictedObjectDeleteMixin, ObjectDeleteView):
     model = Workflow
+    template_name = "automation/workflow_delete.html"
     success_message = "Workflow deleted."
+
+    def get_extra_context(self, request, obj):
+        run_count = obj.runs.count()
+        version_count = obj.versions.count()
+        step_run_count = WorkflowStepRun.objects.filter(run__workflow=obj).count()
+        return {
+            "workflow_run_count": run_count,
+            "workflow_version_count": version_count,
+            "workflow_step_run_count": step_run_count,
+            "has_workflow_history": bool(run_count or version_count or step_run_count),
+        }
+
+    def post(self, request, *args, **kwargs):
+        delete_history = request.POST.get("delete_history") in {"1", "true", "True", "on"}
+        if not delete_history:
+            return super().post(request, *args, **kwargs)
+
+        success_message = self.get_success_message(self.object)
+        return_url = self.get_return_url(request, self.object)
+        with transaction.atomic():
+            WorkflowRun.objects.filter(workflow=self.object).delete()
+            WorkflowVersion.objects.filter(workflow=self.object).delete()
+            self.object.delete()
+
+        if success_message:
+            messages.success(request, success_message)
+        return redirect(return_url)
 
 
 @method_decorator(csrf_exempt, name="dispatch")

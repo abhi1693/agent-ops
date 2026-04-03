@@ -38,6 +38,12 @@
         {% endblock %}
       </div>
 
+      {% if delete_error %}
+        <div class="alert alert-warning" role="alert">
+          {{ delete_error }}
+        </div>
+      {% endif %}
+
       <div class="object-edit-actions">
         <a href="{{ cancel_url }}" class="btn btn-outline-secondary">Cancel</a>
         {% block confirm_button %}

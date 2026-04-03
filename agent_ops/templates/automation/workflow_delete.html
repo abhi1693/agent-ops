@@ -1,0 +1,46 @@
+{% extends "generic/object_delete.html" %}
+
+{% block confirmation_text %}
+  Delete <strong>{{ object }}</strong>?
+{% endblock %}
+
+{% block content %}
+  <div class="tab-pane show active" id="confirm-form" role="tabpanel" aria-labelledby="confirm-form-tab">
+    <form method="post" class="object-edit mt-5">
+      {% csrf_token %}
+
+      {% if return_url %}
+        <input type="hidden" name="return_url" value="{{ return_url }}">
+      {% endif %}
+
+      <div class="alert alert-danger" role="alert">
+        Delete <strong>{{ object }}</strong>?
+      </div>
+
+      {% if has_workflow_history %}
+        <div class="alert alert-warning" role="alert">
+          This workflow still has {{ workflow_run_count }} run{{ workflow_run_count|pluralize }},
+          {{ workflow_step_run_count }} step run{{ workflow_step_run_count|pluralize }},
+          and {{ workflow_version_count }} saved version{{ workflow_version_count|pluralize }}.
+          Delete history too if you want to remove the workflow from the UI.
+        </div>
+
+        <label class="form-check object-edit-check mb-3" for="id_delete_history">
+          <input id="id_delete_history" type="checkbox" name="delete_history" class="form-check-input">
+          <span class="form-check-label">Also delete run history and saved versions</span>
+        </label>
+      {% endif %}
+
+      {% if delete_error %}
+        <div class="alert alert-warning" role="alert">
+          {{ delete_error }}
+        </div>
+      {% endif %}
+
+      <div class="object-edit-actions">
+        <a href="{{ cancel_url }}" class="btn btn-outline-secondary">Cancel</a>
+        <button type="submit" class="btn btn-danger">Delete</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

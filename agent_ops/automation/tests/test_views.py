@@ -8,7 +8,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.urls import reverse
 
-from automation.models import Workflow, WorkflowRun
+from automation.models import Workflow, WorkflowRun, WorkflowStepRun, WorkflowVersion
 from automation.models import Secret, SecretGroup
 from automation.runtime import execute_workflow_run
 from tenancy.models import Environment, Organization, Workspace
@@ -453,6 +453,62 @@ class WorkflowViewTests(TestCase):
         status_payload = status_response.json()
         self.assertEqual(status_payload["run"]["status"], "succeeded")
         self.assertIn("Completed T-42", status_payload["run"]["output_json"])
+
+    def test_workflow_delete_shows_blocked_message_when_run_history_exists(self):
+        version = WorkflowVersion.objects.create(
+            workflow=self.workflow,
+            version=1,
+            definition=self.workflow.definition,
+            metadata=self.workflow.metadata,
+        )
+        WorkflowRun.objects.create(
+            workflow=self.workflow,
+            workflow_version=version,
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("workflow_delete", args=[self.workflow.pk]),
+            {"return_url": reverse("workflow_list")},
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertContains(response, "Cannot delete workflow because related records still exist", status_code=409)
+        self.assertContains(response, "workflow run", status_code=409)
+        self.workflow.refresh_from_db()
+
+    def test_workflow_delete_can_purge_history_from_delete_ui(self):
+        version = WorkflowVersion.objects.create(
+            workflow=self.workflow,
+            version=1,
+            definition=self.workflow.definition,
+            metadata=self.workflow.metadata,
+        )
+        run = WorkflowRun.objects.create(
+            workflow=self.workflow,
+            workflow_version=version,
+        )
+        WorkflowStepRun.objects.create(
+            run=run,
+            workflow_version=version,
+            sequence=1,
+            node_id="trigger-1",
+            node_kind="trigger",
+            node_type="n8n-nodes-base.manualTrigger",
+            label="Manual Trigger",
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("workflow_delete", args=[self.workflow.pk]),
+            {"return_url": reverse("workflow_list"), "delete_history": "on"},
+        )
+
+        self.assertRedirects(response, reverse("workflow_list"))
+        self.assertFalse(Workflow.objects.filter(pk=self.workflow.pk).exists())
+        self.assertFalse(WorkflowRun.objects.filter(pk=run.pk).exists())
+        self.assertFalse(WorkflowStepRun.objects.filter(run=run).exists())
+        self.assertFalse(WorkflowVersion.objects.filter(pk=version.pk).exists())
 
     def test_workflow_designer_node_run_endpoint_runs_primary_node_preview_only(self):
         self.client.force_login(self.staff_user)

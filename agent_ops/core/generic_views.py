@@ -1,5 +1,8 @@
+from collections import Counter
+
 from django.contrib import messages
 from django.core.exceptions import ImproperlyConfigured
+from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import NoReverseMatch, reverse
 from django.views.generic import DetailView, View
@@ -279,11 +282,32 @@ class ObjectDeleteView(QuerysetBackedObjectView):
             return self.success_message
         return f"Deleted {obj._meta.verbose_name}."
 
-    def get_context_data(self, request):
+    def get_delete_error_message(self, obj, error: ProtectedError):
+        protected_counts = Counter()
+        for protected_object in error.protected_objects:
+            protected_counts[protected_object._meta] += 1
+
+        if not protected_counts:
+            return f"Cannot delete {obj._meta.verbose_name} because related records still exist."
+
+        related_summaries = ", ".join(
+            f"{count} {meta.verbose_name if count == 1 else meta.verbose_name_plural}"
+            for meta, count in sorted(
+                protected_counts.items(),
+                key=lambda item: item[0].verbose_name,
+            )
+        )
+        return (
+            f"Cannot delete {obj._meta.verbose_name} because related records still exist: "
+            f"{related_summaries}."
+        )
+
+    def get_context_data(self, request, *, delete_error=None):
         return {
             "object": self.object,
             "return_url": self.get_return_url(request, self.object),
             "cancel_url": self.get_cancel_url(request),
+            "delete_error": delete_error,
             **self.get_extra_context(request, self.object),
         }
 
@@ -292,7 +316,17 @@ class ObjectDeleteView(QuerysetBackedObjectView):
 
     def post(self, request, *args, **kwargs):
         success_message = self.get_success_message(self.object)
-        self.object.delete()
+        try:
+            self.object.delete()
+        except ProtectedError as exc:
+            delete_error = self.get_delete_error_message(self.object, exc)
+            messages.error(request, delete_error)
+            return render(
+                request,
+                self.template_name,
+                self.get_context_data(request, delete_error=delete_error),
+                status=409,
+            )
         if success_message:
             messages.success(request, success_message)
         return redirect(self.get_return_url(request))
