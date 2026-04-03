@@ -454,7 +454,7 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(status_payload["run"]["status"], "succeeded")
         self.assertIn("Completed T-42", status_payload["run"]["output_json"])
 
-    def test_workflow_designer_node_run_endpoint_runs_primary_path_node(self):
+    def test_workflow_designer_node_run_endpoint_runs_primary_node_preview_only(self):
         self.client.force_login(self.staff_user)
         definition = {
             "nodes": [
@@ -510,7 +510,7 @@ class WorkflowViewTests(TestCase):
 
         self.assertEqual(response.status_code, 202)
         payload = response.json()
-        self.assertEqual(payload["mode"], "node_path")
+        self.assertEqual(payload["mode"], "node_preview")
         self.assertEqual(payload["node"]["id"], "tool-1")
         self.assertEqual(payload["run"]["status"], "pending")
         run = WorkflowRun.objects.get(pk=payload["run"]["id"])
@@ -519,7 +519,7 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(status_response.status_code, 200)
         status_payload = status_response.json()
         self.assertEqual(status_payload["run"]["status"], "succeeded")
-        self.assertEqual(status_payload["run"]["step_count"], 2)
+        self.assertEqual(status_payload["run"]["step_count"], 1)
         self.assertIn("Service payments", status_payload["run"]["output_json"])
 
     def test_workflow_designer_node_run_endpoint_runs_auxiliary_node_preview(self):

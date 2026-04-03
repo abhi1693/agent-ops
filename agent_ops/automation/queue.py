@@ -9,22 +9,23 @@ from django_rq.queues import get_connection
 from redis.exceptions import RedisError
 from rq import Worker
 
-from automation.models import WorkflowRun
-
 WORKFLOW_QUEUE_HIGH = "high"
 WORKFLOW_QUEUE_DEFAULT = "default"
 WORKFLOW_QUEUE_LOW = "low"
 
 
 def get_workflow_queue_name(execution_mode: str) -> str:
-    if execution_mode == WorkflowRun.ExecutionModeChoices.NODE_PREVIEW:
-        return WORKFLOW_QUEUE_HIGH
     return WORKFLOW_QUEUE_DEFAULT
 
 
 def get_workers_for_queue(queue_name: str) -> int:
     try:
-        return Worker.count(get_connection(queue_name))
+        connection = get_connection(queue_name)
+        return sum(
+            1
+            for worker in Worker.all(connection=connection)
+            if queue_name in worker.queue_names()
+        )
     except RedisError:
         return 0
 

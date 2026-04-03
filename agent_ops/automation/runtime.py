@@ -9,7 +9,11 @@ from django.template import Context, Engine
 from django.utils import timezone
 
 from automation.nodes import execute_workflow_node
-from automation.queue import enqueue_workflow_run_job, ensure_workers_for_queue, get_workflow_queue_name
+from automation.queue import (
+    enqueue_workflow_run_job,
+    ensure_workers_for_queue,
+    get_workflow_queue_name,
+)
 from automation.auth import resolve_workflow_secret_ref
 from automation.workflow_connections import (
     build_auxiliary_connections_by_target,

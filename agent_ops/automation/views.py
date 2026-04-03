@@ -597,26 +597,15 @@ class WorkflowDesignerNodeRunView(View):
             return JsonResponse({"detail": f'Workflow does not define node "{kwargs["node_id"]}".'}, status=400)
 
         try:
-            if _is_node_primary_reachable(definition=definition, node_id=node["id"]):
-                run = enqueue_workflow(
-                    workflow,
-                    input_data=input_data,
-                    trigger_mode="manual:node",
-                    actor=request.user,
-                    execution_mode=WorkflowRun.ExecutionModeChoices.NODE_PATH,
-                    target_node_id=node["id"],
-                )
-                mode = "node_path"
-            else:
-                run = enqueue_workflow(
-                    workflow,
-                    input_data=input_data,
-                    trigger_mode="manual:node",
-                    actor=request.user,
-                    execution_mode=WorkflowRun.ExecutionModeChoices.NODE_PREVIEW,
-                    target_node_id=node["id"],
-                )
-                mode = "node_preview"
+            run = enqueue_workflow(
+                workflow,
+                input_data=input_data,
+                trigger_mode="manual:node",
+                actor=request.user,
+                execution_mode=WorkflowRun.ExecutionModeChoices.NODE_PREVIEW,
+                target_node_id=node["id"],
+            )
+            mode = "node_preview"
         except ValidationError as exc:
             return JsonResponse({"detail": _flatten_validation_error(exc)}, status=400)
 
