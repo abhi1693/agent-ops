@@ -886,15 +886,14 @@ export function initWorkflowDesigner(): void {
 
   const {
     closeBrowser,
-    getBrowserView,
     getInsertDraft,
     getIsBrowserOpen,
     goBackBrowserView,
+    navigateBrowser,
     openAuxiliaryInsertBrowser,
     openBrowser,
     openInsertBrowser,
     renderBrowser,
-    setBrowserView,
     setSearchQuery,
     showEmptyWorkflowBrowser,
   } = createWorkflowDesignerBrowserController({
@@ -1238,15 +1237,14 @@ export function initWorkflowDesigner(): void {
     closeNodeContextMenu,
     closeNodeSettings,
     deleteNode,
-    getBrowserView,
     getConnectionDraftActive: () => Boolean(connectionDraft),
     getContextMenuNodeId: () => contextMenuState?.nodeId ?? null,
     getIsBrowserOpen,
     getSelectedNodeId: () => selectedNodeId,
     getSettingsNodeId: () => settingsNodeId,
     goBackBrowserView,
-    isEmptyWorkflow,
     isTextEntryTarget,
+    navigateBrowser,
     openAuxiliaryInsertBrowser,
     openBrowser,
     openNodeSettings,
@@ -1266,7 +1264,6 @@ export function initWorkflowDesigner(): void {
     runWorkflow: () => {
       void executeDesignerRun(workflowRunUrl);
     },
-    setBrowserView,
     setSearchQuery,
     updateSelectedNodeField,
     updateSelectedNodeFieldMode,

@@ -1,5 +1,4 @@
 import type { BrowserElements, CanvasElements } from '../dom';
-import type { BrowserView } from '../panels/browserState';
 import type { AgentAuxiliaryPortId } from '../types';
 
 export function registerWorkflowDesignerUiBindings(params: {
@@ -16,15 +15,14 @@ export function registerWorkflowDesignerUiBindings(params: {
   closeNodeContextMenu: () => void;
   closeNodeSettings: () => void;
   deleteNode: (nodeId: string) => void;
-  getBrowserView: () => BrowserView;
   getConnectionDraftActive: () => boolean;
   getContextMenuNodeId: () => string | null;
   getIsBrowserOpen: () => boolean;
   getSelectedNodeId: () => string | null;
   getSettingsNodeId: () => string | null;
   goBackBrowserView: () => void;
-  isEmptyWorkflow: () => boolean;
   isTextEntryTarget: (target: EventTarget | null) => boolean;
+  navigateBrowser: (action: string, appId?: string) => void;
   openAuxiliaryInsertBrowser: (targetId: string, targetPort: AgentAuxiliaryPortId) => void;
   openBrowser: () => void;
   openNodeSettings: (nodeId: string) => void;
@@ -35,7 +33,6 @@ export function registerWorkflowDesignerUiBindings(params: {
   runNode: (nodeId: string) => void;
   runSelectedNode: () => void;
   runWorkflow: () => void;
-  setBrowserView: (nextView: BrowserView) => void;
   setSearchQuery: (value: string) => void;
   updateSelectedNodeField: (
     key: string,
@@ -60,15 +57,14 @@ export function registerWorkflowDesignerUiBindings(params: {
     closeNodeContextMenu,
     closeNodeSettings,
     deleteNode,
-    getBrowserView,
     getConnectionDraftActive,
     getContextMenuNodeId,
     getIsBrowserOpen,
     getSelectedNodeId,
     getSettingsNodeId,
     goBackBrowserView,
-    isEmptyWorkflow,
     isTextEntryTarget,
+    navigateBrowser,
     openAuxiliaryInsertBrowser,
     openBrowser,
     openNodeSettings,
@@ -79,7 +75,6 @@ export function registerWorkflowDesignerUiBindings(params: {
     runNode,
     runSelectedNode,
     runWorkflow,
-    setBrowserView,
     setSearchQuery,
     updateSelectedNodeField,
     updateSelectedNodeFieldMode,
@@ -226,64 +221,7 @@ export function registerWorkflowDesignerUiBindings(params: {
 
     const browserNavigation = target.closest<HTMLElement>('[data-node-browser-nav]');
     if (browserNavigation?.dataset.nodeBrowserNav) {
-      const browserView = getBrowserView();
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'trigger-apps') {
-        setBrowserView({
-          backTo: browserView.kind === 'trigger-root' && browserView.backTo === 'next-step-root'
-            ? 'next-step-root'
-            : 'trigger-root',
-          kind: 'trigger-apps',
-        });
-        renderBrowser();
-        return;
-      }
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'app-details' && browserNavigation.dataset.appId) {
-        setBrowserView({
-          appId: browserNavigation.dataset.appId,
-          backTo: browserView.kind === 'trigger-apps' ? 'trigger-apps' : 'app-actions',
-          kind: 'app-details',
-        });
-        renderBrowser();
-        return;
-      }
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'app-actions') {
-        setBrowserView({ kind: 'app-actions' });
-        renderBrowser();
-        return;
-      }
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'trigger-root') {
-        setBrowserView(isEmptyWorkflow() ? { kind: 'trigger-root' } : { backTo: 'next-step-root', kind: 'trigger-root' });
-        renderBrowser();
-        return;
-      }
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'next-ai') {
-        setBrowserView({ category: 'ai', kind: 'category-details' });
-        renderBrowser();
-        return;
-      }
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'next-data') {
-        setBrowserView({ category: 'data', kind: 'category-details' });
-        renderBrowser();
-        return;
-      }
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'next-flow') {
-        setBrowserView({ category: 'flow', kind: 'category-details' });
-        renderBrowser();
-        return;
-      }
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'next-core') {
-        setBrowserView({ category: 'core', kind: 'category-details' });
-        renderBrowser();
-        return;
-      }
+      navigateBrowser(browserNavigation.dataset.nodeBrowserNav, browserNavigation.dataset.appId);
       return;
     }
 

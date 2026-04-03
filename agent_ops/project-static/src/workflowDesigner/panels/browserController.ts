@@ -58,6 +58,7 @@ export function createWorkflowDesignerBrowserController(params: {
   getInsertDraft: () => WorkflowBrowserInsertDraft | null;
   getIsBrowserOpen: () => boolean;
   goBackBrowserView: () => void;
+  navigateBrowser: (action: string, appId?: string) => void;
   openAuxiliaryInsertBrowser: (targetId: string, targetPort: AgentAuxiliaryPortId) => void;
   openBrowser: () => void;
   openInsertBrowser: (sourceId: string, clientX: number, clientY: number) => void;
@@ -145,6 +146,64 @@ export function createWorkflowDesignerBrowserController(params: {
     }
   }
 
+  function navigateBrowser(action: string, appId?: string): void {
+    if (action === 'trigger-apps') {
+      setBrowserView({
+        backTo: browserView.kind === 'trigger-root' && browserView.backTo === 'next-step-root'
+          ? 'next-step-root'
+          : 'trigger-root',
+        kind: 'trigger-apps',
+      });
+      renderBrowser();
+      return;
+    }
+
+    if (action === 'app-details' && appId) {
+      setBrowserView({
+        appId,
+        backTo: browserView.kind === 'trigger-apps' ? 'trigger-apps' : 'app-actions',
+        kind: 'app-details',
+      });
+      renderBrowser();
+      return;
+    }
+
+    if (action === 'app-actions') {
+      setBrowserView({ kind: 'app-actions' });
+      renderBrowser();
+      return;
+    }
+
+    if (action === 'trigger-root') {
+      setBrowserView(getIsEmptyWorkflow() ? { kind: 'trigger-root' } : { backTo: 'next-step-root', kind: 'trigger-root' });
+      renderBrowser();
+      return;
+    }
+
+    if (action === 'next-ai') {
+      setBrowserView({ category: 'ai', kind: 'category-details' });
+      renderBrowser();
+      return;
+    }
+
+    if (action === 'next-data') {
+      setBrowserView({ category: 'data', kind: 'category-details' });
+      renderBrowser();
+      return;
+    }
+
+    if (action === 'next-flow') {
+      setBrowserView({ category: 'flow', kind: 'category-details' });
+      renderBrowser();
+      return;
+    }
+
+    if (action === 'next-core') {
+      setBrowserView({ category: 'core', kind: 'category-details' });
+      renderBrowser();
+    }
+  }
+
   function closeBrowser(): void {
     isBrowserOpen = false;
     insertDraft = null;
@@ -227,6 +286,7 @@ export function createWorkflowDesignerBrowserController(params: {
     getInsertDraft: () => insertDraft,
     getIsBrowserOpen: () => isBrowserOpen,
     goBackBrowserView,
+    navigateBrowser,
     openAuxiliaryInsertBrowser,
     openBrowser,
     openInsertBrowser,
