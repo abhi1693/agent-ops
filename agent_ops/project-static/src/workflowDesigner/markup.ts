@@ -1,4 +1,6 @@
 import type {
+  AgentAuxiliaryPortId,
+  ConnectorSide,
   WorkflowEdge,
   WorkflowNodeDefinition,
   WorkflowNode,
@@ -321,6 +323,203 @@ export function renderEdgeRemoveButtonMarkup(params: {
     >
       <i class="mdi mdi-close"></i>
     </button>
+  `;
+}
+
+type WorkflowEditorNodeConnector = {
+  isCandidate: boolean;
+  isInputActive: boolean;
+  isOutputActive: boolean;
+  modeClass: string;
+  nodeId: string;
+  side: ConnectorSide;
+};
+
+type WorkflowEditorAuxiliaryPort = {
+  actionIcon: string;
+  ariaLabel: string;
+  id: AgentAuxiliaryPortId;
+  isActive: boolean;
+  isCandidate: boolean;
+  isConnected: boolean;
+  isWarning: boolean;
+  label: string;
+  modelProviderAppId?: string;
+  nodeId: string;
+  stateLabel: string;
+  title: string;
+};
+
+export function renderWorkflowEditorNodeMarkup(params: {
+  agentDisplayTitle: string;
+  agentNeedsModel: boolean;
+  auxiliaryPorts: WorkflowEditorAuxiliaryPort[];
+  connectors: WorkflowEditorNodeConnector[];
+  icon: string;
+  isConnectionCandidate: boolean;
+  isConnectionSource: boolean;
+  isConnectionTarget: boolean;
+  isExecutionFailed: boolean;
+  isExecutionPending: boolean;
+  isExecutionSucceeded: boolean;
+  isSelected: boolean;
+  node: WorkflowNode;
+  showAgentKindLabel: boolean;
+  title: string;
+}): string {
+  const connectorsMarkup = params.connectors
+    .map((connector) => `
+      <span
+        class="workflow-editor-node-connector workflow-editor-node-connector--${connector.side}${connector.modeClass}${connector.isCandidate ? ' is-candidate' : ''}${connector.isOutputActive ? ' is-output-active' : ''}${connector.isInputActive ? ' is-input-active' : ''}"
+        data-workflow-node-connector="${escapeHtml(connector.nodeId)}"
+        data-workflow-node-connector-side="${connector.side}"
+        aria-hidden="true"
+      ></span>
+    `)
+    .join('');
+
+  const executionIndicatorMarkup = params.isExecutionPending
+    ? `
+      <span
+        class="workflow-editor-node-execution-indicator is-running"
+        aria-label="Node running"
+        title="Node running"
+      >
+        <i class="mdi mdi-loading mdi-spin"></i>
+      </span>
+    `
+    : params.isExecutionSucceeded
+      ? `
+        <span
+          class="workflow-editor-node-execution-indicator is-succeeded"
+          aria-label="Node succeeded"
+          title="Node succeeded"
+        >
+          <i class="mdi mdi-check"></i>
+        </span>
+      `
+      : params.isExecutionFailed
+        ? `
+          <span
+            class="workflow-editor-node-execution-indicator is-failed"
+            aria-label="Node failed"
+            title="Node failed"
+          >
+            <i class="mdi mdi-close"></i>
+          </span>
+        `
+        : '';
+
+  const auxiliaryPortsMarkup = params.node.kind === 'agent'
+    ? `
+      <span class="workflow-editor-node-auxiliary">
+        ${params.auxiliaryPorts.map((port) => `
+          <button
+            type="button"
+            class="workflow-editor-node-auxiliary-port${port.isCandidate ? ' is-candidate' : ''}${port.isActive ? ' is-active' : ''}${port.isConnected ? ' is-connected' : ''}${port.isWarning ? ' is-warning' : ''}"
+            data-workflow-node-aux-node="${escapeHtml(port.nodeId)}"
+            data-workflow-node-aux-port="${port.id}"
+            ${port.modelProviderAppId ? `data-model-provider="${escapeHtml(port.modelProviderAppId)}"` : ''}
+            title="${escapeHtml(port.title)}"
+            aria-label="${escapeHtml(port.ariaLabel)}"
+          >
+            <span class="workflow-editor-node-auxiliary-handle" aria-hidden="true"></span>
+            <span class="workflow-editor-node-auxiliary-label">
+              <span class="workflow-editor-node-auxiliary-text">${escapeHtml(port.label)}</span>
+              <span class="workflow-editor-node-auxiliary-state">${escapeHtml(port.stateLabel)}</span>
+            </span>
+            <span class="workflow-editor-node-auxiliary-action" aria-hidden="true">
+              <i class="mdi ${port.actionIcon}"></i>
+            </span>
+          </button>
+        `).join('')}
+      </span>
+    `
+    : '';
+
+  const cardMarkup = params.node.kind === 'agent'
+    ? `
+      <span class="workflow-editor-node-card">
+        <span class="workflow-editor-agent-panel">
+          <span class="workflow-editor-agent-head">
+            <span class="workflow-editor-agent-brand">
+              <span class="workflow-editor-agent-icon">
+                <i class="mdi ${escapeHtml(params.icon)}"></i>
+              </span>
+            </span>
+            <span class="workflow-editor-agent-copy">
+              <span class="workflow-editor-agent-title">${escapeHtml(params.agentDisplayTitle)}</span>
+              ${params.showAgentKindLabel ? '<span class="workflow-editor-agent-kind">AI agent</span>' : ''}
+            </span>
+          </span>
+          <span class="workflow-editor-agent-divider" aria-hidden="true"></span>
+          ${auxiliaryPortsMarkup}
+        </span>
+      </span>
+    `
+    : `
+      <span class="workflow-editor-node-card">
+        <span class="workflow-editor-node-icon">
+          <i class="mdi ${escapeHtml(params.icon)}"></i>
+        </span>
+      </span>
+    `;
+
+  const copyMarkup = params.node.kind === 'agent'
+    ? ''
+    : `
+      <span class="workflow-editor-node-copy">
+        <span class="workflow-editor-node-title">${escapeHtml(params.title)}</span>
+      </span>
+    `;
+
+  const nodeToolbarMarkup = params.isSelected
+    ? `
+      <div class="workflow-node-toolbar" data-node-toolbar="${escapeHtml(params.node.id)}">
+        <button
+          type="button"
+          class="workflow-node-toolbar-button"
+          data-node-action="run"
+          data-node-action-id="${escapeHtml(params.node.id)}"
+          aria-label="Run node"
+          ${params.isExecutionPending ? 'disabled' : ''}
+        >
+          <i class="mdi ${params.isExecutionPending ? 'mdi-loading mdi-spin' : 'mdi-play'}"></i>
+        </button>
+        <button
+          type="button"
+          class="workflow-node-toolbar-button"
+          data-node-action="settings"
+          data-node-action-id="${escapeHtml(params.node.id)}"
+          aria-label="Open node settings"
+        >
+          <i class="mdi mdi-tune-variant"></i>
+        </button>
+        <button
+          type="button"
+          class="workflow-node-toolbar-button"
+          data-node-action="delete"
+          data-node-action-id="${escapeHtml(params.node.id)}"
+          aria-label="Delete node"
+        >
+          <i class="mdi mdi-trash-can-outline"></i>
+        </button>
+      </div>
+    `
+    : '';
+
+  return `
+    <article
+      class="workflow-editor-node workflow-editor-node--${escapeHtml(params.node.kind)}${params.isSelected ? ' is-selected' : ''}${params.isConnectionSource ? ' is-connection-source' : ''}${params.isConnectionCandidate ? ' is-connection-candidate' : ''}${params.isConnectionTarget ? ' is-connection-target' : ''}${params.agentNeedsModel ? ' is-agent-incomplete' : ''}${params.isExecutionPending ? ' is-executing' : ''}${params.isExecutionSucceeded ? ' is-execution-succeeded' : ''}${params.isExecutionFailed ? ' is-execution-failed' : ''}"
+      data-workflow-node-id="${escapeHtml(params.node.id)}"
+      tabindex="0"
+    >
+      ${nodeToolbarMarkup}
+      ${connectorsMarkup}
+      ${executionIndicatorMarkup}
+      ${cardMarkup}
+      ${copyMarkup}
+    </article>
   `;
 }
 

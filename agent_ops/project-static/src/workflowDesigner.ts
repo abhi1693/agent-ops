@@ -10,6 +10,7 @@ import {
 import {
   renderEdgeRemoveButtonMarkup,
   renderNodeContextMenuMarkup,
+  renderWorkflowEditorNodeMarkup,
 } from './workflowDesigner/markup';
 import {
   buildConnectionPath,
@@ -1295,51 +1296,18 @@ export function initWorkflowDesigner(): void {
               const isActiveSourceConnector = activeSourceSide === side;
               const isActiveTargetConnector = activeTargetSide === side;
 
-              return `
-                <span
-                  class="workflow-editor-node-connector workflow-editor-node-connector--${side}${connectorModeClass}${isConnectionCandidate ? ' is-candidate' : ''}${isActiveSourceConnector ? ' is-output-active' : ''}${isActiveTargetConnector ? ' is-input-active' : ''}"
-                  data-workflow-node-connector="${escapeHtml(node.id)}"
-                  data-workflow-node-connector-side="${side}"
-                  aria-hidden="true"
-                ></span>
-              `;
-            }).join('')
-          : '';
-        const executionIndicatorMarkup = isNodeExecutionPending
-          ? `
-            <span
-              class="workflow-editor-node-execution-indicator is-running"
-              aria-label="Node running"
-              title="Node running"
-            >
-              <i class="mdi mdi-loading mdi-spin"></i>
-            </span>
-          `
-          : isNodeExecutionSucceeded
-            ? `
-              <span
-                class="workflow-editor-node-execution-indicator is-succeeded"
-                aria-label="Node succeeded"
-                title="Node succeeded"
-              >
-                <i class="mdi mdi-check"></i>
-              </span>
-            `
-            : isNodeExecutionFailed
-              ? `
-                <span
-                  class="workflow-editor-node-execution-indicator is-failed"
-                  aria-label="Node failed"
-                  title="Node failed"
-                >
-                  <i class="mdi mdi-close"></i>
-                </span>
-              `
-              : '';
+              return {
+                isCandidate: isConnectionCandidate,
+                isInputActive: isActiveTargetConnector,
+                isOutputActive: isActiveSourceConnector,
+                modeClass: connectorModeClass,
+                nodeId: node.id,
+                side,
+              };
+            })
+          : [];
         const auxiliaryPorts = node.kind === 'agent'
-          ? `
-            <span class="workflow-editor-node-auxiliary">
-              ${AGENT_AUXILIARY_PORTS.map((port) => {
+          ? AGENT_AUXILIARY_PORTS.map((port) => {
                 const isCompatibleCandidate = compatibleAuxiliaryPort === port.id;
                 const isActiveTargetPort =
                   connectionDraft?.hoveredTargetId === node.id && connectionDraft?.hoveredTargetPort === port.id;
@@ -1380,112 +1348,44 @@ export function initWorkflowDesigner(): void {
                   ? primaryConnectedSourceDefinition?.app_id ?? ''
                   : '';
 
-                return `
-                  <button
-                    type="button"
-                    class="workflow-editor-node-auxiliary-port${isCompatibleCandidate ? ' is-candidate' : ''}${isActiveTargetPort ? ' is-active' : ''}${connectionCount > 0 ? ' is-connected' : ''}${port.id === 'ai_languageModel' && connectionCount === 0 ? ' is-warning' : ''}"
-                    data-workflow-node-aux-node="${escapeHtml(node.id)}"
-                    data-workflow-node-aux-port="${port.id}"
-                    ${modelProviderAppId ? `data-model-provider="${escapeHtml(modelProviderAppId)}"` : ''}
-                    title="${escapeHtml(connectionCount > 0 && port.id === 'ai_languageModel' ? `${connectedModelStateLabel ?? port.label}` : `Add ${port.label}`)}"
-                    aria-label="${escapeHtml(connectionCount > 0 && port.id === 'ai_languageModel' ? `${connectedModelStateLabel ?? port.label}` : `Add ${port.label}`)}"
-                  >
-                    <span class="workflow-editor-node-auxiliary-handle" aria-hidden="true"></span>
-                    <span class="workflow-editor-node-auxiliary-label">
-                      <span class="workflow-editor-node-auxiliary-text">${escapeHtml(port.label)}</span>
-                      <span class="workflow-editor-node-auxiliary-state">${escapeHtml(stateLabel)}</span>
-                    </span>
-                      <span class="workflow-editor-node-auxiliary-action" aria-hidden="true">
-                        <i class="mdi ${actionIcon}"></i>
-                      </span>
-                  </button>
-                `;
-              }).join('')}
-            </span>
-          `
-          : '';
-        const cardMarkup = node.kind === 'agent'
-          ? `
-            <span class="workflow-editor-node-card">
-              <span class="workflow-editor-agent-panel">
-                <span class="workflow-editor-agent-head">
-                  <span class="workflow-editor-agent-brand">
-                    <span class="workflow-editor-agent-icon">
-                      <i class="mdi ${escapeHtml(icon)}"></i>
-                    </span>
-                  </span>
-                  <span class="workflow-editor-agent-copy">
-                    <span class="workflow-editor-agent-title">${escapeHtml(agentDisplayTitle)}</span>
-                    ${showAgentKindLabel ? '<span class="workflow-editor-agent-kind">AI agent</span>' : ''}
-                  </span>
-                </span>
-                <span class="workflow-editor-agent-divider" aria-hidden="true"></span>
-                ${auxiliaryPorts}
-              </span>
-            </span>
-          `
-          : `
-            <span class="workflow-editor-node-card">
-              <span class="workflow-editor-node-icon">
-                <i class="mdi ${escapeHtml(icon)}"></i>
-              </span>
-            </span>
-          `;
-        const copyMarkup = node.kind === 'agent'
-          ? ''
-          : `
-            <span class="workflow-editor-node-copy">
-              <span class="workflow-editor-node-title">${escapeHtml(title)}</span>
-            </span>
-          `;
-        const nodeToolbarMarkup = isSelected
-          ? `
-            <div class="workflow-node-toolbar" data-node-toolbar="${escapeHtml(node.id)}">
-              <button
-                type="button"
-                class="workflow-node-toolbar-button"
-                data-node-action="run"
-                data-node-action-id="${escapeHtml(node.id)}"
-                aria-label="Run node"
-                ${isExecutionPending ? 'disabled' : ''}
-              >
-                <i class="mdi ${isNodeExecutionPending ? 'mdi-loading mdi-spin' : 'mdi-play'}"></i>
-              </button>
-              <button
-                type="button"
-                class="workflow-node-toolbar-button"
-                data-node-action="settings"
-                data-node-action-id="${escapeHtml(node.id)}"
-                aria-label="Open node settings"
-              >
-                <i class="mdi mdi-tune-variant"></i>
-              </button>
-              <button
-                type="button"
-                class="workflow-node-toolbar-button"
-                data-node-action="delete"
-                data-node-action-id="${escapeHtml(node.id)}"
-                aria-label="Delete node"
-              >
-                <i class="mdi mdi-trash-can-outline"></i>
-              </button>
-            </div>
-          `
-          : '';
+                return {
+                  actionIcon,
+                  ariaLabel: connectionCount > 0 && port.id === 'ai_languageModel'
+                    ? `${connectedModelStateLabel ?? port.label}`
+                    : `Add ${port.label}`,
+                  id: port.id,
+                  isActive: isActiveTargetPort,
+                  isCandidate: isCompatibleCandidate,
+                  isConnected: connectionCount > 0,
+                  isWarning: port.id === 'ai_languageModel' && connectionCount === 0,
+                  label: port.label,
+                  modelProviderAppId,
+                  nodeId: node.id,
+                  stateLabel,
+                  title: connectionCount > 0 && port.id === 'ai_languageModel'
+                    ? `${connectedModelStateLabel ?? port.label}`
+                    : `Add ${port.label}`,
+                };
+              })
+          : [];
 
-        return `
-          <article
-            class="workflow-editor-node workflow-editor-node--${escapeHtml(node.kind)}${isSelected ? ' is-selected' : ''}${isConnectionSource ? ' is-connection-source' : ''}${isConnectionCandidate ? ' is-connection-candidate' : ''}${isConnectionTarget ? ' is-connection-target' : ''}${agentNeedsModel ? ' is-agent-incomplete' : ''}${isNodeExecutionPending ? ' is-executing' : ''}${isNodeExecutionSucceeded ? ' is-execution-succeeded' : ''}${isNodeExecutionFailed ? ' is-execution-failed' : ''}"
-            data-workflow-node-id="${escapeHtml(node.id)}"
-            tabindex="0"
-          >
-            ${nodeToolbarMarkup}
-            ${connectors}
-            ${executionIndicatorMarkup}
-            ${cardMarkup}
-            ${copyMarkup}
-          </article>
-        `;
+        return renderWorkflowEditorNodeMarkup({
+          agentDisplayTitle,
+          agentNeedsModel,
+          auxiliaryPorts,
+          connectors,
+          icon,
+          isConnectionCandidate,
+          isConnectionSource,
+          isConnectionTarget,
+          isExecutionFailed: isNodeExecutionFailed,
+          isExecutionPending: isNodeExecutionPending,
+          isExecutionSucceeded: isNodeExecutionSucceeded,
+          isSelected,
+          node,
+          showAgentKindLabel,
+          title,
+        });
       })
       .join('');
 
