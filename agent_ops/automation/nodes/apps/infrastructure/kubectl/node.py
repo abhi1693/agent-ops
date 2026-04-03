@@ -6,6 +6,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Iterable
 
 from django.core.exceptions import ValidationError
 
@@ -32,6 +33,45 @@ from automation.tools.base import (
 )
 
 
+_READ_ONLY_POLICY = "read_only"
+_ALLOW_MUTATING_POLICY = "allow_mutating"
+_SUPPORTED_COMMAND_POLICIES = {_READ_ONLY_POLICY, _ALLOW_MUTATING_POLICY}
+_READ_ONLY_TOP_LEVEL_COMMANDS = {
+    "api-resources",
+    "api-versions",
+    "auth",
+    "cluster-info",
+    "describe",
+    "diff",
+    "events",
+    "explain",
+    "get",
+    "logs",
+    "top",
+    "version",
+    "wait",
+}
+_ROLLOUT_READ_ONLY_SUBCOMMANDS = {"history", "status"}
+_CONFIG_READ_ONLY_SUBCOMMANDS = {"current-context", "get-contexts", "view"}
+_LEADING_FLAGS_WITH_VALUES = {
+    "-n",
+    "--namespace",
+    "--context",
+    "--cluster",
+    "--user",
+    "--server",
+    "--request-timeout",
+    "--as",
+    "--as-group",
+    "--kubeconfig",
+    "--token",
+    "--selector",
+    "--field-selector",
+    "--output",
+    "-o",
+}
+
+
 def _validate_kubectl_tool(config: dict, node_id: str) -> None:
     _validate_external_output_key(config, node_id)
     _validate_required_string(config, "command", node_id=node_id)
@@ -42,9 +82,19 @@ def _validate_kubectl_tool(config: dict, node_id: str) -> None:
         _validate_optional_string(config, "secret_name", node_id=node_id)
     _validate_optional_secret_group_id(config, "secret_group_id", node_id=node_id)
     output_format = config.get("output_format", "text")
-    if output_format not in {"text", "json"}:
+    if output_format not in {"text", "json", "auto"}:
         raise ValidationError(
-            {"definition": f'Node "{node_id}" config.output_format must be one of: text, json.'}
+            {"definition": f'Node "{node_id}" config.output_format must be one of: auto, text, json.'}
+        )
+    command_policy = config.get("command_policy", _READ_ONLY_POLICY)
+    if command_policy not in _SUPPORTED_COMMAND_POLICIES:
+        raise ValidationError(
+            {
+                "definition": (
+                    f'Node "{node_id}" config.command_policy must be one of: '
+                    f'{", ".join(sorted(_SUPPORTED_COMMAND_POLICIES))}.'
+                )
+            }
         )
     kubeconfig_secret_mode = config.get("kubeconfig_secret_mode", "content")
     if kubeconfig_secret_mode not in {"content", "path"}:
@@ -88,8 +138,56 @@ def _parse_kubectl_command(command: str) -> list[str]:
     return command_parts
 
 
+def _iter_command_tokens_without_leading_flags(command_parts: Iterable[str]) -> list[str]:
+    trimmed: list[str] = []
+    consume_next_value = False
+
+    for token in command_parts:
+        if consume_next_value:
+            consume_next_value = False
+            continue
+
+        if not trimmed and token.startswith("-"):
+            if token in _LEADING_FLAGS_WITH_VALUES:
+                consume_next_value = True
+            elif any(token.startswith(f"{flag}=") for flag in _LEADING_FLAGS_WITH_VALUES if flag.startswith("--")):
+                continue
+            continue
+
+        trimmed.append(token)
+
+    return trimmed
+
+
+def _is_read_only_kubectl_command(command_parts: list[str]) -> bool:
+    trimmed_parts = _iter_command_tokens_without_leading_flags(command_parts)
+    if not trimmed_parts:
+        return False
+
+    top_level_command = trimmed_parts[0]
+    if top_level_command in _READ_ONLY_TOP_LEVEL_COMMANDS:
+        if top_level_command == "auth":
+            return True
+        return True
+
+    if top_level_command == "rollout":
+        return len(trimmed_parts) > 1 and trimmed_parts[1] in _ROLLOUT_READ_ONLY_SUBCOMMANDS
+
+    if top_level_command == "config":
+        return len(trimmed_parts) > 1 and trimmed_parts[1] in _CONFIG_READ_ONLY_SUBCOMMANDS
+
+    return False
+
+
+def _get_top_level_command(command_parts: list[str]) -> str | None:
+    trimmed_parts = _iter_command_tokens_without_leading_flags(command_parts)
+    if not trimmed_parts:
+        return None
+    return trimmed_parts[0]
+
+
 def _ensure_kubectl_output_format(command_parts: list[str], *, output_format: str) -> list[str]:
-    if output_format != "json":
+    if output_format not in {"json", "auto"}:
         return command_parts
 
     for index, command_part in enumerate(command_parts):
@@ -104,6 +202,9 @@ def _ensure_kubectl_output_format(command_parts: list[str], *, output_format: st
         if command_part == "--" and index < len(command_parts):
             break
 
+    if output_format == "auto" and _get_top_level_command(command_parts) != "get":
+        return command_parts
+
     return [*command_parts, "-ojson"]
 
 
@@ -114,6 +215,7 @@ def _execute_kubectl_tool(runtime: WorkflowToolExecutionContext) -> dict:
     namespace = _render_runtime_string(runtime, "namespace", default_mode="static")
     command = _render_runtime_string(runtime, "command", required=True, default_mode="expression")
     output_format = _render_runtime_string(runtime, "output_format", default_mode="static") or "text"
+    command_policy = _render_runtime_string(runtime, "command_policy", default_mode="static") or _READ_ONLY_POLICY
     kubeconfig_secret_mode = (
         _render_runtime_string(runtime, "kubeconfig_secret_mode", default_mode="static") or "content"
     )
@@ -126,8 +228,19 @@ def _execute_kubectl_tool(runtime: WorkflowToolExecutionContext) -> dict:
     )
 
     kubectl_binary = _resolve_kubectl_binary(binary_path)
+    parsed_command_parts = _parse_kubectl_command(command)
+    if command_policy == _READ_ONLY_POLICY and not _is_read_only_kubectl_command(parsed_command_parts):
+        raise ValidationError(
+            {
+                "definition": (
+                    "kubectl command was blocked by the read-only safety policy. "
+                    "Use a read-only subcommand such as get, describe, logs, top, or rollout status, "
+                    'or set config.command_policy to "allow_mutating" for an explicit write-enabled node.'
+                )
+            }
+        )
     command_parts = _ensure_kubectl_output_format(
-        _parse_kubectl_command(command),
+        parsed_command_parts,
         output_format=output_format,
     )
 
@@ -197,12 +310,18 @@ def _execute_kubectl_tool(runtime: WorkflowToolExecutionContext) -> dict:
                 parsed_output = _make_json_safe(json.loads(stdout))
             except ValueError as exc:
                 raise ValidationError({"definition": "kubectl stdout was not valid JSON."}) from exc
+        elif output_format == "auto":
+            try:
+                parsed_output = _make_json_safe(json.loads(stdout))
+            except ValueError:
+                parsed_output = None
 
         payload = {
             "command": argv,
             "stdout": stdout,
             "stderr": stderr,
             "output_format": output_format,
+            "resolved_output_format": "json" if parsed_output is not None else "text",
         }
         if parsed_output is not None:
             payload["data"] = parsed_output
@@ -211,7 +330,9 @@ def _execute_kubectl_tool(runtime: WorkflowToolExecutionContext) -> dict:
         result = {
             "output_key": output_key,
             "command": argv,
+            "command_policy": command_policy,
             "output_format": output_format,
+            "resolved_output_format": "json" if parsed_output is not None else "text",
         }
         if kubeconfig_meta is not None:
             result["secret"] = kubeconfig_meta
@@ -232,11 +353,15 @@ def _execute_kubectl_tool(runtime: WorkflowToolExecutionContext) -> dict:
 TOOL_DEFINITION = WorkflowToolDefinition(
     name="kubectl",
     label="kubectl",
-    description="Run the locally installed kubectl binary on the app host using its configured cluster access.",
+    description=(
+        "Run the locally installed kubectl binary on the app host using its configured cluster access. "
+        "Defaults to a read-only safety policy suitable for investigation workflows."
+    ),
     icon="mdi-kubernetes",
     category="Infrastructure",
     config={
         "output_key": "kubectl.result",
+        "command_policy": "read_only",
         "output_format": "json",
         "timeout_seconds": 20,
         "kubeconfig_secret_mode": "content",
@@ -259,14 +384,31 @@ TOOL_DEFINITION = WorkflowToolDefinition(
             help_text="Arguments passed after the kubectl binary. A leading `kubectl` is ignored if you include it.",
         ),
         tool_select_field(
+            "command_policy",
+            "Command safety",
+            ui_group="advanced",
+            options=(
+                tool_field_option("read_only", "Read-only"),
+                tool_field_option("allow_mutating", "Allow mutating"),
+            ),
+            help_text=(
+                "Read-only blocks mutating kubectl operations such as apply, delete, patch, exec, and port-forward. "
+                "Use allow mutating only for explicit remediation workflows."
+            ),
+        ),
+        tool_select_field(
             "output_format",
             "Output format",
             ui_group="advanced",
             options=(
+                tool_field_option("auto"),
                 tool_field_option("text"),
                 tool_field_option("json"),
             ),
-            help_text="Choose `json` when the command prints JSON, for example with `-o json`.",
+            help_text=(
+                "Auto adds `-o json` for `kubectl get` commands when no output flag is present, "
+                "while leaving text-oriented commands such as logs or rollout status unchanged."
+            ),
         ),
         tool_text_field(
             "context_name",

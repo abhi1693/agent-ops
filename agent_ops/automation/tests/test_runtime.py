@@ -1617,6 +1617,156 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.context_data["kubectl"]["result"]["data"]["items"][0]["metadata"]["name"], "api-0")
 
+    def test_execute_workflow_keeps_text_kubectl_command_in_auto_mode(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="kubectl auto text workflow",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "tool.kubectl",
+                        "label": "kubectl",
+                        "config": {
+                            "output_key": "kubectl.result",
+                            "command": "logs api-0 -n payments",
+                            "output_format": "auto",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                ],
+            },
+        )
+
+        def fake_run(argv, check, capture_output, text, timeout):
+            self.assertEqual(
+                argv,
+                [
+                    "/usr/local/bin/kubectl",
+                    "logs",
+                    "api-0",
+                    "-n",
+                    "payments",
+                ],
+            )
+            self.assertFalse(check)
+            self.assertTrue(capture_output)
+            self.assertTrue(text)
+            self.assertEqual(timeout, 20)
+            return subprocess.CompletedProcess(argv, 0, stdout="error: connection reset\n", stderr="")
+
+        with patch("automation.nodes.apps.infrastructure.kubectl.node.shutil.which", return_value="/usr/local/bin/kubectl"):
+            with patch("automation.nodes.apps.infrastructure.kubectl.node.subprocess.run", side_effect=fake_run):
+                run = execute_workflow(workflow)
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.context_data["kubectl"]["result"]["resolved_output_format"], "text")
+
+    def test_execute_workflow_blocks_mutating_kubectl_command_by_default(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="kubectl read only workflow",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "tool.kubectl",
+                        "label": "kubectl",
+                        "config": {
+                            "output_key": "kubectl.result",
+                            "command": "delete pod api-0 -n payments",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow)
+
+        self.assertEqual(run.status, "failed")
+        self.assertIn("read-only safety policy", run.error)
+
+    def test_execute_workflow_allows_mutating_kubectl_command_when_explicitly_enabled(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="kubectl mutating workflow",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "tool.kubectl",
+                        "label": "kubectl",
+                        "config": {
+                            "output_key": "kubectl.result",
+                            "command": "delete pod api-0 -n payments",
+                            "command_policy": "allow_mutating",
+                            "output_format": "text",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                ],
+            },
+        )
+
+        def fake_run(argv, check, capture_output, text, timeout):
+            self.assertEqual(
+                argv,
+                [
+                    "/usr/local/bin/kubectl",
+                    "delete",
+                    "pod",
+                    "api-0",
+                    "-n",
+                    "payments",
+                ],
+            )
+            self.assertFalse(check)
+            self.assertTrue(capture_output)
+            self.assertTrue(text)
+            self.assertEqual(timeout, 20)
+            return subprocess.CompletedProcess(argv, 0, stdout="pod \"api-0\" deleted\n", stderr="")
+
+        with patch("automation.nodes.apps.infrastructure.kubectl.node.shutil.which", return_value="/usr/local/bin/kubectl"):
+            with patch("automation.nodes.apps.infrastructure.kubectl.node.subprocess.run", side_effect=fake_run):
+                run = execute_workflow(workflow)
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.step_results[1]["result"]["command_policy"], "allow_mutating")
+
     def test_execute_workflow_runs_kubectl_with_kubeconfig_secret_content(self):
         workflow = Workflow.objects.create(
             environment=self.environment,

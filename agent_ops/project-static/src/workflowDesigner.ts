@@ -82,7 +82,6 @@ type ExecutionElements = {
 
 type ConnectorSide = 'top' | 'right' | 'bottom' | 'left';
 type AgentAuxiliaryPortId = 'ai_languageModel' | 'ai_tool';
-type BrowserMode = 'default' | 'starter';
 
 type DragState = {
   nodeId: string;
@@ -481,7 +480,6 @@ function filterNodeDefinitions(
 
 function renderPaletteDefinitions(
   definitions: WorkflowNodeDefinition[],
-  mode: BrowserMode,
 ): string {
   return definitions
     .map((definition) => {
@@ -506,7 +504,7 @@ function renderPaletteDefinitions(
       return `
         <button
           type="button"
-          class="workflow-node-browser-item${mode === 'starter' ? ' workflow-node-browser-item--starter' : ''}"
+          class="workflow-node-browser-item"
           data-node-browser-item="${escapeHtml(definition.type)}"
           data-app-id="${escapeHtml(appId)}"
           data-model-provider="${isModelProvider ? 'true' : 'false'}"
@@ -555,7 +553,7 @@ function renderPaletteSections(sections: WorkflowPaletteSection[], query: string
           </span>
         </div>
         <div class="workflow-node-browser-grid">
-          ${renderPaletteDefinitions(section.definitions, 'default')}
+          ${renderPaletteDefinitions(section.definitions)}
         </div>
       </section>
     `)
@@ -2160,10 +2158,25 @@ export function initWorkflowDesigner(): void {
         searchQuery,
       );
       title = 'What triggers this workflow?';
-      description = 'A trigger is the first step that decides how your workflow starts.';
+      description = 'Choose the first trigger and build the rest of the workflow.';
       emptyMessage = 'No matching triggers';
       markup = triggerDefinitions.length > 0
-        ? `<div class="workflow-node-browser-list">${renderPaletteDefinitions(triggerDefinitions, 'starter')}</div>`
+        ? `
+          <section class="workflow-node-browser-section" data-app-id="starter-triggers">
+            <div class="workflow-node-browser-section-head">
+              <span class="workflow-node-browser-section-badge" aria-hidden="true">
+                <i class="mdi mdi-rocket-launch-outline"></i>
+              </span>
+              <span class="workflow-node-browser-section-copy">
+                <span class="workflow-node-browser-section-title">Triggers</span>
+                <span class="workflow-node-browser-section-description">Choose the first trigger and build the rest of the workflow yourself.</span>
+              </span>
+            </div>
+            <div class="workflow-node-browser-grid">
+              ${renderPaletteDefinitions(triggerDefinitions)}
+            </div>
+          </section>
+        `
         : '';
     } else if (insertPort) {
       title = insertPort.id === 'ai_languageModel' ? 'Attach model provider' : 'Attach tool';
@@ -2183,7 +2196,7 @@ export function initWorkflowDesigner(): void {
           searchQuery,
         );
         markup = modelDefinitions.length > 0
-          ? `<div class="workflow-node-browser-list workflow-node-browser-list--providers">${renderPaletteDefinitions(modelDefinitions, 'default')}</div>`
+          ? `<div class="workflow-node-browser-list workflow-node-browser-list--providers">${renderPaletteDefinitions(modelDefinitions)}</div>`
           : '';
       }
     }

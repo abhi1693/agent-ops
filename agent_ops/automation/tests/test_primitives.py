@@ -102,6 +102,8 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertIn("secret_name", kubectl_fields)
         self.assertIn("secret_group_id", kubectl_fields)
         self.assertIn("kubeconfig_secret_mode", kubectl_fields)
+        self.assertIn("command_policy", kubectl_fields)
+        self.assertEqual(kubectl_template["config"]["command_policy"], "read_only")
 
         self.assertNotIn("resource", alertmanager_template)
         self.assertNotIn("operation", alertmanager_template)
