@@ -30,14 +30,13 @@ import {
 } from './workflowDesigner/panels/browserState';
 import {
   renderSettingsIdentitySection,
+  renderNodeSettingsFieldsMarkup,
   renderSettingsOverviewSection,
-  renderSettingsSection,
 } from './workflowDesigner/panels/settingsPanel';
 import {
   buildTemplateInsertionValue,
   getAvailableInputPaths,
   getNodeSettingControl,
-  renderSettingAssistMarkup,
 } from './workflowDesigner/panels/settingsAssist';
 import { buildNodeRegistry, getAvailablePaletteSections } from './workflowDesigner/registry/nodeRegistry';
 import {
@@ -70,10 +69,8 @@ import {
   getConfigString,
   inferTemplateFieldInputMode,
   getRuntimeTemplateFieldInputModeDefault,
-  getTemplateFieldBinding,
   getTemplateFieldInputMode,
   getTemplateFieldOptions,
-  getTemplateFieldUiGroup,
   getTemplateFieldValue,
   isTemplateFieldVisible,
   parseJsonScript,
@@ -1035,183 +1032,19 @@ export function initWorkflowDesigner(): void {
 
     const activeSettingsNode = settingsNode;
     const activeNodeDefinition = nodeDefinition;
-    const visibleFields = activeNodeDefinition.fields.filter((field) => isTemplateFieldVisible(activeSettingsNode, field));
     const availableInputPaths = getAvailableInputPaths({
       executionInputData: readExecutionInputData(),
       getNode,
       nodeId: activeSettingsNode.id,
       workflowDefinition,
     });
-    const renderSettingsSectionBody = (fields: WorkflowNodeTemplateField[]): string =>
-      fields.map((field) => renderSettingsField(field)).join('');
-
-    function renderSettingsField(field: WorkflowNodeTemplateField): string {
-        const fieldId = `workflow-node-setting-${activeSettingsNode.id}-${field.key}`;
-        const value = getTemplateFieldValue(activeSettingsNode, field);
-        const fieldBinding = getTemplateFieldBinding(field);
-        const fieldGroup = getTemplateFieldUiGroup(field);
-        const supportsInputMode = supportsTemplateFieldInputMode(field);
-        const fieldInputMode = getTemplateFieldInputMode(activeSettingsNode, field);
-        const labelMarkup = supportsInputMode
-          ? `
-              <div class="workflow-editor-settings-label-row">
-                <label class="form-label" for="${escapeHtml(fieldId)}">${escapeHtml(field.label)}</label>
-                <div class="workflow-editor-settings-mode-toggle" role="group" aria-label="${escapeHtml(`${field.label} mode`)}">
-                  <button
-                    type="button"
-                    class="workflow-editor-settings-mode-button${fieldInputMode === 'static' ? ' is-active' : ''}"
-                    data-node-setting-mode-key="${escapeHtml(field.key)}"
-                    data-node-setting-mode="static"
-                  >
-                    Static
-                  </button>
-                  <button
-                    type="button"
-                    class="workflow-editor-settings-mode-button${fieldInputMode === 'expression' ? ' is-active' : ''}"
-                    data-node-setting-mode-key="${escapeHtml(field.key)}"
-                    data-node-setting-mode="expression"
-                  >
-                    Expression
-                  </button>
-                </div>
-              </div>
-            `
-          : `<label class="form-label" for="${escapeHtml(fieldId)}">${escapeHtml(field.label)}</label>`;
-        const helpText = field.help_text
-          ? `<div class="workflow-editor-settings-help">${escapeHtml(field.help_text)}</div>`
-          : '';
-        const expressionHint = supportsInputMode && fieldInputMode === 'expression'
-          ? `
-              <div class="workflow-editor-settings-expression-hint">
-                Use template syntax like <code>{{ trigger.payload.ticket_id }}</code> or <code>{{ llm.response.text }}</code>.
-              </div>
-            `
-          : '';
-        const fieldPreview = fieldBinding === 'path' && value
-          ? `
-              <div class="workflow-editor-settings-preview">
-                ${escapeHtml(
-                  fieldGroup === 'result'
-                    ? `Writes to context.${value}`
-                    : `Reads from context.${value}`,
-                )}
-              </div>
-            `
-          : '';
-        const assistMarkup = (() => {
-          if (supportsInputMode && fieldInputMode === 'expression') {
-            return renderSettingAssistMarkup({
-              binding: 'template',
-              field,
-              label: 'Insert result or trigger value',
-              suggestions: availableInputPaths,
-            });
-          }
-
-          if (fieldBinding === 'path' && fieldGroup === 'input') {
-            return renderSettingAssistMarkup({
-              field,
-              label: 'Use context path',
-              suggestions: availableInputPaths,
-            });
-          }
-
-          return '';
-        })();
-
-        if (field.type === 'textarea') {
-          return `
-            <div class="workflow-editor-settings-group">
-              ${labelMarkup}
-              <textarea
-                id="${escapeHtml(fieldId)}"
-                class="form-control workflow-editor-settings-control"
-                rows="${field.rows ?? 4}"
-                data-node-setting-key="${escapeHtml(field.key)}"
-                data-node-setting-type="${escapeHtml(field.type)}"
-              >${escapeHtml(value)}</textarea>
-              ${helpText}
-              ${expressionHint}
-              ${fieldPreview}
-              ${assistMarkup}
-            </div>
-          `;
-        }
-
-        if (field.type === 'select' || field.type === 'node_target') {
-          const options = (field.type === 'node_target'
-            ? getNodeTargetOptions(activeSettingsNode, workflowDefinition)
-            : getFieldOptionsWithCurrentValue(activeSettingsNode, field)
-          )
-            .map(
-              (option) => `
-                <option value="${escapeHtml(option.value)}"${option.value === value ? ' selected' : ''}>
-                  ${escapeHtml(option.label)}
-                </option>
-              `,
-            )
-            .join('');
-
-          return `
-            <div class="workflow-editor-settings-group">
-              ${labelMarkup}
-              <select
-                id="${escapeHtml(fieldId)}"
-                class="form-select workflow-editor-settings-control"
-                data-node-setting-key="${escapeHtml(field.key)}"
-                data-node-setting-type="${escapeHtml(field.type)}"
-              >
-                <option value="">Select</option>
-                ${options}
-              </select>
-              ${helpText}
-              ${fieldPreview}
-            </div>
-          `;
-        }
-
-        return `
-          <div class="workflow-editor-settings-group">
-            ${labelMarkup}
-            <input
-              id="${escapeHtml(fieldId)}"
-              type="text"
-              class="form-control workflow-editor-settings-control"
-              value="${escapeHtml(value)}"
-              placeholder="${escapeHtml(field.placeholder ?? '')}"
-              data-node-setting-key="${escapeHtml(field.key)}"
-              data-node-setting-type="${escapeHtml(field.type)}"
-            >
-            ${helpText}
-            ${expressionHint}
-            ${fieldPreview}
-            ${assistMarkup}
-          </div>
-        `;
-    }
-
-    const inputFields = visibleFields.filter((field) => getTemplateFieldUiGroup(field) === 'input');
-    const resultFields = visibleFields.filter((field) => getTemplateFieldUiGroup(field) === 'result');
-    const advancedFields = visibleFields.filter((field) => getTemplateFieldUiGroup(field) === 'advanced');
-    const fieldMarkup = [
-      renderSettingsSection({
-        title: 'Pass data in',
-        description: 'Choose Static or Expression for each input, then map trigger payload and earlier node outputs.',
-        body: renderSettingsSectionBody(inputFields),
-      }),
-      renderSettingsSection({
-        title: 'Save result',
-        description: 'Choose where this node should read or write workflow context values.',
-        body: renderSettingsSectionBody(resultFields),
-      }),
-      renderSettingsSection({
-        title: 'Other settings',
-        description: 'Provider, routing, and runtime controls for this node.',
-        body: renderSettingsSectionBody(advancedFields),
-      }),
-    ]
-      .filter((sectionMarkup) => sectionMarkup.length > 0)
-      .join('');
+    const fieldMarkup = renderNodeSettingsFieldsMarkup({
+      availableInputPaths,
+      getFieldOptions: (field) => getFieldOptionsWithCurrentValue(activeSettingsNode, field),
+      getNodeTargetOptions: () => getNodeTargetOptions(activeSettingsNode, workflowDefinition),
+      node: activeSettingsNode,
+      nodeDefinition: activeNodeDefinition,
+    });
 
     const description = nodeDefinition.description || nodeDefinition.label;
     canvas.settingsPanel.hidden = false;
