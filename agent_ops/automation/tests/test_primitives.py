@@ -97,6 +97,7 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertNotIn("operation", elasticsearch_fields)
         self.assertIn("query_json", elasticsearch_fields)
         self.assertIn("auth_scheme", elasticsearch_fields)
+        self.assertEqual(kubectl_template["config"]["output_format"], "json")
         self.assertEqual(kubectl_template["config"]["kubeconfig_secret_mode"], "content")
         self.assertIn("secret_name", kubectl_fields)
         self.assertIn("secret_group_id", kubectl_fields)

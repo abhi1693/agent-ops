@@ -237,7 +237,7 @@ TOOL_DEFINITION = WorkflowToolDefinition(
     category="Infrastructure",
     config={
         "output_key": "kubectl.result",
-        "output_format": "text",
+        "output_format": "json",
         "timeout_seconds": 20,
         "kubeconfig_secret_mode": "content",
     },
