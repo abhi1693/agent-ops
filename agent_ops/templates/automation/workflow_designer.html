@@ -143,14 +143,7 @@
                         </div>
                       </div>
 
-                      <div class="workflow-editor-execution-group">
-                        <label class="form-label" for="{{ run_form.input_data.id_for_label }}">Manual payload</label>
-                        {{ run_form.input_data }}
-                        {% if run_form.input_data.help_text %}
-                          <div class="form-hint">{{ run_form.input_data.help_text }}</div>
-                        {% endif %}
-                        <div class="alert alert-danger mb-0" role="alert" data-workflow-execution-error hidden></div>
-                      </div>
+                      <div class="alert alert-danger mb-0" role="alert" data-workflow-execution-error hidden></div>
 
                       <div class="workflow-editor-execution-result-wrap">
                         <div class="empty-state" data-workflow-execution-empty>

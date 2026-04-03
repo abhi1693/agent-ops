@@ -66,7 +66,6 @@ type CanvasElements = {
 
 type ExecutionElements = {
   error: HTMLElement;
-  input: HTMLTextAreaElement;
   nodeRunButton: HTMLButtonElement | null;
   result: HTMLElement;
   resultBadge: HTMLElement;
@@ -295,7 +294,6 @@ function getCanvasElements(root: ParentNode): CanvasElements | null {
 }
 
 function getExecutionElements(root: ParentNode): ExecutionElements | null {
-  const input = root.querySelector<HTMLTextAreaElement>('#id_input_data');
   const nodeRunButton = root.querySelector<HTMLButtonElement>('[data-workflow-run-selected-node]');
   const runButton = root.querySelector<HTMLButtonElement>('[data-workflow-run]');
   const error = root.querySelector<HTMLElement>('[data-workflow-execution-error]');
@@ -311,7 +309,6 @@ function getExecutionElements(root: ParentNode): ExecutionElements | null {
   const status = root.querySelector<HTMLElement>('[data-workflow-execution-status]');
 
   if (
-    !input ||
     !runButton ||
     !error ||
     !result ||
@@ -330,7 +327,6 @@ function getExecutionElements(root: ParentNode): ExecutionElements | null {
 
   return {
     error,
-    input,
     nodeRunButton,
     result,
     resultBadge,
@@ -1186,28 +1182,8 @@ export function initWorkflowDesigner(): void {
       return {};
     }
 
-    const rawValue = execution.input.value.trim();
-    if (!rawValue) {
-      clearExecutionError();
-      return {};
-    }
-
-    try {
-      const parsedValue = JSON.parse(rawValue) as unknown;
-      if (parsedValue === null) {
-        clearExecutionError();
-        return {};
-      }
-      if (typeof parsedValue !== 'object' || Array.isArray(parsedValue)) {
-        throw new Error('Manual payload must be a JSON object.');
-      }
-      clearExecutionError();
-      return parsedValue as Record<string, unknown>;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Manual payload must be valid JSON.';
-      showExecutionError(message);
-      return null;
-    }
+    clearExecutionError();
+    return {};
   }
 
   function renderExecutionResult(payload: DesignerRunResponse): void {
@@ -1581,25 +1557,7 @@ export function initWorkflowDesigner(): void {
   }
 
   function readExecutionInputData(): Record<string, unknown> {
-    if (!execution) {
-      return {};
-    }
-
-    const rawValue = execution.input.value.trim();
-    if (!rawValue) {
-      return {};
-    }
-
-    try {
-      const parsedValue = JSON.parse(rawValue) as unknown;
-      if (!parsedValue || typeof parsedValue !== 'object' || Array.isArray(parsedValue)) {
-        return {};
-      }
-      return parsedValue as Record<string, unknown>;
-    } catch (error) {
-      console.debug('Skipping execution payload suggestions due to invalid JSON.', error);
-      return {};
-    }
+    return {};
   }
 
   function pushUniqueSuggestion(target: string[], seen: Set<string>, value: string | null | undefined): void {
