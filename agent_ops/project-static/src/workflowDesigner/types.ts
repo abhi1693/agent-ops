@@ -118,6 +118,66 @@ export type WorkflowNode = WorkflowPersistedNode & {
   typeVersion: number;
 };
 
+export type WorkflowEditorNodeConnector = {
+  isCandidate: boolean;
+  isInputActive: boolean;
+  isOutputActive: boolean;
+  modeClass: string;
+  nodeId: string;
+  side: ConnectorSide;
+};
+
+export type WorkflowEditorAuxiliaryPort = {
+  actionIcon: string;
+  ariaLabel: string;
+  id: AgentAuxiliaryPortId;
+  isActive: boolean;
+  isCandidate: boolean;
+  isConnected: boolean;
+  isWarning: boolean;
+  label: string;
+  modelProviderAppId?: string;
+  nodeId: string;
+  stateLabel: string;
+  title: string;
+};
+
+export type WorkflowEditorNodePresentation = {
+  agentDisplayTitle: string;
+  agentNeedsModel: boolean;
+  auxiliaryPorts: WorkflowEditorAuxiliaryPort[];
+  connectors: WorkflowEditorNodeConnector[];
+  icon: string;
+  isConnectionCandidate: boolean;
+  isConnectionSource: boolean;
+  isConnectionTarget: boolean;
+  isExecutionFailed: boolean;
+  isExecutionPending: boolean;
+  isExecutionSucceeded: boolean;
+  isSelected: boolean;
+  node: WorkflowNode;
+  showAgentKindLabel: boolean;
+  title: string;
+};
+
+export type WorkflowEditorRenderedEdge = {
+  id: string;
+  isHovered: boolean;
+  path: string;
+};
+
+export type WorkflowEditorEdgeControl = {
+  edgeId: string;
+  x: number;
+  y: number;
+};
+
+export type WorkflowEditorEdgesPresentation = {
+  draftPath: string | null;
+  edges: WorkflowEditorRenderedEdge[];
+  hoveredControl: WorkflowEditorEdgeControl | null;
+};
+
 export type WorkflowPersistedEdge = {
   id: string;
   label?: string;

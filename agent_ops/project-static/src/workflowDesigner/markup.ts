@@ -1,7 +1,7 @@
 import type {
-  AgentAuxiliaryPortId,
-  ConnectorSide,
+  WorkflowEditorEdgesPresentation,
   WorkflowEdge,
+  WorkflowEditorNodePresentation,
   WorkflowNodeDefinition,
   WorkflowNode,
   WorkflowNodeTemplateField,
@@ -326,47 +326,28 @@ export function renderEdgeRemoveButtonMarkup(params: {
   `;
 }
 
-type WorkflowEditorNodeConnector = {
-  isCandidate: boolean;
-  isInputActive: boolean;
-  isOutputActive: boolean;
-  modeClass: string;
-  nodeId: string;
-  side: ConnectorSide;
-};
+export function renderWorkflowEditorEdgesMarkup(params: Pick<WorkflowEditorEdgesPresentation, 'draftPath' | 'edges'>): string {
+  const edgeMarkup = params.edges
+    .map((edge) => `
+      <g class="workflow-editor-edge" data-workflow-edge-id="${escapeHtml(edge.id)}">
+        <path
+          class="workflow-editor-edge-hit"
+          data-workflow-edge-hit-id="${escapeHtml(edge.id)}"
+          d="${edge.path}"
+        ></path>
+        <path class="workflow-editor-edge-path${edge.isHovered ? ' is-hovered' : ''}" d="${edge.path}"></path>
+      </g>
+    `)
+    .join('');
 
-type WorkflowEditorAuxiliaryPort = {
-  actionIcon: string;
-  ariaLabel: string;
-  id: AgentAuxiliaryPortId;
-  isActive: boolean;
-  isCandidate: boolean;
-  isConnected: boolean;
-  isWarning: boolean;
-  label: string;
-  modelProviderAppId?: string;
-  nodeId: string;
-  stateLabel: string;
-  title: string;
-};
+  const draftMarkup = params.draftPath
+    ? `<path class="workflow-editor-edge-path workflow-editor-edge-path--draft" d="${params.draftPath}"></path>`
+    : '';
 
-export function renderWorkflowEditorNodeMarkup(params: {
-  agentDisplayTitle: string;
-  agentNeedsModel: boolean;
-  auxiliaryPorts: WorkflowEditorAuxiliaryPort[];
-  connectors: WorkflowEditorNodeConnector[];
-  icon: string;
-  isConnectionCandidate: boolean;
-  isConnectionSource: boolean;
-  isConnectionTarget: boolean;
-  isExecutionFailed: boolean;
-  isExecutionPending: boolean;
-  isExecutionSucceeded: boolean;
-  isSelected: boolean;
-  node: WorkflowNode;
-  showAgentKindLabel: boolean;
-  title: string;
-}): string {
+  return `${edgeMarkup}${draftMarkup}`;
+}
+
+export function renderWorkflowEditorNodeMarkup(params: WorkflowEditorNodePresentation): string {
   const connectorsMarkup = params.connectors
     .map((connector) => `
       <span

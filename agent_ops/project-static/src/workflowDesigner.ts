@@ -9,21 +9,18 @@ import {
 } from './workflowDesigner/dom';
 import {
   renderEdgeRemoveButtonMarkup,
+  renderWorkflowEditorEdgesMarkup,
   renderNodeContextMenuMarkup,
   renderWorkflowEditorNodeMarkup,
 } from './workflowDesigner/markup';
 import {
-  buildConnectionPath,
   clampNodePosition,
   getAgentAuxiliaryPortPoint,
   getConnectorPoint,
-  getEdgeAnchors,
   getGraphBounds,
-  getConnectionMidpoint,
   getNodeCenter,
   getNodeRenderHeight,
   getNodeRenderWidth,
-  getOppositeConnectorSide,
   getPreferredConnectorSide,
   getSuggestedNodePosition,
 } from './workflowDesigner/geometry';
@@ -43,6 +40,11 @@ import {
   getAvailableInputPaths,
   getNodeSettingControl,
 } from './workflowDesigner/panels/settingsAssist';
+import {
+  buildWorkflowEditorNodePresentation,
+  getFieldOptionsWithCurrentValue,
+} from './workflowDesigner/presenters/nodePresentation';
+import { buildWorkflowEditorEdgesPresentation } from './workflowDesigner/presenters/edgePresentation';
 import { buildNodeRegistry, getAvailablePaletteSections } from './workflowDesigner/registry/nodeRegistry';
 import {
   isModelDefinition,
@@ -191,65 +193,6 @@ function parsePersistedDefinition(
     console.error(error);
     return null;
   }
-}
-
-function getDefinitionField(
-  definition: WorkflowNodeDefinition | undefined,
-  key: string,
-): WorkflowNodeTemplateField | undefined {
-  return definition?.fields.find((field) => field.key === key);
-}
-
-function getFieldOptionsWithCurrentValue(
-  node: WorkflowNode,
-  field: WorkflowNodeTemplateField,
-): WorkflowNodeTemplateOption[] {
-  const options = getTemplateFieldOptions(node, field);
-  if (field.type !== 'select') {
-    return options;
-  }
-
-  const currentValue = getTemplateFieldValue(node, field);
-  if (!currentValue || options.some((option) => option.value === currentValue)) {
-    return options;
-  }
-
-  return [
-    {
-      label: `Current custom (${currentValue})`,
-      value: currentValue,
-    },
-    ...options,
-  ];
-}
-
-function getEffectiveModelLabel(
-  node: WorkflowNode | undefined,
-  definition: WorkflowNodeDefinition | undefined,
-): string {
-  if (!node) {
-    return '';
-  }
-
-  const customModel = getConfigString(node.config, 'custom_model').trim();
-  if (customModel) {
-    return customModel;
-  }
-
-  const configuredModel = getConfigString(node.config, 'model').trim();
-  if (!configuredModel) {
-    return '';
-  }
-
-  const modelField = getDefinitionField(definition, 'model');
-  if (!modelField) {
-    return configuredModel;
-  }
-
-  const matchedOption = getFieldOptionsWithCurrentValue(node, modelField).find(
-    (option) => option.value === configuredModel,
-  );
-  return matchedOption?.label ?? configuredModel;
 }
 
 function getRealAppId(definition: WorkflowNodeDefinition | undefined): string {
@@ -467,7 +410,7 @@ export function initWorkflowDesigner(): void {
     onChange(viewport) {
       graphStore.setViewport(viewport);
       graphStore.commit();
-      renderEdgeControls();
+      renderEdges();
       renderNodeContextMenu();
       renderCanvasHud();
     },
@@ -1226,166 +1169,28 @@ export function initWorkflowDesigner(): void {
     canvas.nodeLayer.innerHTML = workflowDefinition.nodes
       .map((node) => {
         const nodeDefinition = nodeRegistry.definitionMap.get(node.type);
-        const icon = nodeDefinition?.icon ?? 'mdi-vector-square';
-        const title = node.label || nodeDefinition?.label || formatKindLabel(node.kind) || node.type;
-        const isDefaultAgentTitle = node.kind === 'agent' && title === (nodeDefinition?.label ?? 'Agent');
-        const agentDisplayTitle = node.kind === 'agent' && isDefaultAgentTitle ? 'AI Agent' : title;
-        const showAgentKindLabel = node.kind === 'agent' && !isDefaultAgentTitle;
-        const isSelected = selectedNodeId === node.id;
-        const isNodeExecutionPending =
-          executionActiveNodeIds.includes(node.id)
-          || (isExecutionPending && activeExecutionNodeId === node.id);
-        const isNodeExecutionSucceeded = executionSucceededNodeId === node.id;
-        const isNodeExecutionFailed = executionFailedNodeIds.includes(node.id);
-        const isConnectionSource = connectionDraft?.sourceId === node.id;
-        const isConnectionCandidate = connectionDraft
-          ? isValidConnection(connectionDraft.sourceId, node.id)
-          : false;
-        const isConnectionTarget = connectionDraft?.hoveredTargetId === node.id;
-        const sourceConnectionNode = connectionDraft ? getNode(connectionDraft.sourceId) : undefined;
-        const sourceConnectionDefinition = getNodeDefinition(sourceConnectionNode);
-        const compatibleAuxiliaryPort = connectionDraft
-          ? getCompatibleAgentAuxiliaryPort(sourceConnectionNode, sourceConnectionDefinition, node)
-          : null;
-        const canReceiveConnections = canNodeReceiveConnections(node, workflowDefinition.edges, nodeDefinition);
-        const canEmitConnections = canNodeEmitConnections(node, workflowDefinition.edges, nodeDefinition);
-        const shouldRenderConnectors = canEmitConnections || (Boolean(connectionDraft) && canReceiveConnections);
-        const draftTargetPoint =
-          connectionDraft && isConnectionSource
-            ? connectionDraft.hoveredTargetId
-              ? (() => {
-                  const hoveredNode = getNode(connectionDraft.hoveredTargetId);
-                  return hoveredNode
-                    ? connectionDraft.hoveredTargetPort
-                      ? getAgentAuxiliaryPortPoint(hoveredNode, connectionDraft.hoveredTargetPort)
-                      : connectionDraft.hoveredTargetSide
-                      ? getConnectorPoint(hoveredNode, connectionDraft.hoveredTargetSide)
-                      : getNodeCenter(hoveredNode)
-                    : {
-                        x: connectionDraft.pointerX,
-                        y: connectionDraft.pointerY,
-                      };
-                })()
-              : {
-                  x: connectionDraft.pointerX,
-                  y: connectionDraft.pointerY,
-                }
-            : null;
-        const activeSourceSide =
-          draftTargetPoint && canEmitConnections
-            ? getPreferredConnectorSide(node, draftTargetPoint)
-            : null;
-        const activeTargetSide =
-          isConnectionTarget && !connectionDraft?.hoveredTargetPort && canReceiveConnections && sourceConnectionNode
-            ? connectionDraft?.hoveredTargetSide ?? getPreferredConnectorSide(node, getNodeCenter(sourceConnectionNode))
-            : null;
-        const connectorModeClass = canReceiveConnections && canEmitConnections
-          ? ' is-bidirectional'
-          : canEmitConnections
-            ? ' is-output-only'
-            : ' is-input-only';
-        const modelConnections = workflowDefinition.edges.filter(
-          (edge) => edge.target === node.id && edge.targetPort === 'ai_languageModel',
+        return renderWorkflowEditorNodeMarkup(
+          buildWorkflowEditorNodePresentation({
+            activeExecutionNodeId,
+            auxiliaryPortDefinitions: AGENT_AUXILIARY_PORTS,
+            canNodeEmitConnections,
+            canNodeReceiveConnections,
+            connectionDraft,
+            connectorSides: CONNECTOR_SIDES,
+            executionActiveNodeIds,
+            executionFailedNodeIds,
+            executionSucceededNodeId,
+            getCompatibleAgentAuxiliaryPort,
+            getNode,
+            getNodeDefinition,
+            isExecutionPending,
+            isValidConnection,
+            node,
+            nodeDefinition,
+            selectedNodeId,
+            workflowDefinition,
+          }),
         );
-        const toolConnections = workflowDefinition.edges.filter(
-          (edge) => edge.target === node.id && edge.targetPort === 'ai_tool',
-        );
-        const agentNeedsModel = node.kind === 'agent' && modelConnections.length === 0;
-        const connectors = shouldRenderConnectors
-          ? CONNECTOR_SIDES.map((side) => {
-              const isActiveSourceConnector = activeSourceSide === side;
-              const isActiveTargetConnector = activeTargetSide === side;
-
-              return {
-                isCandidate: isConnectionCandidate,
-                isInputActive: isActiveTargetConnector,
-                isOutputActive: isActiveSourceConnector,
-                modeClass: connectorModeClass,
-                nodeId: node.id,
-                side,
-              };
-            })
-          : [];
-        const auxiliaryPorts = node.kind === 'agent'
-          ? AGENT_AUXILIARY_PORTS.map((port) => {
-                const isCompatibleCandidate = compatibleAuxiliaryPort === port.id;
-                const isActiveTargetPort =
-                  connectionDraft?.hoveredTargetId === node.id && connectionDraft?.hoveredTargetPort === port.id;
-                const connectedEdges = workflowDefinition.edges.filter(
-                  (edge) => edge.target === node.id && edge.targetPort === port.id,
-                );
-                const connectionCount = connectedEdges.length;
-                const connectedSourceNodes = connectedEdges
-                  .map((edge) => getNode(edge.source))
-                  .filter((candidate): candidate is WorkflowNode => Boolean(candidate));
-                const primaryConnectedSourceNode = connectedSourceNodes[0];
-                const primaryConnectedSourceDefinition = getNodeDefinition(primaryConnectedSourceNode);
-                const connectedSourceTitle = primaryConnectedSourceNode
-                  ? primaryConnectedSourceNode.label
-                    || primaryConnectedSourceDefinition?.label
-                    || primaryConnectedSourceNode.type
-                  : null;
-                const connectedProviderLabel = primaryConnectedSourceDefinition?.app_label
-                  || primaryConnectedSourceDefinition?.label
-                  || connectedSourceTitle;
-                const connectedModelLabel = port.id === 'ai_languageModel'
-                  ? getEffectiveModelLabel(primaryConnectedSourceNode, primaryConnectedSourceDefinition)
-                  : '';
-                const connectedModelStateLabel = connectedProviderLabel && connectedModelLabel
-                  ? `${connectedProviderLabel} • ${connectedModelLabel}`
-                  : connectedProviderLabel || connectedModelLabel || connectedSourceTitle;
-                const actionIcon = connectionCount > 0 && port.id === 'ai_languageModel'
-                  ? 'mdi-tune-variant'
-                  : 'mdi-plus';
-                const stateLabel = connectionCount > 0
-                  ? port.id === 'ai_languageModel'
-                    ? connectedModelStateLabel ?? 'Provider configured'
-                    : `${connectionCount} tool${connectionCount === 1 ? '' : 's'} attached`
-                  : port.id === 'ai_languageModel'
-                    ? 'Choose a provider and model'
-                    : 'No tools attached';
-                const modelProviderAppId = port.id === 'ai_languageModel'
-                  ? primaryConnectedSourceDefinition?.app_id ?? ''
-                  : '';
-
-                return {
-                  actionIcon,
-                  ariaLabel: connectionCount > 0 && port.id === 'ai_languageModel'
-                    ? `${connectedModelStateLabel ?? port.label}`
-                    : `Add ${port.label}`,
-                  id: port.id,
-                  isActive: isActiveTargetPort,
-                  isCandidate: isCompatibleCandidate,
-                  isConnected: connectionCount > 0,
-                  isWarning: port.id === 'ai_languageModel' && connectionCount === 0,
-                  label: port.label,
-                  modelProviderAppId,
-                  nodeId: node.id,
-                  stateLabel,
-                  title: connectionCount > 0 && port.id === 'ai_languageModel'
-                    ? `${connectedModelStateLabel ?? port.label}`
-                    : `Add ${port.label}`,
-                };
-              })
-          : [];
-
-        return renderWorkflowEditorNodeMarkup({
-          agentDisplayTitle,
-          agentNeedsModel,
-          auxiliaryPorts,
-          connectors,
-          icon,
-          isConnectionCandidate,
-          isConnectionSource,
-          isConnectionTarget,
-          isExecutionFailed: isNodeExecutionFailed,
-          isExecutionPending: isNodeExecutionPending,
-          isExecutionSucceeded: isNodeExecutionSucceeded,
-          isSelected,
-          node,
-          showAgentKindLabel,
-          title,
-        });
       })
       .join('');
 
@@ -1402,124 +1207,26 @@ export function initWorkflowDesigner(): void {
       'viewBox',
       `0 0 ${Math.max(canvas.board.clientWidth, 1)} ${Math.max(canvas.board.clientHeight, 1)}`,
     );
-
-    const edgeMarkup = workflowDefinition.edges
-      .map((edge) => {
-        const sourceNode = getNode(edge.source);
-        const targetNode = getNode(edge.target);
-        if (!sourceNode || !targetNode) {
-          return '';
-        }
-
-        const { sourcePoint, sourceSide, targetPoint, targetSide } = getEdgeAnchors(
-          edge,
-          sourceNode,
-          targetNode,
-        );
-        const path = buildConnectionPath(sourcePoint, sourceSide, targetPoint, targetSide);
-        const isHovered = hoveredEdgeId === edge.id;
-
-        return `
-          <g class="workflow-editor-edge" data-workflow-edge-id="${escapeHtml(edge.id)}">
-            <path
-              class="workflow-editor-edge-hit"
-              data-workflow-edge-hit-id="${escapeHtml(edge.id)}"
-              d="${path}"
-            ></path>
-            <path class="workflow-editor-edge-path${isHovered ? ' is-hovered' : ''}" d="${path}"></path>
-          </g>
-        `;
-      })
-      .join('');
-
-    const draftMarkup = (() => {
-      if (!connectionDraft) {
-        return '';
-      }
-
-      const sourceNode = getNode(connectionDraft.sourceId);
-      if (!sourceNode) {
-        return '';
-      }
-
-      const targetPoint = connectionDraft.hoveredTargetId
-        ? (() => {
-            const hoveredNode = getNode(connectionDraft.hoveredTargetId);
-            if (!hoveredNode) {
-              return {
-                x: connectionDraft.pointerX,
-                y: connectionDraft.pointerY,
-              };
-            }
-
-            if (connectionDraft.hoveredTargetPort) {
-              return getAgentAuxiliaryPortPoint(hoveredNode, connectionDraft.hoveredTargetPort);
-            }
-
-            const targetSide =
-              connectionDraft.hoveredTargetSide ??
-              getPreferredConnectorSide(hoveredNode, getNodeCenter(sourceNode));
-
-            return getConnectorPoint(hoveredNode, targetSide);
-          })()
-        : {
-            x: connectionDraft.pointerX,
-            y: connectionDraft.pointerY,
-          };
-      const sourceSide = getPreferredConnectorSide(sourceNode, targetPoint);
-      const sourcePoint = getConnectorPoint(sourceNode, sourceSide);
-      const targetSide = connectionDraft.hoveredTargetId
-        ? connectionDraft.hoveredTargetPort
-          ? 'top'
-          : connectionDraft.hoveredTargetSide ?? getOppositeConnectorSide(sourceSide)
-        : getOppositeConnectorSide(sourceSide);
-
-      return `<path class="workflow-editor-edge-path workflow-editor-edge-path--draft" d="${buildConnectionPath(sourcePoint, sourceSide, targetPoint, targetSide)}"></path>`;
-    })();
-
-    canvas.edgeLayer.innerHTML = `${edgeMarkup}${draftMarkup}`;
-  }
-
-  function renderEdgeControls(): void {
-    if (dragState || connectionDraft || !hoveredEdgeId) {
-      canvas.edgeControls.innerHTML = '';
-      return;
-    }
-
-    const hoveredEdge = workflowDefinition.edges.find((edge) => edge.id === hoveredEdgeId);
-    if (!hoveredEdge) {
-      canvas.edgeControls.innerHTML = '';
-      return;
-    }
-
-    const sourceNode = getNode(hoveredEdge.source);
-    const targetNode = getNode(hoveredEdge.target);
-    if (!sourceNode || !targetNode) {
-      canvas.edgeControls.innerHTML = '';
-      return;
-    }
-
-    const { sourcePoint, sourceSide, targetPoint, targetSide } = getEdgeAnchors(
-      hoveredEdge,
-      sourceNode,
-      targetNode,
-    );
-    const midpoint = getConnectionMidpoint(sourcePoint, sourceSide, targetPoint, targetSide);
-    const controlPoint = viewportController.worldToScreen(midpoint);
-    const controlX = clamp(Math.round(controlPoint.x), 20, Math.max(canvas.board.clientWidth - 20, 20));
-    const controlY = clamp(Math.round(controlPoint.y), 20, Math.max(canvas.board.clientHeight - 20, 20));
-
-    canvas.edgeControls.innerHTML = renderEdgeRemoveButtonMarkup({
-      edgeId: hoveredEdge.id,
-      x: controlX,
-      y: controlY,
+    const edgePresentation = buildWorkflowEditorEdgesPresentation({
+      boardHeight: canvas.board.clientHeight,
+      boardWidth: canvas.board.clientWidth,
+      connectionDraft,
+      dragActive: Boolean(dragState),
+      getNode,
+      hoveredEdgeId,
+      viewportWorldToScreen: viewportController.worldToScreen,
+      workflowDefinition,
     });
+
+    canvas.edgeLayer.innerHTML = renderWorkflowEditorEdgesMarkup(edgePresentation);
+    canvas.edgeControls.innerHTML = edgePresentation.hoveredControl
+      ? renderEdgeRemoveButtonMarkup(edgePresentation.hoveredControl)
+      : '';
   }
 
   function renderCanvas(): void {
     renderNodes();
     renderEdges();
-    renderEdgeControls();
     renderEmptyState();
     renderCanvasHud();
     renderNodeContextMenu();
@@ -2246,7 +1953,6 @@ export function initWorkflowDesigner(): void {
       if (hoveredEdgeId) {
         hoveredEdgeId = null;
         renderEdges();
-        renderEdgeControls();
       }
       return;
     }
@@ -2261,7 +1967,6 @@ export function initWorkflowDesigner(): void {
 
     hoveredEdgeId = nextHoveredEdgeId;
     renderEdges();
-    renderEdgeControls();
   });
 
   canvas.board.addEventListener('pointerleave', () => {
@@ -2271,7 +1976,6 @@ export function initWorkflowDesigner(): void {
 
     hoveredEdgeId = null;
     renderEdges();
-    renderEdgeControls();
   });
 
   window.addEventListener('pointermove', (event) => {
@@ -2305,7 +2009,8 @@ export function initWorkflowDesigner(): void {
       connectionDraft.hoveredTargetSide = nextHoveredTarget?.side ?? null;
       renderNodes();
       if (didHoverTargetChange) {
-        renderEdgeControls();
+        renderEdges();
+        return;
       }
       renderEdges();
       return;
