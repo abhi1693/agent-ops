@@ -51,6 +51,11 @@ export type WorkflowConnection = {
 };
 
 export type AgentAuxiliaryPortId = 'ai_languageModel' | 'ai_tool';
+export type ConnectorSide = 'top' | 'right' | 'bottom' | 'left';
+export type Point = {
+  x: number;
+  y: number;
+};
 
 export type WorkflowNodeKind = 'trigger' | 'agent' | 'tool' | 'condition' | 'response';
 
