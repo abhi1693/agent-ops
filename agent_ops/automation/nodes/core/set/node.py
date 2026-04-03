@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from automation.nodes.base import (
+    WorkflowNodeDefinition,
     WorkflowNodeExecutionContext,
     WorkflowNodeExecutionResult,
     WorkflowNodeImplementation,
+    node_text_field,
     raise_definition_error,
     validate_required_string,
 )
@@ -35,4 +37,31 @@ def _execute_set(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecution
 NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     validator=_validate_set,
     executor=_execute_set,
+)
+NODE_DEFINITION = WorkflowNodeDefinition(
+    type="n8n-nodes-base.set",
+    kind="tool",
+    display_name="Set",
+    description="Write a static value into workflow context, following n8n's Set node pattern.",
+    icon="mdi-form-textbox",
+    config={"output_key": "tool.output"},
+    fields=(
+        node_text_field(
+            "output_key",
+            "Save result as",
+            ui_group="result",
+            binding="path",
+            placeholder="tool.output",
+        ),
+        node_text_field(
+            "value",
+            "Value",
+            ui_group="input",
+            binding="literal",
+            placeholder="static-value",
+            help_text="Use advanced runtime JSON for structured values.",
+        ),
+    ),
+    validator=NODE_IMPLEMENTATION.validator,
+    executor=NODE_IMPLEMENTATION.executor,
 )

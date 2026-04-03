@@ -19,7 +19,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
     def setUp(self):
         self.request_factory = RequestFactory()
 
-    def test_manifest_backed_node_registry_is_unified(self):
+    def test_python_backed_node_registry_is_unified(self):
         self.assertEqual(
             [definition.type for definition in WORKFLOW_NODE_DEFINITIONS],
             [
@@ -50,7 +50,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
             ],
         )
 
-    def test_node_registry_exposes_manifest_backed_templates(self):
+    def test_node_registry_exposes_python_backed_templates(self):
         templates_by_type = {
             template["type"]: template
             for template in WORKFLOW_NODE_TEMPLATES
@@ -100,12 +100,6 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
 
         set_template = templates_by_type["n8n-nodes-base.set"]
         self.assertEqual(set_template["label"], "Set")
-        self.assertEqual(set_template["node_version"], "1.0.0")
-        self.assertEqual(set_template["categories"], ["Core Nodes"])
-        self.assertEqual(
-            set_template["documentation_url"],
-            "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.set/",
-        )
         self.assertEqual(set_template["config"]["output_key"], "tool.output")
         self.assertEqual(set_template["fields"][0]["key"], "output_key")
         self.assertEqual(set_template["fields"][0]["ui_group"], "result")

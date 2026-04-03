@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import json
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +10,6 @@ from automation.nodes.base import (
     WorkflowNodeDefinition,
     WorkflowNodeExecutionContext,
     WorkflowNodeExecutionResult,
-    WorkflowNodeImplementation,
     WorkflowNodeWebhookContext,
 )
 from automation.tools.base import WORKFLOW_INPUT_MODES_CONFIG_KEY, SUPPORTED_WORKFLOW_FIELD_VALUE_MODES
@@ -22,27 +20,24 @@ _APP_PACKAGE_MANIFEST_PATH = _PACKAGE_MANIFEST_PATH.with_name("apps").joinpath("
 
 
 def _load_package_manifest(path: Path) -> dict[str, Any]:
+    import json
+
     with path.open("r", encoding="utf-8") as package_file:
         return json.load(package_file)
-
-
-def _load_node_manifest(manifest_path: Path) -> dict[str, Any]:
-    with manifest_path.open("r", encoding="utf-8") as manifest_file:
-        return json.load(manifest_file)
 
 
 _WORKFLOW_BUILTIN_PACKAGE = _load_package_manifest(_PACKAGE_MANIFEST_PATH)
 _WORKFLOW_APP_PACKAGE = _load_package_manifest(_APP_PACKAGE_MANIFEST_PATH)
 
 
-def _load_node_implementation(module_import_path: str) -> WorkflowNodeImplementation:
+def _load_node_definition(module_import_path: str) -> WorkflowNodeDefinition:
     imported_module = importlib.import_module(module_import_path)
-    implementation = getattr(imported_module, "NODE_IMPLEMENTATION", None)
-    if not isinstance(implementation, WorkflowNodeImplementation):
+    definition = getattr(imported_module, "NODE_DEFINITION", None)
+    if not isinstance(definition, WorkflowNodeDefinition):
         raise RuntimeError(
-            f'Node module "{module_import_path}" must export NODE_IMPLEMENTATION.'
+            f'Node module "{module_import_path}" must export NODE_DEFINITION.'
         )
-    return implementation
+    return definition
 
 
 def _load_builtin_node_definitions() -> tuple[WorkflowNodeDefinition, ...]:
@@ -52,20 +47,7 @@ def _load_builtin_node_definitions() -> tuple[WorkflowNodeDefinition, ...]:
 
     for module_path in node_modules:
         module_import_path = f"automation.nodes.{module_path}"
-        implementation = _load_node_implementation(module_import_path)
-        imported_module = importlib.import_module(module_import_path)
-
-        module_file = getattr(imported_module, "__file__", None)
-        if not isinstance(module_file, str) or not module_file:
-            raise RuntimeError(f'Builtin node module "{module_path}" is missing a file path.')
-
-        node_manifest_path = Path(module_file).with_name("node.json")
-        definitions.append(
-            WorkflowNodeDefinition.from_manifest(
-                _load_node_manifest(node_manifest_path),
-                implementation=implementation,
-            )
-        )
+        definitions.append(_load_node_definition(module_import_path))
 
     return tuple(definitions)
 
@@ -106,18 +88,17 @@ def _load_app_node_definitions() -> tuple[WorkflowNodeDefinition, ...]:
     definitions: list[WorkflowNodeDefinition] = []
 
     for node_path in node_paths:
-        manifest_path = _APP_PACKAGE_MANIFEST_PATH.parent.joinpath(*node_path.split(".")).joinpath("node.json")
-        manifest = _load_node_manifest(manifest_path)
-        agent_ops = manifest.get("agentOps") if isinstance(manifest, dict) else None
-        kind = agent_ops.get("kind") if isinstance(agent_ops, dict) else None
-        if kind not in {"trigger", "tool"}:
-            raise RuntimeError(
-                f'Node manifest "{node_path}" kind "{kind}" is not supported in the app node catalog.'
-            )
-        implementation = _load_node_implementation(
-            _resolve_app_node_module_path(node_path, kind),
-        )
-        definition = WorkflowNodeDefinition.from_manifest(manifest, implementation=implementation)
+        definition = None
+        for kind in ("tool", "trigger"):
+            try:
+                module_import_path = _resolve_app_node_module_path(node_path, kind)
+            except RuntimeError:
+                continue
+            definition = _load_node_definition(module_import_path)
+            break
+
+        if definition is None:
+            raise RuntimeError(f'App node "{node_path}" is missing a matching Python module.')
         _validate_runtime_mapped_node_type(definition)
         definitions.append(definition)
 

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from automation.nodes.base import (
+    WorkflowNodeDefinition,
     WorkflowNodeExecutionContext,
     WorkflowNodeExecutionResult,
     WorkflowNodeImplementation,
+    node_field_option,
+    node_node_target_field,
+    node_select_field,
+    node_text_field,
     raise_definition_error,
     validate_optional_string,
 )
@@ -65,4 +70,40 @@ def _execute_if(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecutionR
 NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     validator=_validate_if,
     executor=_execute_if,
+)
+NODE_DEFINITION = WorkflowNodeDefinition(
+    type="n8n-nodes-base.if",
+    kind="condition",
+    display_name="If",
+    description="Branch to one of two connected targets using a simple conditional check.",
+    icon="mdi-source-branch",
+    config={"operator": "equals"},
+    fields=(
+        node_text_field(
+            "path",
+            "Context path",
+            placeholder="trigger.payload.priority",
+        ),
+        node_select_field(
+            "operator",
+            "Operator",
+            options=(
+                node_field_option("equals", "Equals"),
+                node_field_option("not_equals", "Does not equal"),
+                node_field_option("contains", "Contains"),
+                node_field_option("exists", "Exists"),
+                node_field_option("truthy", "Is truthy"),
+            ),
+        ),
+        node_text_field(
+            "right_value",
+            "Compare against",
+            placeholder="high",
+            help_text="Not used for exists or truthy operators.",
+        ),
+        node_node_target_field("true_target", "If true, go to"),
+        node_node_target_field("false_target", "If false, go to"),
+    ),
+    validator=NODE_IMPLEMENTATION.validator,
+    executor=NODE_IMPLEMENTATION.executor,
 )

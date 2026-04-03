@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from automation.nodes.base import (
+    WorkflowNodeDefinition,
     WorkflowNodeExecutionContext,
     WorkflowNodeExecutionResult,
     WorkflowNodeImplementation,
+    node_field_option,
+    node_select_field,
+    node_text_field,
+    node_textarea_field,
     raise_definition_error,
     validate_optional_string,
 )
@@ -56,4 +61,46 @@ def _execute_response(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExec
 NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     validator=_validate_response,
     executor=_execute_response,
+)
+NODE_DEFINITION = WorkflowNodeDefinition(
+    type="response",
+    kind="response",
+    display_name="Response",
+    description="Finish the workflow and persist a terminal response payload.",
+    icon="mdi-flag-checkered",
+    app_description="Core workflow nodes, runtime primitives, and n8n-style built-in blocks available in the designer.",
+    app_icon="mdi-toy-brick-outline",
+    config={"status": "succeeded"},
+    fields=(
+        node_textarea_field(
+            "template",
+            "Template",
+            rows=4,
+            ui_group="input",
+            binding="template",
+            placeholder="Completed {{ draft }}",
+        ),
+        node_text_field(
+            "value_path",
+            "Value path",
+            ui_group="input",
+            binding="path",
+            placeholder="draft",
+            help_text=(
+                "Optional. When set, the response is read directly from context "
+                "instead of rendering the template."
+            ),
+        ),
+        node_select_field(
+            "status",
+            "Status",
+            ui_group="result",
+            options=(
+                node_field_option("succeeded", "Succeeded"),
+                node_field_option("failed", "Failed"),
+            ),
+        ),
+    ),
+    validator=NODE_IMPLEMENTATION.validator,
+    executor=NODE_IMPLEMENTATION.executor,
 )

@@ -3,9 +3,14 @@ from __future__ import annotations
 import json
 
 from automation.nodes.base import (
+    WorkflowNodeDefinition,
     WorkflowNodeExecutionContext,
     WorkflowNodeExecutionResult,
     WorkflowNodeImplementation,
+    node_field_option,
+    node_select_field,
+    node_text_field,
+    node_textarea_field,
     raise_definition_error,
 )
 
@@ -61,4 +66,37 @@ def _execute_stop_and_error(runtime: WorkflowNodeExecutionContext) -> WorkflowNo
 NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     validator=_validate_stop_and_error,
     executor=_execute_stop_and_error,
+)
+NODE_DEFINITION = WorkflowNodeDefinition(
+    type="n8n-nodes-base.stopAndError",
+    kind="response",
+    display_name="Stop and Error",
+    description="End the workflow with a failed status, modeled after n8n's Stop and Error node.",
+    icon="mdi-alert-octagon-outline",
+    config={"error_type": "errorMessage"},
+    fields=(
+        node_select_field(
+            "error_type",
+            "Error type",
+            options=(
+                node_field_option("errorMessage", "Error Message"),
+                node_field_option("errorObject", "Error Object"),
+            ),
+        ),
+        node_text_field(
+            "error_message",
+            "Error message",
+            placeholder="An error occurred!",
+            help_text="Used for Error Message type.",
+        ),
+        node_textarea_field(
+            "error_object",
+            "Error object",
+            rows=4,
+            placeholder='{"code":"404","description":"The resource could not be fetched"}',
+            help_text="Used for Error Object type.",
+        ),
+    ),
+    validator=NODE_IMPLEMENTATION.validator,
+    executor=NODE_IMPLEMENTATION.executor,
 )

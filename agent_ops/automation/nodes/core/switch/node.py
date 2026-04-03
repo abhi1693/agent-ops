@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from automation.nodes.base import (
+    WorkflowNodeDefinition,
     WorkflowNodeExecutionContext,
     WorkflowNodeExecutionResult,
     WorkflowNodeImplementation,
+    node_node_target_field,
+    node_text_field,
     raise_definition_error,
     validate_required_string,
 )
@@ -62,4 +65,36 @@ def _execute_switch(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecut
 NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     validator=_validate_switch,
     executor=_execute_switch,
+)
+NODE_DEFINITION = WorkflowNodeDefinition(
+    type="n8n-nodes-base.switch",
+    kind="condition",
+    display_name="Switch",
+    description=(
+        "Route to one of multiple targets using simple value matching, modeled "
+        "after n8n's Switch node."
+    ),
+    icon="mdi-call-split",
+    fields=(
+        node_text_field(
+            "path",
+            "Context path",
+            placeholder="trigger.payload.status",
+        ),
+        node_text_field(
+            "case_1_value",
+            "Case 1 value",
+            placeholder="queued",
+        ),
+        node_node_target_field("case_1_target", "Case 1 target"),
+        node_text_field(
+            "case_2_value",
+            "Case 2 value",
+            placeholder="running",
+        ),
+        node_node_target_field("case_2_target", "Case 2 target"),
+        node_node_target_field("fallback_target", "Fallback target"),
+    ),
+    validator=NODE_IMPLEMENTATION.validator,
+    executor=NODE_IMPLEMENTATION.executor,
 )

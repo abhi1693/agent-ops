@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from automation.nodes.base import (
+    WorkflowNodeDefinition,
     WorkflowNodeExecutionContext,
     WorkflowNodeExecutionResult,
     WorkflowNodeImplementation,
+    node_field_option,
+    node_select_field,
+    node_text_field,
     raise_definition_error,
 )
 
@@ -63,4 +67,54 @@ def _execute_schedule_trigger(runtime: WorkflowNodeExecutionContext) -> Workflow
 NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     validator=_validate_schedule_trigger,
     executor=_execute_schedule_trigger,
+)
+NODE_DEFINITION = WorkflowNodeDefinition(
+    type="n8n-nodes-base.scheduleTrigger",
+    kind="trigger",
+    display_name="Schedule Trigger",
+    description=(
+        "Trigger the workflow on a basic interval or cron schedule, following "
+        "n8n's schedule trigger pattern."
+    ),
+    icon="mdi-clock-outline",
+    config={
+        "mode": "interval",
+        "interval_unit": "minutes",
+        "interval_value": "5",
+        "cron_expression": "",
+    },
+    fields=(
+        node_select_field(
+            "mode",
+            "Mode",
+            help_text="Use interval for simple schedules or cron for a raw expression.",
+            options=(
+                node_field_option("interval", "Interval"),
+                node_field_option("cron", "Cron"),
+            ),
+        ),
+        node_select_field(
+            "interval_unit",
+            "Interval unit",
+            options=(
+                node_field_option("minutes", "Minutes"),
+                node_field_option("hours", "Hours"),
+                node_field_option("days", "Days"),
+            ),
+        ),
+        node_text_field(
+            "interval_value",
+            "Interval value",
+            placeholder="5",
+            help_text="Used for interval mode only.",
+        ),
+        node_text_field(
+            "cron_expression",
+            "Cron expression",
+            placeholder="0 */6 * * *",
+            help_text="Used for cron mode only.",
+        ),
+    ),
+    validator=NODE_IMPLEMENTATION.validator,
+    executor=NODE_IMPLEMENTATION.executor,
 )

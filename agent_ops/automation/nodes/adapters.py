@@ -3,16 +3,24 @@ from __future__ import annotations
 from django.core.exceptions import ValidationError
 
 from automation.nodes.base import (
+    _DEFAULT_WORKFLOW_NODE_APP_DESCRIPTION,
+    WorkflowNodeDefinition,
     WorkflowNodeExecutionContext,
     WorkflowNodeExecutionResult,
+    WorkflowNodeFieldDefinition,
+    WorkflowNodeFieldOption,
     WorkflowNodeImplementation,
     WorkflowNodeWebhookContext,
 )
 from automation.tools.base import (
+    WorkflowToolFieldDefinition,
+    WorkflowToolFieldOption,
     WorkflowToolDefinition,
     WorkflowToolExecutionContext,
 )
 from automation.triggers.base import (
+    WorkflowTriggerFieldDefinition,
+    WorkflowTriggerFieldOption,
     WorkflowTriggerDefinition,
     WorkflowTriggerRequestContext,
 )
@@ -81,6 +89,63 @@ def tool_definition_as_node_implementation(
     )
 
 
+def _node_field_options_from_tool_options(
+    options: tuple[WorkflowToolFieldOption, ...],
+) -> tuple[WorkflowNodeFieldOption, ...]:
+    return tuple(
+        WorkflowNodeFieldOption(value=option.value, label=option.label)
+        for option in options
+    )
+
+
+def _node_fields_from_tool_fields(
+    fields: tuple[WorkflowToolFieldDefinition, ...],
+) -> tuple[WorkflowNodeFieldDefinition, ...]:
+    return tuple(
+        WorkflowNodeFieldDefinition(
+            key=field.key,
+            label=field.label,
+            type=field.type,
+            options=_node_field_options_from_tool_options(field.options),
+            ui_group=field.ui_group,
+            binding=field.binding,
+            placeholder=field.placeholder,
+            help_text=field.help_text,
+            rows=field.rows,
+        )
+        for field in fields
+    )
+
+
+def tool_definition_as_node_definition(
+    tool_definition: WorkflowToolDefinition,
+    *,
+    node_type: str,
+    details: str | None = None,
+    app_id: str = "builtins",
+    app_label: str = "Built-ins",
+    app_description: str = _DEFAULT_WORKFLOW_NODE_APP_DESCRIPTION,
+    app_icon: str = "mdi-toy-brick-outline",
+) -> WorkflowNodeDefinition:
+    implementation = tool_definition_as_node_implementation(tool_definition)
+    return WorkflowNodeDefinition(
+        type=node_type,
+        kind="tool",
+        display_name=tool_definition.label,
+        description=details or tool_definition.description,
+        icon=tool_definition.icon,
+        config=dict(tool_definition.config),
+        fields=_node_fields_from_tool_fields(tool_definition.fields),
+        app_id=app_id,
+        app_label=app_label,
+        app_description=app_description,
+        app_icon=app_icon,
+        validator=implementation.validator,
+        executor=implementation.executor,
+        webhook_handler=implementation.webhook_handler,
+    )
+
+
 def trigger_definition_as_node_implementation(
     trigger_definition: WorkflowTriggerDefinition,
 ) -> WorkflowNodeImplementation:
@@ -126,4 +191,59 @@ def trigger_definition_as_node_implementation(
         validator=_validate,
         executor=_execute,
         webhook_handler=_handle_webhook if trigger_definition.webhook_handler is not None else None,
+    )
+
+
+def _node_field_options_from_trigger_options(
+    options: tuple[WorkflowTriggerFieldOption, ...],
+) -> tuple[WorkflowNodeFieldOption, ...]:
+    return tuple(
+        WorkflowNodeFieldOption(value=option.value, label=option.label)
+        for option in options
+    )
+
+
+def _node_fields_from_trigger_fields(
+    fields: tuple[WorkflowTriggerFieldDefinition, ...],
+) -> tuple[WorkflowNodeFieldDefinition, ...]:
+    return tuple(
+        WorkflowNodeFieldDefinition(
+            key=field.key,
+            label=field.label,
+            type=field.type,
+            options=_node_field_options_from_trigger_options(field.options),
+            placeholder=field.placeholder,
+            help_text=field.help_text,
+            rows=field.rows,
+        )
+        for field in fields
+    )
+
+
+def trigger_definition_as_node_definition(
+    trigger_definition: WorkflowTriggerDefinition,
+    *,
+    node_type: str,
+    details: str | None = None,
+    app_id: str = "builtins",
+    app_label: str = "Built-ins",
+    app_description: str = _DEFAULT_WORKFLOW_NODE_APP_DESCRIPTION,
+    app_icon: str = "mdi-toy-brick-outline",
+) -> WorkflowNodeDefinition:
+    implementation = trigger_definition_as_node_implementation(trigger_definition)
+    return WorkflowNodeDefinition(
+        type=node_type,
+        kind="trigger",
+        display_name=trigger_definition.label,
+        description=details or trigger_definition.description,
+        icon=trigger_definition.icon,
+        config=dict(trigger_definition.config),
+        fields=_node_fields_from_trigger_fields(trigger_definition.fields),
+        app_id=app_id,
+        app_label=app_label,
+        app_description=app_description,
+        app_icon=app_icon,
+        validator=implementation.validator,
+        executor=implementation.executor,
+        webhook_handler=implementation.webhook_handler,
     )

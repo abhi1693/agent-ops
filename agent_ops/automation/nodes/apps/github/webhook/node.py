@@ -6,7 +6,10 @@ import hmac
 from django.core.exceptions import ValidationError
 
 from automation.auth import resolve_workflow_secret_ref
-from automation.nodes.adapters import trigger_definition_as_node_implementation
+from automation.nodes.adapters import (
+    trigger_definition_as_node_definition,
+    trigger_definition_as_node_implementation,
+)
 
 from automation.triggers.base import (
     WorkflowTriggerDefinition,
@@ -105,3 +108,12 @@ TRIGGER_DEFINITION = WorkflowTriggerDefinition(
 )
 
 NODE_IMPLEMENTATION = trigger_definition_as_node_implementation(TRIGGER_DEFINITION)
+NODE_DEFINITION = trigger_definition_as_node_definition(
+    TRIGGER_DEFINITION,
+    node_type="trigger.github_webhook",
+    details="GitHub trigger node for repository and workflow webhook events.",
+    app_id="github",
+    app_label="GitHub",
+    app_description="Receive webhook events from GitHub workflows and repositories.",
+    app_icon="mdi-github",
+)

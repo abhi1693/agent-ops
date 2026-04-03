@@ -3,8 +3,8 @@ from __future__ import annotations
 from django.core.exceptions import ValidationError
 
 from automation.nodes import (
-    WORKFLOW_NODE_DEFINITIONS as WORKFLOW_MANIFEST_NODE_DEFINITIONS,
-    WORKFLOW_NODE_TEMPLATES as WORKFLOW_MANIFEST_NODE_TEMPLATES,
+    WORKFLOW_NODE_DEFINITIONS,
+    WORKFLOW_NODE_TEMPLATES as WORKFLOW_REGISTRY_NODE_TEMPLATES,
     normalize_workflow_node_config,
     validate_workflow_node,
 )
@@ -57,9 +57,9 @@ WORKFLOW_RUNTIME_EXAMPLES = (
 )
 
 
-_WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP = {
+_WORKFLOW_NODE_TEMPLATE_REGISTRY = {
     template["type"]: template
-    for template in WORKFLOW_MANIFEST_NODE_TEMPLATES
+    for template in WORKFLOW_REGISTRY_NODE_TEMPLATES
 }
 
 
@@ -75,8 +75,8 @@ def _build_workflow_group_definitions():
     app_groups: list[dict] = []
     groups_by_id: dict[str, dict] = {}
 
-    for node_definition in WORKFLOW_MANIFEST_NODE_DEFINITIONS:
-        template = _WORKFLOW_MANIFEST_NODE_TEMPLATE_MAP.get(node_definition.type)
+    for node_definition in WORKFLOW_NODE_DEFINITIONS:
+        template = _WORKFLOW_NODE_TEMPLATE_REGISTRY.get(node_definition.type)
         if template is None:
             raise KeyError(f'Missing workflow node template for "{node_definition.type}".')
 

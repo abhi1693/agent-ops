@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from automation.nodes.adapters import tool_definition_as_node_implementation
+from automation.nodes.adapters import (
+    tool_definition_as_node_definition,
+    tool_definition_as_node_implementation,
+)
 from automation.tools.base import (
     WorkflowToolDefinition,
     WorkflowToolExecutionContext,
@@ -75,3 +78,12 @@ TOOL_DEFINITION = WorkflowToolDefinition(
 )
 
 NODE_IMPLEMENTATION = tool_definition_as_node_implementation(TOOL_DEFINITION)
+NODE_DEFINITION = tool_definition_as_node_definition(
+    TOOL_DEFINITION,
+    node_type="tool.secret",
+    details="Resolve a scoped secret and store the redacted value path in context.",
+    app_id="utilities",
+    app_label="AgentOps utilities",
+    app_description="AgentOps-specific helper nodes that are intentionally separate from the n8n-style built-in set.",
+    app_icon="mdi-tools",
+)

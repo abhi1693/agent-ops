@@ -20,6 +20,9 @@ from automation.nodes.apps.openai.client import (
 from automation.nodes.base import (
     WorkflowNodeExecutionContext,
     WorkflowNodeExecutionResult,
+    WorkflowNodeDefinition,
+    node_text_field,
+    node_textarea_field,
     WorkflowNodeImplementation,
     raise_definition_error,
 )
@@ -574,4 +577,42 @@ def _execute_agent(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecuti
 NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     validator=_validate_agent,
     executor=_execute_agent,
+)
+NODE_DEFINITION = WorkflowNodeDefinition(
+    type="agent",
+    kind="agent",
+    display_name="Agent",
+    description="Coordinate a connected chat model and optional tools, then store the result in workflow context.",
+    icon="mdi-robot-outline",
+    app_description="Core workflow nodes, runtime primitives, and n8n-style built-in blocks available in the designer.",
+    app_icon="mdi-toy-brick-outline",
+    config={"output_key": "llm.response"},
+    fields=(
+        node_textarea_field(
+            "template",
+            "Template",
+            rows=6,
+            ui_group="input",
+            binding="template",
+            placeholder="Summarize incident {{ trigger.payload.incident_id }} and propose next steps.",
+            help_text="Rendered as the user prompt sent to the model.",
+        ),
+        node_text_field(
+            "output_key",
+            "Save result as",
+            ui_group="result",
+            binding="path",
+            placeholder="draft",
+        ),
+        node_textarea_field(
+            "system_prompt",
+            "System prompt",
+            rows=4,
+            ui_group="input",
+            binding="template",
+            placeholder="You are an incident response assistant.",
+        ),
+    ),
+    validator=NODE_IMPLEMENTATION.validator,
+    executor=NODE_IMPLEMENTATION.executor,
 )

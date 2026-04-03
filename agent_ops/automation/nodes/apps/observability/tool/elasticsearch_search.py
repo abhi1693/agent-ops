@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from django.core.exceptions import ValidationError
 
-from automation.nodes.adapters import tool_definition_as_node_implementation
+from automation.nodes.adapters import (
+    tool_definition_as_node_definition,
+    tool_definition_as_node_implementation,
+)
 from automation.tools.base import (
     WorkflowToolDefinition,
     WorkflowToolExecutionContext,
@@ -169,3 +172,12 @@ TOOL_DEFINITION = WorkflowToolDefinition(
 )
 
 NODE_IMPLEMENTATION = tool_definition_as_node_implementation(TOOL_DEFINITION)
+NODE_DEFINITION = tool_definition_as_node_definition(
+    TOOL_DEFINITION,
+    node_type="tool.elasticsearch_search",
+    details="Elasticsearch search node for observability workflows.",
+    app_id="observability",
+    app_label="Observability",
+    app_description="Ingest alerts and query monitoring systems such as Prometheus and Elasticsearch.",
+    app_icon="mdi-chart-areaspline",
+)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from automation.nodes.base import (
+    WorkflowNodeDefinition,
     WorkflowNodeExecutionContext,
     WorkflowNodeExecutionResult,
     WorkflowNodeImplementation,
@@ -28,4 +29,15 @@ def _execute_manual_trigger(runtime: WorkflowNodeExecutionContext) -> WorkflowNo
 NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     validator=_validate_manual_trigger,
     executor=_execute_manual_trigger,
+)
+NODE_DEFINITION = WorkflowNodeDefinition(
+    type="n8n-nodes-base.manualTrigger",
+    kind="trigger",
+    display_name="Manual Trigger",
+    description="Start a workflow manually from the UI or API, following n8n's starter trigger pattern.",
+    icon="mdi-play-circle-outline",
+    app_description="Core workflow nodes, runtime primitives, and n8n-style built-in blocks available in the designer.",
+    app_icon="mdi-toy-brick-outline",
+    validator=NODE_IMPLEMENTATION.validator,
+    executor=NODE_IMPLEMENTATION.executor,
 )

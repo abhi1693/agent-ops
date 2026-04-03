@@ -269,6 +269,99 @@ class WorkflowNodeFieldDefinition:
         return payload
 
 
+def node_field_option(value: str, label: str | None = None) -> WorkflowNodeFieldOption:
+    rendered_value = str(value)
+    return WorkflowNodeFieldOption(value=rendered_value, label=label or rendered_value)
+
+
+def node_text_field(
+    key: str,
+    label: str,
+    *,
+    ui_group: WorkflowNodeFieldUiGroup | None = None,
+    binding: WorkflowNodeFieldBinding | None = None,
+    placeholder: str | None = None,
+    help_text: str | None = None,
+    visible_when: dict[str, tuple[str, ...]] | None = None,
+) -> WorkflowNodeFieldDefinition:
+    return WorkflowNodeFieldDefinition(
+        key=key,
+        label=label,
+        type="text",
+        ui_group=ui_group,
+        binding=binding,
+        placeholder=placeholder,
+        help_text=help_text,
+        visible_when=visible_when or {},
+    )
+
+
+def node_textarea_field(
+    key: str,
+    label: str,
+    *,
+    rows: int,
+    ui_group: WorkflowNodeFieldUiGroup | None = None,
+    binding: WorkflowNodeFieldBinding | None = None,
+    placeholder: str | None = None,
+    help_text: str | None = None,
+    visible_when: dict[str, tuple[str, ...]] | None = None,
+) -> WorkflowNodeFieldDefinition:
+    return WorkflowNodeFieldDefinition(
+        key=key,
+        label=label,
+        type="textarea",
+        rows=rows,
+        ui_group=ui_group,
+        binding=binding,
+        placeholder=placeholder,
+        help_text=help_text,
+        visible_when=visible_when or {},
+    )
+
+
+def node_select_field(
+    key: str,
+    label: str,
+    *,
+    options: tuple[WorkflowNodeFieldOption, ...],
+    ui_group: WorkflowNodeFieldUiGroup | None = None,
+    binding: WorkflowNodeFieldBinding | None = None,
+    help_text: str | None = None,
+    visible_when: dict[str, tuple[str, ...]] | None = None,
+    options_by_field: dict[str, dict[str, tuple[WorkflowNodeFieldOption, ...]]] | None = None,
+) -> WorkflowNodeFieldDefinition:
+    return WorkflowNodeFieldDefinition(
+        key=key,
+        label=label,
+        type="select",
+        options=options,
+        ui_group=ui_group,
+        binding=binding,
+        help_text=help_text,
+        visible_when=visible_when or {},
+        options_by_field=options_by_field or {},
+    )
+
+
+def node_node_target_field(
+    key: str,
+    label: str,
+    *,
+    ui_group: WorkflowNodeFieldUiGroup | None = None,
+    help_text: str | None = None,
+    visible_when: dict[str, tuple[str, ...]] | None = None,
+) -> WorkflowNodeFieldDefinition:
+    return WorkflowNodeFieldDefinition(
+        key=key,
+        label=label,
+        type="node_target",
+        ui_group=ui_group,
+        help_text=help_text,
+        visible_when=visible_when or {},
+    )
+
+
 @dataclass(frozen=True)
 class WorkflowNodeDefinition:
     type: str
@@ -428,88 +521,6 @@ class WorkflowNodeWebhookContext:
     config: dict[str, Any]
     request: Any
     body: bytes
-
-
-def node_field_option(value: str, label: str | None = None) -> WorkflowNodeFieldOption:
-    rendered_value = str(value)
-    return WorkflowNodeFieldOption(value=rendered_value, label=label or rendered_value)
-
-
-def node_text_field(
-    key: str,
-    label: str,
-    *,
-    ui_group: WorkflowNodeFieldUiGroup | None = None,
-    binding: WorkflowNodeFieldBinding | None = None,
-    placeholder: str | None = None,
-    help_text: str | None = None,
-) -> WorkflowNodeFieldDefinition:
-    return WorkflowNodeFieldDefinition(
-        key=key,
-        label=label,
-        type="text",
-        ui_group=ui_group,
-        binding=binding,
-        placeholder=placeholder,
-        help_text=help_text,
-    )
-
-
-def node_textarea_field(
-    key: str,
-    label: str,
-    *,
-    rows: int,
-    ui_group: WorkflowNodeFieldUiGroup | None = None,
-    binding: WorkflowNodeFieldBinding | None = None,
-    placeholder: str | None = None,
-    help_text: str | None = None,
-) -> WorkflowNodeFieldDefinition:
-    return WorkflowNodeFieldDefinition(
-        key=key,
-        label=label,
-        type="textarea",
-        ui_group=ui_group,
-        binding=binding,
-        rows=rows,
-        placeholder=placeholder,
-        help_text=help_text,
-    )
-
-
-def node_select_field(
-    key: str,
-    label: str,
-    *,
-    options: tuple[WorkflowNodeFieldOption, ...],
-    ui_group: WorkflowNodeFieldUiGroup | None = None,
-    binding: WorkflowNodeFieldBinding | None = None,
-    help_text: str | None = None,
-) -> WorkflowNodeFieldDefinition:
-    return WorkflowNodeFieldDefinition(
-        key=key,
-        label=label,
-        type="select",
-        options=options,
-        ui_group=ui_group,
-        binding=binding,
-        help_text=help_text,
-    )
-
-def node_target_field(
-    key: str,
-    label: str,
-    *,
-    ui_group: WorkflowNodeFieldUiGroup | None = None,
-    binding: WorkflowNodeFieldBinding | None = None,
-) -> WorkflowNodeFieldDefinition:
-    return WorkflowNodeFieldDefinition(
-        key=key,
-        label=label,
-        type="node_target",
-        ui_group=ui_group,
-        binding=binding,
-    )
 
 
 def raise_definition_error(message: str) -> None:

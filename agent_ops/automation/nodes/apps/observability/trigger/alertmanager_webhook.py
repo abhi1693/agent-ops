@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from automation.nodes.adapters import trigger_definition_as_node_implementation
+from automation.nodes.adapters import (
+    trigger_definition_as_node_definition,
+    trigger_definition_as_node_implementation,
+)
 from automation.triggers.base import (
     WorkflowTriggerDefinition,
     WorkflowTriggerRequestContext,
@@ -58,3 +61,12 @@ TRIGGER_DEFINITION = WorkflowTriggerDefinition(
 )
 
 NODE_IMPLEMENTATION = trigger_definition_as_node_implementation(TRIGGER_DEFINITION)
+NODE_DEFINITION = trigger_definition_as_node_definition(
+    TRIGGER_DEFINITION,
+    node_type="trigger.alertmanager_webhook",
+    details="Alertmanager webhook trigger for observability alert ingestion.",
+    app_id="observability",
+    app_label="Observability",
+    app_description="Ingest alerts and query monitoring systems such as Prometheus and Elasticsearch.",
+    app_icon="mdi-chart-areaspline",
+)
