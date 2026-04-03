@@ -66,6 +66,7 @@ type CanvasElements = {
 type ExecutionElements = {
   error: HTMLElement;
   input: HTMLTextAreaElement;
+  nodeRunButton: HTMLButtonElement | null;
   result: HTMLElement;
   resultBadge: HTMLElement;
   resultContext: HTMLElement;
@@ -268,6 +269,7 @@ function getCanvasElements(root: ParentNode): CanvasElements | null {
 
 function getExecutionElements(root: ParentNode): ExecutionElements | null {
   const input = root.querySelector<HTMLTextAreaElement>('#id_input_data');
+  const nodeRunButton = root.querySelector<HTMLButtonElement>('[data-workflow-run-selected-node]');
   const runButton = root.querySelector<HTMLButtonElement>('[data-workflow-run]');
   const error = root.querySelector<HTMLElement>('[data-workflow-execution-error]');
   const result = root.querySelector<HTMLElement>('[data-workflow-execution-result]');
@@ -302,6 +304,7 @@ function getExecutionElements(root: ParentNode): ExecutionElements | null {
   return {
     error,
     input,
+    nodeRunButton,
     result,
     resultBadge,
     resultContext,
@@ -1030,6 +1033,31 @@ export function initWorkflowDesigner(): void {
     execution.status.className = `badge ${badgeClass}`;
   }
 
+  function renderExecutionNodeAction(): void {
+    if (!execution?.nodeRunButton) {
+      return;
+    }
+
+    const settingsNode = getNode(settingsNodeId);
+    if (!settingsNode) {
+      execution.nodeRunButton.hidden = true;
+      execution.nodeRunButton.disabled = true;
+      execution.nodeRunButton.innerHTML = `
+        <i class="mdi mdi-play"></i>
+        <span class="ms-1">Run node</span>
+      `;
+      return;
+    }
+
+    const isNodeExecutionPending = isExecutionPending && activeExecutionNodeId === settingsNode.id;
+    execution.nodeRunButton.hidden = false;
+    execution.nodeRunButton.disabled = isExecutionPending;
+    execution.nodeRunButton.innerHTML = `
+      <i class="mdi ${isNodeExecutionPending ? 'mdi-loading mdi-spin' : 'mdi-play'}"></i>
+      <span class="ms-1">${isNodeExecutionPending ? 'Running node' : 'Run node'}</span>
+    `;
+  }
+
   function clearExecutionError(): void {
     if (!execution) {
       return;
@@ -1136,6 +1164,12 @@ export function initWorkflowDesigner(): void {
     }
 
     const nodeId = options?.nodeId ?? null;
+    if (nodeId && settingsNodeId !== nodeId) {
+      openNodeSettings(nodeId);
+    } else if (!nodeId && !settingsNodeId && selectedNodeId) {
+      openNodeSettings(selectedNodeId);
+    }
+
     const inputData = parseExecutionInput();
     if (inputData === null) {
       return;
@@ -1146,6 +1180,7 @@ export function initWorkflowDesigner(): void {
     execution.runButton.disabled = true;
     setExecutionStatus(nodeId ? 'Running node' : 'Running workflow', 'text-bg-primary');
     renderCanvas();
+    renderSettingsPanel();
 
     try {
       const response = await fetch(url, {
@@ -1171,6 +1206,7 @@ export function initWorkflowDesigner(): void {
       activeExecutionNodeId = null;
       execution.runButton.disabled = false;
       renderCanvas();
+      renderSettingsPanel();
     }
   }
 
@@ -1619,6 +1655,7 @@ export function initWorkflowDesigner(): void {
     if (!settingsNode || !nodeDefinition) {
       canvas.settingsPanel.hidden = true;
       canvas.settingsFields.innerHTML = '';
+      renderExecutionNodeAction();
       return;
     }
 
@@ -1842,6 +1879,7 @@ export function initWorkflowDesigner(): void {
       </section>
       ${fieldMarkup || '<div class="workflow-editor-settings-empty">No editable settings for this node yet.</div>'}
     `;
+    renderExecutionNodeAction();
   }
 
   function getNodeContextMenuPosition(clientX: number, clientY: number): { x: number; y: number } {
@@ -2779,12 +2817,20 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
+    if (target.closest('[data-workflow-run-selected-node]')) {
+      if (settingsNodeId) {
+        void executeDesignerRun(getNodeRunUrl(settingsNodeId), { nodeId: settingsNodeId });
+      }
+      return;
+    }
+
     const nodeAction = target.closest<HTMLElement>('[data-node-action]');
     if (nodeAction?.dataset.nodeAction && nodeAction.dataset.nodeActionId) {
       const nodeId = nodeAction.dataset.nodeActionId;
       const action = nodeAction.dataset.nodeAction;
 
       if (action === 'run') {
+        openNodeSettings(nodeId);
         void executeDesignerRun(getNodeRunUrl(nodeId), { nodeId });
         return;
       }
