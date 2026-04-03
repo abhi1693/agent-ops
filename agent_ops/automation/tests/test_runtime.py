@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
-from automation.models import Workflow
-from automation.runtime import execute_workflow
+from automation.models import Workflow, WorkflowStepRun, WorkflowVersion
+from automation.runtime import execute_workflow, execute_workflow_node_preview
 from automation.models import Secret, SecretGroup
 from tenancy.models import Environment, Organization, Workspace
 
@@ -175,6 +175,232 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.output_data["response"], "Completed Review T-42")
         self.assertEqual(run.context_data["llm"]["response"]["text"], "Review T-42")
         self.assertEqual(run.step_count, 3)
+
+    def test_execute_workflow_persists_workflow_version_and_step_runs(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Durable runtime state",
+            metadata={"category": "runtime"},
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "template": "Completed {{ trigger.payload.ticket_id }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow, input_data={"ticket_id": "T-42"})
+
+        self.assertIsNotNone(run.workflow_version_id)
+        self.assertEqual(WorkflowVersion.objects.count(), 1)
+        self.assertEqual(run.workflow_version.workflow_id, workflow.id)
+        self.assertEqual(run.workflow_version.version, 1)
+        self.assertEqual(run.workflow_version.metadata, {"category": "runtime"})
+
+        step_runs = list(run.step_runs.order_by("sequence"))
+        self.assertEqual(WorkflowStepRun.objects.count(), 2)
+        self.assertEqual([step.node_id for step in step_runs], ["trigger-1", "response-1"])
+        self.assertEqual([step.status for step in step_runs], ["succeeded", "succeeded"])
+        self.assertEqual(step_runs[0].output_data["payload"], {"ticket_id": "T-42"})
+        self.assertEqual(step_runs[1].output_data["response"], "Completed T-42")
+        self.assertEqual(step_runs[0].workflow_version_id, run.workflow_version_id)
+        self.assertEqual(step_runs[1].workflow_version_id, run.workflow_version_id)
+
+    def test_execute_workflow_reuses_existing_version_until_definition_changes(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Versioned runtime",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "template": "v1",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        first_run = execute_workflow(workflow)
+        second_run = execute_workflow(workflow)
+
+        self.assertEqual(first_run.workflow_version_id, second_run.workflow_version_id)
+        self.assertEqual(WorkflowVersion.objects.count(), 1)
+
+        workflow.definition["nodes"][1]["config"]["template"] = "v2"
+        workflow.save(update_fields=("definition",))
+
+        third_run = execute_workflow(workflow)
+
+        self.assertNotEqual(third_run.workflow_version_id, first_run.workflow_version_id)
+        self.assertEqual(
+            list(
+                WorkflowVersion.objects.filter(workflow=workflow)
+                .order_by("version")
+                .values_list("version", flat=True)
+            ),
+            [1, 2],
+        )
+
+    def test_execute_workflow_can_stop_after_selected_node(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Stop at node",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "tool.template",
+                        "label": "Render",
+                        "config": {
+                            "output_key": "tool.output",
+                            "template": "Service {{ trigger.payload.service }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ tool.output }}",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(
+            workflow,
+            input_data={"service": "payments"},
+            trigger_mode="manual:node",
+            stop_after_node_id="tool-1",
+        )
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.step_count, 2)
+        self.assertEqual(run.output_data["node_id"], "tool-1")
+        self.assertEqual(run.output_data["output"]["value"], "Service payments")
+        self.assertEqual(run.context_data["tool"]["output"], "Service payments")
+
+    def test_execute_workflow_node_preview_executes_auxiliary_model_node_in_isolation(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Preview auxiliary node",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "agent-1",
+                        "kind": "agent",
+                        "type": "agent",
+                        "label": "Draft",
+                        "config": {
+                            "template": "Review {{ trigger.payload.ticket_id }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "model-1",
+                        "kind": "tool",
+                        "type": "tool.openai_chat_model",
+                        "label": "OpenAI chat model",
+                        "config": {
+                            "base_url": "https://api.openai.com/v1",
+                            "model": "gpt-4.1-mini",
+                            "secret_name": "OPENAI_API_KEY",
+                        },
+                        "position": {"x": 320, "y": 240},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "template": "Completed",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                    {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                    {
+                        "id": "edge-3",
+                        "source": "model-1",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
+                ],
+            },
+        )
+
+        run = execute_workflow_node_preview(
+            workflow,
+            node_id="model-1",
+            input_data={"ticket_id": "T-42"},
+        )
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.trigger_mode, "manual:node")
+        self.assertEqual(run.step_count, 1)
+        self.assertEqual(run.output_data["node_id"], "model-1")
+        self.assertEqual(run.output_data["output"]["model"], "gpt-4.1-mini")
 
     def test_execute_workflow_runs_agent_with_connected_chat_model_and_mcp_tool(self):
         workflow = Workflow.objects.create(

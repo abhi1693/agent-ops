@@ -19,7 +19,8 @@ from automation.forms import SecretForm, SecretGroupForm, WorkflowDesignerForm, 
 from automation.models import Secret, SecretGroup, Workflow, WorkflowRun
 from automation.nodes import prepare_workflow_node_webhook_request
 from automation.primitives import WORKFLOW_NODE_TEMPLATES, normalize_workflow_definition_nodes
-from automation.runtime import execute_workflow
+from automation.runtime import execute_workflow, execute_workflow_node_preview
+from automation.workflow_connections import split_workflow_edges
 from core.generic_views import (
     ObjectChangeLogView,
     ObjectDeleteView,
@@ -41,6 +42,15 @@ def _pretty_json(value):
     if value in (None, "", {}, []):
         return None
     return json.dumps(value, indent=2, sort_keys=True)
+
+
+def _flatten_validation_error(error: ValidationError) -> str:
+    if hasattr(error, "message_dict"):
+        parts = []
+        for field, messages_for_field in error.message_dict.items():
+            parts.append(f"{field}: {' '.join(messages_for_field)}")
+        return " ".join(parts)
+    return " ".join(error.messages)
 
 
 class SecretListView(RestrictedObjectListMixin, ObjectListView):
@@ -200,6 +210,105 @@ def _build_run_display(run: WorkflowRun):
         "context_json": _pretty_json(run.context_data),
         "steps_json": _pretty_json(run.step_results),
     }
+
+
+def _build_form_validation_error(form) -> ValidationError:
+    return ValidationError(
+        {
+            field: [str(error) for error in errors]
+            for field, errors in form.errors.items()
+        }
+    )
+
+
+def _parse_json_request_payload(request) -> dict:
+    raw_body = request.body.decode("utf-8").strip()
+    if not raw_body:
+        return {}
+    try:
+        payload = json.loads(raw_body)
+    except json.JSONDecodeError as exc:
+        raise ValidationError({"payload": "Request body must be valid JSON."}) from exc
+    if not isinstance(payload, dict):
+        raise ValidationError({"payload": "Request body must be a JSON object."})
+    return payload
+
+
+def _prepare_designer_execution(workflow, *, request) -> tuple[Workflow, dict]:
+    payload = _parse_json_request_payload(request)
+    if "definition" not in payload:
+        raise ValidationError({"definition": "This field is required."})
+
+    input_data = payload.get("input_data") or {}
+    if not isinstance(input_data, dict):
+        raise ValidationError({"input_data": "Input payload must be a JSON object."})
+
+    form = WorkflowDesignerForm(
+        data={"definition": json.dumps(payload["definition"])},
+        instance=workflow,
+    )
+    if not form.is_valid():
+        raise _build_form_validation_error(form)
+
+    workflow = form.save()
+    return workflow, input_data
+
+
+def _is_node_primary_reachable(*, definition: dict, node_id: str) -> bool:
+    nodes = definition.get("nodes", [])
+    nodes_by_id = {node["id"]: node for node in nodes}
+    if node_id not in nodes_by_id:
+        return False
+
+    trigger_node = next((node for node in nodes if node.get("kind") == "trigger"), None)
+    if trigger_node is None:
+        return False
+
+    primary_edges, _auxiliary_edges = split_workflow_edges(definition.get("edges", []))
+    adjacency: dict[str, list[str]] = {node["id"]: [] for node in nodes}
+    for edge in primary_edges:
+        adjacency.setdefault(edge["source"], []).append(edge["target"])
+
+    visited: set[str] = set()
+    stack = [trigger_node["id"]]
+    while stack:
+        current_node_id = stack.pop()
+        if current_node_id in visited:
+            continue
+        if current_node_id == node_id:
+            return True
+        visited.add(current_node_id)
+        stack.extend(adjacency.get(current_node_id, []))
+
+    return False
+
+
+def _build_designer_run_payload(run: WorkflowRun, *, mode: str, node: dict | None = None) -> dict:
+    payload = {
+        "mode": mode,
+        "message": "Workflow executed." if run.status == WorkflowRun.StatusChoices.SUCCEEDED else run.error,
+        "run": {
+            "id": run.pk,
+            "status": run.status,
+            "badge_class": run.badge_class,
+            "trigger_mode": run.trigger_mode,
+            "step_count": run.step_count,
+            "workflow_version": run.workflow_version.version,
+            "error": run.error,
+            "input_json": _pretty_json(run.input_data),
+            "output_json": _pretty_json(run.output_data),
+            "context_json": _pretty_json(run.context_data),
+            "steps_json": _pretty_json(run.step_results),
+        },
+    }
+    if node is not None:
+        payload["node"] = {
+            "id": node.get("id"),
+            "label": node.get("label") or node.get("id"),
+            "kind": node.get("kind"),
+            "type": node.get("type"),
+        }
+    return payload
 
 
 def _group_workflow_node_templates_by_app(*, node_templates):
@@ -373,6 +482,8 @@ class WorkflowDesignerView(RestrictedObjectEditMixin, ObjectEditView):
         hydrated_templates = _hydrate_workflow_node_templates_for_workflow(self.object)
         context.update(
             {
+                "can_execute": True,
+                "run_form": WorkflowRunForm(initial={"input_data": {}}),
                 "workflow_definition": normalized_definition,
                 "workflow_nodes": normalized_definition.get("nodes", []),
                 "workflow_node_templates": hydrated_templates,
@@ -383,9 +494,85 @@ class WorkflowDesignerView(RestrictedObjectEditMixin, ObjectEditView):
                 "workflow_detail_url": self.object.get_absolute_url(),
                 "workflow_edit_url": reverse("workflow_edit", args=[self.object.pk]),
                 "workflow_changelog_url": reverse("workflow_changelog", args=[self.object.pk]),
+                "workflow_designer_run_url": reverse("workflow_designer_run", args=[self.object.pk]),
+                "workflow_designer_node_run_url_template": reverse(
+                    "workflow_designer_node_run",
+                    args=[self.object.pk, "__node_id__"],
+                ),
             }
         )
         return context
+
+
+class WorkflowDesignerRunView(View):
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        workflow = (
+            Workflow.objects.select_related("organization", "workspace", "environment")
+            .filter(pk=kwargs["pk"])
+            .first()
+        )
+        if workflow is None:
+            return JsonResponse({"detail": "Workflow not found."}, status=404)
+
+        assert_object_action_allowed(workflow, request=request, action="change")
+        try:
+            workflow, input_data = _prepare_designer_execution(workflow, request=request)
+        except ValidationError as exc:
+            return JsonResponse({"detail": _flatten_validation_error(exc)}, status=400)
+
+        run = execute_workflow(
+            workflow,
+            input_data=input_data,
+            actor=request.user,
+        )
+        return JsonResponse(_build_designer_run_payload(run, mode="workflow"))
+
+
+class WorkflowDesignerNodeRunView(View):
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        workflow = (
+            Workflow.objects.select_related("organization", "workspace", "environment")
+            .filter(pk=kwargs["pk"])
+            .first()
+        )
+        if workflow is None:
+            return JsonResponse({"detail": "Workflow not found."}, status=404)
+
+        assert_object_action_allowed(workflow, request=request, action="change")
+        try:
+            workflow, input_data = _prepare_designer_execution(workflow, request=request)
+        except ValidationError as exc:
+            return JsonResponse({"detail": _flatten_validation_error(exc)}, status=400)
+
+        definition = normalize_workflow_definition_nodes(workflow.definition or {})
+        nodes_by_id = {node["id"]: node for node in definition.get("nodes", [])}
+        node = nodes_by_id.get(kwargs["node_id"])
+        if node is None:
+            return JsonResponse({"detail": f'Workflow does not define node "{kwargs["node_id"]}".'}, status=400)
+
+        if _is_node_primary_reachable(definition=definition, node_id=node["id"]):
+            run = execute_workflow(
+                workflow,
+                input_data=input_data,
+                trigger_mode="manual:node",
+                actor=request.user,
+                stop_after_node_id=node["id"],
+            )
+            mode = "node_path"
+        else:
+            run = execute_workflow_node_preview(
+                workflow,
+                node_id=node["id"],
+                input_data=input_data,
+                actor=request.user,
+            )
+            mode = "node_preview"
+
+        return JsonResponse(_build_designer_run_payload(run, mode=mode, node=node))
 
 
 class WorkflowDeleteView(RestrictedObjectDeleteMixin, ObjectDeleteView):

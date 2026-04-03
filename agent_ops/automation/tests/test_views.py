@@ -251,6 +251,10 @@ class WorkflowViewTests(TestCase):
         self.assertContains(response, '"type": "tool.template"')
         self.assertContains(response, '"label": "New task"')
         self.assertContains(response, '"label": "Triage agent"')
+        self.assertContains(response, 'data-workflow-run')
+        self.assertContains(response, 'data-workflow-execution-status')
+        self.assertContains(response, reverse("workflow_designer_run", args=[self.workflow.pk]))
+        self.assertContains(response, reverse("workflow_designer_node_run", args=[self.workflow.pk, "__node_id__"]))
 
     def test_workflow_designer_renders_scoped_secret_group_options_for_nodes(self):
         SecretGroup.objects.create(
@@ -388,6 +392,186 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(self.workflow.definition["nodes"][1]["label"], "Planner")
         self.assertEqual(self.workflow.definition["nodes"][2]["type"], "tool.openai_chat_model")
         self.assertEqual(self.workflow.definition["nodes"][3]["type"], "response")
+
+    def test_workflow_designer_run_endpoint_saves_definition_and_executes_workflow(self):
+        self.client.force_login(self.staff_user)
+        definition = {
+            "nodes": [
+                {
+                    "id": "trigger-1",
+                    "kind": "trigger",
+                    "type": "n8n-nodes-base.manualTrigger",
+                    "label": "Manual",
+                    "position": {"x": 32, "y": 40},
+                },
+                {
+                    "id": "response-1",
+                    "kind": "response",
+                    "type": "response",
+                    "label": "Reply",
+                    "config": {
+                        "template": "Completed {{ trigger.payload.ticket_id }}",
+                    },
+                    "position": {"x": 320, "y": 40},
+                },
+            ],
+            "edges": [
+                {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+            ],
+        }
+
+        response = self.client.post(
+            reverse("workflow_designer_run", args=[self.workflow.pk]),
+            data=json.dumps(
+                {
+                    "definition": definition,
+                    "input_data": {"ticket_id": "T-42"},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.workflow.refresh_from_db()
+        self.assertEqual(self.workflow.definition["nodes"][1]["label"], "Reply")
+        self.assertEqual(payload["mode"], "workflow")
+        self.assertEqual(payload["run"]["status"], "succeeded")
+        self.assertIn("Completed T-42", payload["run"]["output_json"])
+
+    def test_workflow_designer_node_run_endpoint_runs_primary_path_node(self):
+        self.client.force_login(self.staff_user)
+        definition = {
+            "nodes": [
+                {
+                    "id": "trigger-1",
+                    "kind": "trigger",
+                    "type": "n8n-nodes-base.manualTrigger",
+                    "label": "Manual",
+                    "position": {"x": 32, "y": 40},
+                },
+                {
+                    "id": "tool-1",
+                    "kind": "tool",
+                    "type": "tool.template",
+                    "label": "Render",
+                    "config": {
+                        "output_key": "tool.output",
+                        "template": "Service {{ trigger.payload.service }}",
+                    },
+                    "position": {"x": 320, "y": 40},
+                },
+                {
+                    "id": "response-1",
+                    "kind": "response",
+                    "type": "response",
+                    "label": "Done",
+                    "config": {
+                        "template": "{{ tool.output }}",
+                    },
+                    "position": {"x": 608, "y": 40},
+                },
+            ],
+            "edges": [
+                {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                {"id": "edge-2", "source": "tool-1", "target": "response-1"},
+            ],
+        }
+
+        response = self.client.post(
+            reverse("workflow_designer_node_run", args=[self.workflow.pk, "tool-1"]),
+            data=json.dumps(
+                {
+                    "definition": definition,
+                    "input_data": {"service": "payments"},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["mode"], "node_path")
+        self.assertEqual(payload["node"]["id"], "tool-1")
+        self.assertEqual(payload["run"]["status"], "succeeded")
+        self.assertEqual(payload["run"]["step_count"], 2)
+        self.assertIn("Service payments", payload["run"]["output_json"])
+
+    def test_workflow_designer_node_run_endpoint_runs_auxiliary_node_preview(self):
+        self.client.force_login(self.staff_user)
+        definition = {
+            "nodes": [
+                {
+                    "id": "trigger-1",
+                    "kind": "trigger",
+                    "type": "n8n-nodes-base.manualTrigger",
+                    "label": "Manual",
+                    "position": {"x": 32, "y": 40},
+                },
+                {
+                    "id": "agent-1",
+                    "kind": "agent",
+                    "type": "agent",
+                    "label": "Draft",
+                    "config": {
+                        "template": "Review {{ trigger.payload.ticket_id }}",
+                    },
+                    "position": {"x": 320, "y": 40},
+                },
+                {
+                    "id": "model-1",
+                    "kind": "tool",
+                    "type": "tool.openai_chat_model",
+                    "label": "OpenAI chat model",
+                    "config": {
+                        "base_url": "https://api.openai.com/v1",
+                        "model": "gpt-4.1-mini",
+                        "secret_name": "OPENAI_API_KEY",
+                    },
+                    "position": {"x": 320, "y": 240},
+                },
+                {
+                    "id": "response-1",
+                    "kind": "response",
+                    "type": "response",
+                    "label": "Done",
+                    "config": {
+                        "template": "Completed",
+                    },
+                    "position": {"x": 608, "y": 40},
+                },
+            ],
+            "edges": [
+                {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                {
+                    "id": "edge-3",
+                    "source": "model-1",
+                    "sourcePort": "ai_languageModel",
+                    "target": "agent-1",
+                    "targetPort": "ai_languageModel",
+                },
+            ],
+        }
+
+        response = self.client.post(
+            reverse("workflow_designer_node_run", args=[self.workflow.pk, "model-1"]),
+            data=json.dumps(
+                {
+                    "definition": definition,
+                    "input_data": {"ticket_id": "T-42"},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["mode"], "node_preview")
+        self.assertEqual(payload["node"]["id"], "model-1")
+        self.assertEqual(payload["run"]["status"], "succeeded")
+        self.assertEqual(payload["run"]["step_count"], 1)
+        self.assertIn("gpt-4.1-mini", payload["run"]["output_json"])
 
     def test_workflow_detail_post_executes_runtime_and_persists_run(self):
         self.workflow.definition = {

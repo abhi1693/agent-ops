@@ -56,13 +56,26 @@ def _definition(label):
                 },
                 "position": {"x": 336, "y": 56},
             },
+            {
+                "id": "model-1",
+                "kind": "tool",
+                "type": "tool.openai_chat_model",
+                "label": "OpenAI chat model",
+                "config": {
+                    "secret_name": "OPENAI_API_KEY",
+                },
+                "position": {"x": 336, "y": 224},
+            },
         ],
         "edges": [
+            {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
             {
-                "id": "edge-1",
-                "source": "trigger-1",
+                "id": "edge-2",
+                "source": "model-1",
+                "sourcePort": "ai_languageModel",
                 "target": "agent-1",
-            }
+                "targetPort": "ai_languageModel",
+            },
         ],
     }
 
@@ -163,8 +176,8 @@ class WorkflowAPITests(TestCase):
         self.assertEqual(payload["environment"]["id"], self.environment.pk)
         self.assertEqual(payload["workspace"]["id"], self.workspace.pk)
         self.assertEqual(payload["organization"]["id"], self.organization.pk)
-        self.assertEqual(payload["node_count"], 2)
-        self.assertEqual(payload["edge_count"], 1)
+        self.assertEqual(payload["node_count"], 3)
+        self.assertEqual(payload["edge_count"], 2)
 
     def test_scoped_member_only_lists_workflows_inside_active_scope(self):
         self.client.force_login(self.standard_user)
@@ -256,10 +269,27 @@ class WorkflowAPITests(TestCase):
                     },
                     "position": {"x": 608, "y": 40},
                 },
+                {
+                    "id": "model-1",
+                    "kind": "tool",
+                    "type": "tool.openai_chat_model",
+                    "label": "OpenAI chat model",
+                    "config": {
+                        "secret_name": "OPENAI_API_KEY",
+                    },
+                    "position": {"x": 320, "y": 240},
+                },
             ],
             "edges": [
                 {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
                 {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                {
+                    "id": "edge-3",
+                    "source": "model-1",
+                    "sourcePort": "ai_languageModel",
+                    "target": "agent-1",
+                    "targetPort": "ai_languageModel",
+                },
             ],
         }
         self.workflow.save(update_fields=("definition",))

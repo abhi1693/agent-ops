@@ -57,6 +57,22 @@ type CanvasElements = {
   settingsTitle: HTMLElement;
 };
 
+type ExecutionElements = {
+  error: HTMLElement;
+  input: HTMLTextAreaElement;
+  result: HTMLElement;
+  resultBadge: HTMLElement;
+  resultContext: HTMLElement;
+  resultEmpty: HTMLElement;
+  resultError: HTMLElement;
+  resultOutput: HTMLElement;
+  resultSummary: HTMLElement;
+  resultTitle: HTMLElement;
+  resultTrace: HTMLElement;
+  runButton: HTMLButtonElement;
+  status: HTMLElement;
+};
+
 type ConnectorSide = 'top' | 'right' | 'bottom' | 'left';
 type AgentAuxiliaryPortId = 'ai_languageModel' | 'ai_tool';
 type BrowserMode = 'default' | 'starter';
@@ -98,6 +114,30 @@ type ContextMenuState = {
 type Point = {
   x: number;
   y: number;
+};
+
+type DesignerRunResponse = {
+  message: string;
+  mode: string;
+  node?: {
+    id: string;
+    kind: string;
+    label: string;
+    type: string;
+  };
+  run: {
+    badge_class: string;
+    context_json: string | null;
+    error: string;
+    id: number;
+    input_json: string | null;
+    output_json: string | null;
+    status: string;
+    step_count: number;
+    steps_json: string | null;
+    trigger_mode: string;
+    workflow_version: number;
+  };
 };
 
 const CONNECTOR_SIDES: ConnectorSide[] = ['top', 'right', 'bottom', 'left'];
@@ -217,6 +257,56 @@ function getCanvasElements(root: ParentNode): CanvasElements | null {
     settingsFields,
     settingsPanel,
     settingsTitle,
+  };
+}
+
+function getExecutionElements(root: ParentNode): ExecutionElements | null {
+  const input = root.querySelector<HTMLTextAreaElement>('#id_input_data');
+  const runButton = root.querySelector<HTMLButtonElement>('[data-workflow-run]');
+  const error = root.querySelector<HTMLElement>('[data-workflow-execution-error]');
+  const result = root.querySelector<HTMLElement>('[data-workflow-execution-result]');
+  const resultBadge = root.querySelector<HTMLElement>('[data-workflow-execution-badge]');
+  const resultContext = root.querySelector<HTMLElement>('[data-workflow-execution-context]');
+  const resultEmpty = root.querySelector<HTMLElement>('[data-workflow-execution-empty]');
+  const resultError = root.querySelector<HTMLElement>('[data-workflow-execution-run-error]');
+  const resultOutput = root.querySelector<HTMLElement>('[data-workflow-execution-output]');
+  const resultSummary = root.querySelector<HTMLElement>('[data-workflow-execution-summary]');
+  const resultTitle = root.querySelector<HTMLElement>('[data-workflow-execution-title]');
+  const resultTrace = root.querySelector<HTMLElement>('[data-workflow-execution-trace]');
+  const status = root.querySelector<HTMLElement>('[data-workflow-execution-status]');
+
+  if (
+    !input ||
+    !runButton ||
+    !error ||
+    !result ||
+    !resultBadge ||
+    !resultContext ||
+    !resultEmpty ||
+    !resultError ||
+    !resultOutput ||
+    !resultSummary ||
+    !resultTitle ||
+    !resultTrace ||
+    !status
+  ) {
+    return null;
+  }
+
+  return {
+    error,
+    input,
+    result,
+    resultBadge,
+    resultContext,
+    resultEmpty,
+    resultError,
+    resultOutput,
+    resultSummary,
+    resultTitle,
+    resultTrace,
+    runButton,
+    status,
   };
 }
 
@@ -887,6 +977,10 @@ export function initWorkflowDesigner(): void {
   }
   const browser = browserElements;
   const canvas = canvasElements;
+  const execution = getExecutionElements(root);
+  const workflowRunUrl = root.dataset.workflowRunUrl ?? '';
+  const workflowNodeRunUrlTemplate = root.dataset.workflowNodeRunUrlTemplate ?? '';
+  const csrfToken = root.querySelector<HTMLInputElement>('input[name="csrfmiddlewaretoken"]')?.value ?? '';
 
   const fallbackDefinition = parseJsonScript<WorkflowPersistedDefinition>('workflow-definition-data', {
     edges: [],
@@ -906,6 +1000,8 @@ export function initWorkflowDesigner(): void {
   let contextMenuState: ContextMenuState | null = null;
   let hoveredEdgeId: string | null = null;
   let insertDraft: InsertDraft | null = null;
+  let isExecutionPending = false;
+  let activeExecutionNodeId: string | null = null;
 
   function syncDefinitionInput(): void {
     canvas.definitionInput.value = JSON.stringify(serializeWorkflowDefinition(workflowDefinition));
@@ -917,6 +1013,159 @@ export function initWorkflowDesigner(): void {
     }
 
     return workflowDefinition.nodes.find((node) => node.id === nodeId);
+  }
+
+  function setExecutionStatus(label: string, badgeClass = 'text-bg-secondary'): void {
+    if (!execution) {
+      return;
+    }
+
+    execution.status.textContent = label;
+    execution.status.className = `badge ${badgeClass}`;
+  }
+
+  function clearExecutionError(): void {
+    if (!execution) {
+      return;
+    }
+
+    execution.error.hidden = true;
+    execution.error.textContent = '';
+  }
+
+  function showExecutionError(message: string): void {
+    if (!execution) {
+      return;
+    }
+
+    execution.error.hidden = false;
+    execution.error.textContent = message;
+  }
+
+  function parseExecutionInput(): Record<string, unknown> | null {
+    if (!execution) {
+      return {};
+    }
+
+    const rawValue = execution.input.value.trim();
+    if (!rawValue) {
+      clearExecutionError();
+      return {};
+    }
+
+    try {
+      const parsedValue = JSON.parse(rawValue) as unknown;
+      if (parsedValue === null) {
+        clearExecutionError();
+        return {};
+      }
+      if (typeof parsedValue !== 'object' || Array.isArray(parsedValue)) {
+        throw new Error('Manual payload must be a JSON object.');
+      }
+      clearExecutionError();
+      return parsedValue as Record<string, unknown>;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Manual payload must be valid JSON.';
+      showExecutionError(message);
+      return null;
+    }
+  }
+
+  function renderExecutionResult(payload: DesignerRunResponse): void {
+    if (!execution) {
+      return;
+    }
+
+    const isSuccessful = payload.run.status === 'succeeded';
+    const modeLabel = payload.mode.startsWith('node')
+      ? payload.node?.label ?? 'Node run'
+      : 'Workflow run';
+    const summaryParts = [
+      `Run #${payload.run.id}`,
+      `${payload.run.step_count} step${payload.run.step_count === 1 ? '' : 's'}`,
+      `v${payload.run.workflow_version}`,
+    ];
+    if (payload.message) {
+      summaryParts.push(payload.message);
+    }
+
+    execution.resultEmpty.hidden = true;
+    execution.result.hidden = false;
+    execution.resultTitle.textContent = modeLabel;
+    execution.resultSummary.textContent = summaryParts.join(' · ');
+    execution.resultBadge.className = `badge ${payload.run.badge_class}`;
+    execution.resultBadge.textContent = payload.run.status;
+    execution.resultOutput.textContent = payload.run.output_json ?? '{}';
+    execution.resultTrace.textContent = payload.run.steps_json ?? '[]';
+    execution.resultContext.textContent = payload.run.context_json ?? '{}';
+    if (payload.run.error) {
+      execution.resultError.hidden = false;
+      execution.resultError.textContent = payload.run.error;
+    } else {
+      execution.resultError.hidden = true;
+      execution.resultError.textContent = '';
+    }
+    setExecutionStatus(isSuccessful ? 'Completed' : 'Failed', isSuccessful ? 'text-bg-success' : 'text-bg-danger');
+  }
+
+  function buildExecutionRequestBody(inputData: Record<string, unknown>): string {
+    return JSON.stringify({
+      definition: serializeWorkflowDefinition(workflowDefinition),
+      input_data: inputData,
+    });
+  }
+
+  function getNodeRunUrl(nodeId: string): string {
+    return workflowNodeRunUrlTemplate.replace('__node_id__', encodeURIComponent(nodeId));
+  }
+
+  async function executeDesignerRun(
+    url: string,
+    options?: {
+      nodeId?: string | null;
+    },
+  ): Promise<void> {
+    if (!execution || !url) {
+      return;
+    }
+
+    const nodeId = options?.nodeId ?? null;
+    const inputData = parseExecutionInput();
+    if (inputData === null) {
+      return;
+    }
+
+    isExecutionPending = true;
+    activeExecutionNodeId = nodeId;
+    execution.runButton.disabled = true;
+    setExecutionStatus(nodeId ? 'Running node' : 'Running workflow', 'text-bg-primary');
+    renderCanvas();
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken,
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: buildExecutionRequestBody(inputData),
+      });
+      const payload = (await response.json()) as DesignerRunResponse | { detail?: string };
+      if (!response.ok) {
+        throw new Error(payload && 'detail' in payload && payload.detail ? payload.detail : 'Execution failed.');
+      }
+      renderExecutionResult(payload as DesignerRunResponse);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Execution failed.';
+      showExecutionError(message);
+      setExecutionStatus('Failed', 'text-bg-danger');
+    } finally {
+      isExecutionPending = false;
+      activeExecutionNodeId = null;
+      execution.runButton.disabled = false;
+      renderCanvas();
+    }
   }
 
   function hasConnection(sourceId: string, targetId: string, targetPort?: string | null): boolean {
@@ -1380,6 +1629,7 @@ export function initWorkflowDesigner(): void {
         const agentDisplayTitle = node.kind === 'agent' && isDefaultAgentTitle ? 'AI Agent' : title;
         const showAgentKindLabel = node.kind === 'agent' && !isDefaultAgentTitle;
         const isSelected = selectedNodeId === node.id;
+        const isNodeExecutionPending = isExecutionPending && activeExecutionNodeId === node.id;
         const isConnectionSource = connectionDraft?.sourceId === node.id;
         const isConnectionCandidate = connectionDraft
           ? isValidConnection(connectionDraft.sourceId, node.id)
@@ -1549,6 +1799,40 @@ export function initWorkflowDesigner(): void {
               <span class="workflow-editor-node-title">${escapeHtml(title)}</span>
             </span>
           `;
+        const nodeToolbarMarkup = isSelected
+          ? `
+            <div class="workflow-node-toolbar" data-node-toolbar="${escapeHtml(node.id)}">
+              <button
+                type="button"
+                class="workflow-node-toolbar-button"
+                data-node-action="run"
+                data-node-action-id="${escapeHtml(node.id)}"
+                aria-label="Run node"
+                ${isExecutionPending ? 'disabled' : ''}
+              >
+                <i class="mdi ${isNodeExecutionPending ? 'mdi-loading mdi-spin' : 'mdi-play'}"></i>
+              </button>
+              <button
+                type="button"
+                class="workflow-node-toolbar-button"
+                data-node-action="settings"
+                data-node-action-id="${escapeHtml(node.id)}"
+                aria-label="Open node settings"
+              >
+                <i class="mdi mdi-tune-variant"></i>
+              </button>
+              <button
+                type="button"
+                class="workflow-node-toolbar-button"
+                data-node-action="delete"
+                data-node-action-id="${escapeHtml(node.id)}"
+                aria-label="Delete node"
+              >
+                <i class="mdi mdi-trash-can-outline"></i>
+              </button>
+            </div>
+          `
+          : '';
 
         return `
           <article
@@ -1556,6 +1840,7 @@ export function initWorkflowDesigner(): void {
             data-workflow-node-id="${escapeHtml(node.id)}"
             tabindex="0"
           >
+            ${nodeToolbarMarkup}
             ${connectors}
             ${cardMarkup}
             ${copyMarkup}
@@ -2067,6 +2352,30 @@ export function initWorkflowDesigner(): void {
   root.addEventListener('click', (event) => {
     const target = event.target as HTMLElement;
 
+    if (target.closest('[data-workflow-run]')) {
+      void executeDesignerRun(workflowRunUrl);
+      return;
+    }
+
+    const nodeAction = target.closest<HTMLElement>('[data-node-action]');
+    if (nodeAction?.dataset.nodeAction && nodeAction.dataset.nodeActionId) {
+      const nodeId = nodeAction.dataset.nodeActionId;
+      const action = nodeAction.dataset.nodeAction;
+
+      if (action === 'run') {
+        void executeDesignerRun(getNodeRunUrl(nodeId), { nodeId });
+        return;
+      }
+      if (action === 'settings') {
+        openNodeSettings(nodeId);
+        return;
+      }
+      if (action === 'delete') {
+        deleteNode(nodeId);
+        return;
+      }
+    }
+
     if (target.closest('[data-open-node-browser]')) {
       if (isBrowserOpen) {
         closeBrowser();
@@ -2167,6 +2476,9 @@ export function initWorkflowDesigner(): void {
     }
 
     const target = event.target as HTMLElement;
+    if (target.closest('[data-node-action]')) {
+      return;
+    }
     if (contextMenuState) {
       closeNodeContextMenu();
     }

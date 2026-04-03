@@ -13,6 +13,8 @@
     method="post"
     class="workflow-editor-screen"
     data-workflow-designer
+    data-workflow-run-url="{{ workflow_designer_run_url }}"
+    data-workflow-node-run-url-template="{{ workflow_designer_node_run_url_template }}"
   >
     {% csrf_token %}
     {% for field in form.hidden_fields %}
@@ -45,12 +47,75 @@
             <i class="mdi mdi-cog-outline"></i>
             <span class="ms-1">Settings</span>
           </a>
+          {% if can_execute %}
+            <button type="button" class="btn btn-outline-primary" data-workflow-run>
+              <i class="mdi mdi-play-circle-outline"></i>
+              <span class="ms-1">Run workflow</span>
+            </button>
+          {% endif %}
           <button type="submit" class="btn btn-primary">
             <i class="mdi mdi-content-save-outline"></i>
             <span class="ms-1">{{ submit_label }}</span>
           </button>
         </div>
       </header>
+
+      {% if can_execute %}
+        <section class="card">
+          <div class="card-header d-flex align-items-center justify-content-between gap-2">
+            <div>
+              <h2 class="card-title mb-0">Execution</h2>
+              <div class="text-secondary small mt-1">
+                Run the workflow or the selected node using the current graph on this page.
+              </div>
+            </div>
+            <span class="badge text-bg-secondary" data-workflow-execution-status>Idle</span>
+          </div>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-lg-5">
+                <label class="form-label" for="{{ run_form.input_data.id_for_label }}">Manual payload</label>
+                {{ run_form.input_data }}
+                {% if run_form.input_data.help_text %}
+                  <div class="form-hint">{{ run_form.input_data.help_text }}</div>
+                {% endif %}
+                <div class="alert alert-danger mt-3 mb-0" role="alert" data-workflow-execution-error hidden></div>
+              </div>
+              <div class="col-lg-7">
+                <div class="empty-state h-100" data-workflow-execution-empty>
+                  Run the workflow or select a node and click play to inspect the result here.
+                </div>
+                <div data-workflow-execution-result hidden>
+                  <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+                    <div>
+                      <div class="fw-semibold" data-workflow-execution-title>Workflow run</div>
+                      <div class="text-secondary small" data-workflow-execution-summary></div>
+                    </div>
+                    <span class="badge text-bg-secondary" data-workflow-execution-badge>Idle</span>
+                  </div>
+
+                  <div class="alert alert-danger mb-3" role="alert" data-workflow-execution-run-error hidden></div>
+
+                  <div class="mb-3">
+                    <div class="text-secondary mb-1">Output</div>
+                    <pre class="workflow-json-preview mb-0" data-workflow-execution-output></pre>
+                  </div>
+
+                  <div class="mb-3">
+                    <div class="text-secondary mb-1">Trace</div>
+                    <pre class="workflow-json-preview mb-0" data-workflow-execution-trace></pre>
+                  </div>
+
+                  <div>
+                    <div class="text-secondary mb-1">Context</div>
+                    <pre class="workflow-json-preview mb-0" data-workflow-execution-context></pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      {% endif %}
 
       <section class="workflow-editor-canvas-shell">
         <div class="workflow-editor-canvas" data-workflow-board>

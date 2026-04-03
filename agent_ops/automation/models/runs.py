@@ -27,6 +27,11 @@ class WorkflowRun(ChangeLoggedModel):
         on_delete=models.CASCADE,
         related_name="runs",
     )
+    workflow_version = models.ForeignKey(
+        "automation.WorkflowVersion",
+        on_delete=models.PROTECT,
+        related_name="runs",
+    )
     organization = models.ForeignKey(
         "tenancy.Organization",
         on_delete=models.CASCADE,
@@ -97,6 +102,9 @@ class WorkflowRun(ChangeLoggedModel):
         if self.workflow_id is None:
             raise ValidationError({"workflow": "A workflow run must belong to a workflow."})
 
+        if self.workflow_version_id and self.workflow_version.workflow_id != self.workflow_id:
+            raise ValidationError({"workflow_version": "Workflow version must belong to the selected workflow."})
+
         self.organization = self.workflow.organization
         self.workspace = self.workflow.workspace
         self.environment = self.workflow.environment
@@ -114,3 +122,60 @@ class WorkflowRun(ChangeLoggedModel):
             workspace=self.workspace,
             environment=self.environment,
         )
+
+
+class WorkflowStepRun(ChangeLoggedModel):
+    class StatusChoices(models.TextChoices):
+        PENDING = "pending", "Pending"
+        RUNNING = "running", "Running"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+
+    run = models.ForeignKey(
+        "automation.WorkflowRun",
+        on_delete=models.CASCADE,
+        related_name="step_runs",
+    )
+    workflow_version = models.ForeignKey(
+        "automation.WorkflowVersion",
+        on_delete=models.PROTECT,
+        related_name="step_runs",
+    )
+    sequence = models.PositiveIntegerField()
+    node_id = models.CharField(max_length=255)
+    node_kind = models.CharField(max_length=50)
+    node_type = models.CharField(max_length=255, blank=True)
+    label = models.CharField(max_length=255)
+    status = models.CharField(
+        max_length=20,
+        choices=StatusChoices.choices,
+        default=StatusChoices.PENDING,
+    )
+    input_data = models.JSONField(default=dict, blank=True)
+    output_data = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True)
+    finished_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ("run_id", "sequence")
+        indexes = (
+            models.Index(fields=("run", "sequence")),
+            models.Index(fields=("run", "node_id")),
+        )
+        constraints = (
+            models.UniqueConstraint(
+                fields=("run", "sequence"),
+                name="automation_workflowsteprun_unique_run_sequence",
+            ),
+        )
+
+    def __str__(self) -> str:
+        return f"{self.run} step {self.sequence}: {self.label}"
+
+    def clean(self):
+        super().clean()
+        if self.run.workflow_id != self.workflow_version.workflow_id:
+            raise ValidationError({"workflow_version": "Step run version must match the parent workflow run."})
+
+    def get_changelog_related_object(self):
+        return self.run.get_changelog_related_object()
