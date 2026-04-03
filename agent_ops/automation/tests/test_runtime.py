@@ -411,6 +411,57 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.context_data["draft"], "T-42")
         self.assertEqual(run.output_data["response"], "T-42")
 
+    def test_execute_workflow_allows_expression_mode_for_input_path_fields(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Expression response value path",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "set-1",
+                        "kind": "tool",
+                        "type": "n8n-nodes-base.set",
+                        "label": "Set draft",
+                        "config": {
+                            "output_key": "draft.result",
+                            "value": "resolved",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "{{ trigger.payload.destination }}",
+                            "__input_modes": {
+                                "value_path": "expression",
+                            },
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "set-1"},
+                    {"id": "edge-2", "source": "set-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow, input_data={"destination": "draft.result"})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.context_data["draft"]["result"], "resolved")
+        self.assertEqual(run.output_data["response"], "resolved")
+
     def test_execute_workflow_persists_workflow_version_and_step_runs(self):
         workflow = Workflow.objects.create(
             environment=self.environment,

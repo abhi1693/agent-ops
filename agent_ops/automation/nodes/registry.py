@@ -258,9 +258,7 @@ def normalize_workflow_node_config(
         for field in node_definition.fields:
             if field.type not in {"text", "textarea"}:
                 continue
-            if field.binding == "path" or field.ui_group == "result":
-                continue
-            if field.ui_group != "input" and field.binding != "template":
+            if field.ui_group == "result":
                 continue
             allowed_modes_by_field[field.key] = "expression" if field.binding == "template" else "static"
 

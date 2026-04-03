@@ -240,8 +240,7 @@ export function supportsTemplateFieldInputMode(
 ): boolean {
   return (
     (field.type === 'text' || field.type === 'textarea') &&
-    getTemplateFieldBinding(field) !== 'path' &&
-    (field.ui_group === 'input' || field.binding === 'template')
+    getTemplateFieldUiGroup(field) !== 'result'
   );
 }
 
