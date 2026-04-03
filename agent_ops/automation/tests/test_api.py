@@ -171,6 +171,12 @@ class WorkflowAPITests(TestCase):
         self.assertIn("core.manual_trigger", node_types)
         self.assertIn("github.trigger.webhook", node_types)
         self.assertIn("openai.model.chat", node_types)
+        self.assertIn("deepseek.model.chat", node_types)
+        self.assertIn("groq.model.chat", node_types)
+        self.assertIn("mistral.model.chat", node_types)
+        self.assertIn("openrouter.model.chat", node_types)
+        self.assertIn("xai.model.chat", node_types)
+        self.assertIn("fireworks.model.chat", node_types)
 
     def test_workflow_connections_endpoint_is_scope_filtered(self):
         WorkflowConnection.objects.create(

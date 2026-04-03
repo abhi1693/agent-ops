@@ -22,10 +22,6 @@ type WorkflowPaletteSectionAccumulator = {
   id: WorkflowNodeCatalogSection;
   label: string;
 };
-
-const CHAT_MODEL_NODE_TYPES = new Set<string>([
-  'openai.model.chat',
-]);
 const WORKFLOW_CATALOG_SECTION_ORDER: WorkflowNodeCatalogSection[] = [
   'triggers',
   'flow',
@@ -125,7 +121,7 @@ function enhanceDefinition(
 }
 
 function isChatModelDefinition(definition: WorkflowNodeDefinition): boolean {
-  return Boolean(definition.is_model) || CHAT_MODEL_NODE_TYPES.has(definition.type);
+  return Boolean(definition.is_model);
 }
 
 function normalizeCatalogSection(definition: WorkflowNodeDefinition): WorkflowNodeCatalogSection {

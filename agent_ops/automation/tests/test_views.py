@@ -283,6 +283,12 @@ class WorkflowViewTests(TestCase):
         self.assertContains(response, '"app_label": "Prometheus"')
         self.assertContains(response, '"app_label": "Elasticsearch"')
         self.assertContains(response, '"app_label": "OpenAI"')
+        self.assertContains(response, '"app_label": "DeepSeek"')
+        self.assertContains(response, '"app_label": "Groq"')
+        self.assertContains(response, '"app_label": "Mistral"')
+        self.assertContains(response, '"app_label": "OpenRouter"')
+        self.assertContains(response, '"app_label": "xAI"')
+        self.assertContains(response, '"app_label": "Fireworks"')
         self.assertContains(response, '"type": "core.manual_trigger"')
         self.assertContains(response, '"type": "core.schedule_trigger"')
         self.assertContains(response, '"type": "core.agent"')
@@ -295,12 +301,66 @@ class WorkflowViewTests(TestCase):
         self.assertContains(response, '"type": "prometheus.action.query"')
         self.assertContains(response, '"type": "elasticsearch.action.search"')
         self.assertContains(response, '"type": "openai.model.chat"')
+        self.assertContains(response, '"type": "deepseek.model.chat"')
+        self.assertContains(response, '"type": "groq.model.chat"')
+        self.assertContains(response, '"type": "mistral.model.chat"')
+        self.assertContains(response, '"type": "openrouter.model.chat"')
+        self.assertContains(response, '"type": "xai.model.chat"')
+        self.assertContains(response, '"type": "fireworks.model.chat"')
         self.assertContains(response, '"label": "New task"')
         self.assertContains(response, '"label": "Return result"')
         self.assertContains(response, 'data-workflow-run')
         self.assertContains(response, 'data-workflow-execution-status')
         self.assertContains(response, reverse("workflow_designer_run", args=[self.workflow.pk]))
         self.assertContains(response, reverse("workflow_designer_node_run", args=[self.workflow.pk, "__node_id__"]))
+
+    def test_workflow_designer_accepts_native_model_provider_nodes(self):
+        self.workflow.definition = {
+            "nodes": [
+                {
+                    "id": "trigger-1",
+                    "kind": "trigger",
+                    "type": "core.manual_trigger",
+                    "label": "Manual trigger",
+                    "position": {"x": 48, "y": 56},
+                },
+                {
+                    "id": "agent-1",
+                    "kind": "agent",
+                    "type": "core.agent",
+                    "label": "AI Agent",
+                    "position": {"x": 336, "y": 56},
+                },
+                {
+                    "id": "model-1",
+                    "kind": "tool",
+                    "type": "deepseek.model.chat",
+                    "label": "DeepSeek",
+                    "config": {
+                        "base_url": "https://api.deepseek.com/v1",
+                        "model": "deepseek-chat",
+                    },
+                    "position": {"x": 336, "y": 224},
+                },
+            ],
+            "edges": [
+                {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                {
+                    "id": "edge-2",
+                    "source": "model-1",
+                    "sourcePort": "ai_languageModel",
+                    "target": "agent-1",
+                    "targetPort": "ai_languageModel",
+                },
+            ],
+        }
+        self.workflow.save(update_fields=("definition",))
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("workflow_designer", args=[self.workflow.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '"type": "deepseek.model.chat"')
 
     def test_workflow_designer_redirects_unsupported_workflow_to_detail(self):
         self.workflow.definition = _unsupported_definition("Unsupported task")

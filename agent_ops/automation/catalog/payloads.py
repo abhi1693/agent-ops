@@ -5,6 +5,7 @@ from typing import Any
 from automation.catalog.capabilities import CAPABILITY_AGENT_MODEL
 from automation.catalog.definitions import CatalogNodeDefinition, ParameterDefinition, ParameterOptionDefinition
 from automation.catalog.services import get_workflow_catalog
+from automation.nodes.base import WorkflowNodeDefinition
 
 
 def _stringify_option_value(value: Any) -> str:
@@ -162,7 +163,47 @@ def serialize_catalog_node_for_designer(node: CatalogNodeDefinition) -> dict[str
     return payload
 
 
+def _ui_kind_for_native_node(node: WorkflowNodeDefinition) -> str:
+    if node.kind == "trigger":
+        return "trigger"
+    if node.kind == "agent":
+        return "agent"
+    if node.kind == "response":
+        return "response"
+    if node.kind == "condition":
+        return "condition"
+    return "tool"
+
+
+def serialize_native_node_for_designer(node: WorkflowNodeDefinition) -> dict[str, Any]:
+    ui_kind = _ui_kind_for_native_node(node)
+    payload = {
+        "app_description": node.app_description,
+        "app_icon": node.app_icon,
+        "app_id": node.app_id,
+        "app_label": node.app_label,
+        "capabilities": [CAPABILITY_AGENT_MODEL] if node.type.endswith(".model.chat") else [],
+        "catalog_section": node.catalog_section,
+        "category": _category_for_ui_kind(ui_kind),
+        "config": node.config,
+        "connection_type": None,
+        "description": node.description,
+        "fields": [field.serialize() for field in node.fields],
+        "icon": node.icon,
+        "kind": ui_kind,
+        "label": node.display_name,
+        "tags": list(node.categories),
+        "type": node.type,
+        "typeVersion": 1,
+    }
+    if node.type.endswith(".model.chat"):
+        payload["is_model"] = True
+    return payload
+
+
 def build_workflow_catalog_payload() -> dict[str, list[dict[str, Any]]]:
+    from automation.nodes import WORKFLOW_NODE_DEFINITIONS
+
     registry = get_workflow_catalog()
     ordered_nodes: list[CatalogNodeDefinition] = [
         *registry["core_nodes"].values(),
@@ -172,6 +213,14 @@ def build_workflow_catalog_payload() -> dict[str, list[dict[str, Any]]]:
             for node in app.nodes
         ),
     ]
+    native_nodes = [
+        node
+        for node in WORKFLOW_NODE_DEFINITIONS
+        if node.type not in registry["node_types"]
+    ]
     return {
-        "definitions": [serialize_catalog_node_for_designer(node) for node in ordered_nodes],
+        "definitions": [
+            *[serialize_catalog_node_for_designer(node) for node in ordered_nodes],
+            *[serialize_native_node_for_designer(node) for node in native_nodes],
+        ],
     }

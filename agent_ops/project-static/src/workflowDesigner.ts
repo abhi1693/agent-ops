@@ -8,13 +8,29 @@ import {
   NODE_WIDTH,
   SURFACE_PADDING,
 } from './workflowDesigner/constants';
+import {
+  getBrowserElements,
+  getCanvasElements,
+  getExecutionElements,
+} from './workflowDesigner/dom';
+import {
+  renderPaletteDefinitions,
+  renderPaletteSections,
+} from './workflowDesigner/panels/browserPanel';
+import {
+  renderSettingsIdentitySection,
+  renderSettingsOverviewSection,
+  renderSettingsSection,
+} from './workflowDesigner/panels/settingsPanel';
 import { buildNodeRegistry, getAvailablePaletteSections } from './workflowDesigner/registry/nodeRegistry';
 import { normalizeWorkflowDefinition, serializeWorkflowDefinition } from './workflowDesigner/schema/workflowSchema';
+import { createGraphStore } from './workflowDesigner/state/graphStore';
 import type {
   WorkflowCatalogPayload,
   WorkflowConnection,
   WorkflowDefinition,
   WorkflowNodeCatalogSection,
+  WorkflowNodeKind,
   WorkflowNode,
   WorkflowNodeDefinition,
   WorkflowNodeTemplateField,
@@ -41,46 +57,7 @@ import {
   supportsTemplateFieldInputMode,
   WORKFLOW_NODE_INPUT_MODES_KEY,
 } from './workflowDesigner/utils';
-
-type BrowserElements = {
-  browser: HTMLElement;
-  browserContent: HTMLElement;
-  browserDescription: HTMLElement;
-  browserEmpty: HTMLElement;
-  browserTitle: HTMLElement;
-  openButton: HTMLButtonElement;
-  searchInput: HTMLInputElement;
-};
-
-type CanvasElements = {
-  board: HTMLElement;
-  definitionInput: HTMLInputElement | HTMLTextAreaElement;
-  edgeControls: HTMLElement;
-  edgeLayer: SVGSVGElement;
-  emptyState: HTMLElement;
-  nodeLayer: HTMLElement;
-  nodeMenu: HTMLElement;
-  settingsDescription: HTMLElement;
-  settingsFields: HTMLElement;
-  settingsPanel: HTMLElement;
-  settingsTitle: HTMLElement;
-};
-
-type ExecutionElements = {
-  error: HTMLElement;
-  nodeRunButton: HTMLButtonElement | null;
-  result: HTMLElement;
-  resultBadge: HTMLElement;
-  resultContext: HTMLElement;
-  resultEmpty: HTMLElement;
-  resultError: HTMLElement;
-  resultOutput: HTMLElement;
-  resultSummary: HTMLElement;
-  resultTitle: HTMLElement;
-  resultTrace: HTMLElement;
-  runButton: HTMLButtonElement;
-  status: HTMLElement;
-};
+import { createViewportController } from './workflowDesigner/viewport/controller';
 
 type ConnectorSide = 'top' | 'right' | 'bottom' | 'left';
 type AgentAuxiliaryPortId = 'ai_languageModel' | 'ai_tool';
@@ -89,6 +66,13 @@ type DragState = {
   nodeId: string;
   offsetX: number;
   offsetY: number;
+  pointerId: number;
+};
+
+type PanState = {
+  didMove: boolean;
+  lastClientX: number;
+  lastClientY: number;
   pointerId: number;
 };
 
@@ -118,6 +102,33 @@ type ContextMenuState = {
   x: number;
   y: number;
 };
+
+type NextStepCategoryId = 'ai' | 'data' | 'flow' | 'core';
+
+type BrowserView =
+  | {
+      kind: 'next-step-root';
+    }
+  | {
+      backTo?: 'next-step-root';
+      kind: 'trigger-root';
+    }
+  | {
+      backTo: 'next-step-root' | 'trigger-root';
+      kind: 'trigger-apps';
+    }
+  | {
+      appId: string;
+      backTo: 'app-actions' | 'trigger-apps';
+      kind: 'app-details';
+    }
+  | {
+      category: NextStepCategoryId;
+      kind: 'category-details';
+    }
+  | {
+      kind: 'app-actions';
+    };
 
 type Point = {
   x: number;
@@ -178,21 +189,22 @@ const NODE_CONTEXT_MENU_HEIGHT = 142;
 const NODE_CONTEXT_MENU_MARGIN = 12;
 const NODE_CONTEXT_MENU_OFFSET_X = 10;
 const NODE_CONTEXT_MENU_OFFSET_Y = 6;
-const AGENT_LANGUAGE_MODEL_NODE_TYPES = new Set<string>([
-  'openai.model.chat',
-]);
 const TERMINAL_RUN_STATUSES = new Set(['succeeded', 'failed']);
 
 function isTerminalRunStatus(status: string): boolean {
   return TERMINAL_RUN_STATUSES.has(status);
 }
 
-function isAgentLanguageModelNodeType(nodeType: string | null | undefined): boolean {
-  return Boolean(nodeType && AGENT_LANGUAGE_MODEL_NODE_TYPES.has(nodeType));
+function isAgentLanguageModelDefinition(
+  definition: Pick<WorkflowNodeDefinition, 'is_model'> | null | undefined,
+): boolean {
+  return Boolean(definition?.is_model);
 }
 
-function isAgentToolCompatibleNode(definition: Pick<WorkflowNodeDefinition, 'kind' | 'type'>): boolean {
-  return definition.kind === 'tool' && !isAgentLanguageModelNodeType(definition.type);
+function isAgentToolCompatibleNode(
+  definition: Pick<WorkflowNodeDefinition, 'is_model' | 'kind'>,
+): boolean {
+  return definition.kind === 'tool' && !isAgentLanguageModelDefinition(definition);
 }
 
 function getCatalogSectionLabel(
@@ -212,130 +224,32 @@ function getCatalogSectionLabel(
   }
 }
 
-function getBrowserElements(root: ParentNode): BrowserElements | null {
-  const browser = root.querySelector<HTMLElement>('[data-node-browser]');
-  const browserContent = root.querySelector<HTMLElement>('[data-node-browser-content]');
-  const browserDescription = root.querySelector<HTMLElement>('[data-node-browser-description]');
-  const browserEmpty = root.querySelector<HTMLElement>('[data-node-browser-empty]');
-  const browserTitle = root.querySelector<HTMLElement>('[data-node-browser-title]');
-  const openButton = root.querySelector<HTMLButtonElement>('[data-open-node-browser]');
-  const searchInput = root.querySelector<HTMLInputElement>('[data-node-browser-search]');
-
-  if (
-    !browser ||
-    !browserContent ||
-    !browserDescription ||
-    !browserEmpty ||
-    !browserTitle ||
-    !openButton ||
-    !searchInput
-  ) {
-    return null;
-  }
-
-  return {
-    browser,
-    browserContent,
-    browserDescription,
-    browserEmpty,
-    browserTitle,
-    openButton,
-    searchInput,
-  };
-}
-
-function getCanvasElements(root: ParentNode): CanvasElements | null {
-  const board = root.querySelector<HTMLElement>('[data-workflow-board]');
-  const definitionInput = root.querySelector<HTMLInputElement | HTMLTextAreaElement>('#id_definition');
-  const edgeControls = root.querySelector<HTMLElement>('[data-workflow-edge-controls]');
-  const edgeLayer = root.querySelector<SVGSVGElement>('[data-workflow-edge-layer]');
-  const emptyState = root.querySelector<HTMLElement>('[data-workflow-empty-state]');
-  const nodeLayer = root.querySelector<HTMLElement>('[data-workflow-node-layer]');
-  const nodeMenu = root.querySelector<HTMLElement>('[data-workflow-node-menu]');
-  const settingsDescription = root.querySelector<HTMLElement>('[data-workflow-settings-description]');
-  const settingsFields = root.querySelector<HTMLElement>('[data-workflow-settings-fields]');
-  const settingsPanel = root.querySelector<HTMLElement>('[data-workflow-settings-panel]');
-  const settingsTitle = root.querySelector<HTMLElement>('[data-workflow-settings-title]');
-
-  if (
-    !board ||
-    !definitionInput ||
-    !edgeControls ||
-    !edgeLayer ||
-    !emptyState ||
-    !nodeLayer ||
-    !nodeMenu ||
-    !settingsDescription ||
-    !settingsFields ||
-    !settingsPanel ||
-    !settingsTitle
-  ) {
-    return null;
-  }
-
-  return {
-    board,
-    definitionInput,
-    edgeControls,
-    edgeLayer,
-    emptyState,
-    nodeLayer,
-    nodeMenu,
-    settingsDescription,
-    settingsFields,
-    settingsPanel,
-    settingsTitle,
-  };
-}
-
-function getExecutionElements(root: ParentNode): ExecutionElements | null {
-  const nodeRunButton = root.querySelector<HTMLButtonElement>('[data-workflow-run-selected-node]');
-  const runButton = root.querySelector<HTMLButtonElement>('[data-workflow-run]');
-  const error = root.querySelector<HTMLElement>('[data-workflow-execution-error]');
-  const result = root.querySelector<HTMLElement>('[data-workflow-execution-result]');
-  const resultBadge = root.querySelector<HTMLElement>('[data-workflow-execution-badge]');
-  const resultContext = root.querySelector<HTMLElement>('[data-workflow-execution-context]');
-  const resultEmpty = root.querySelector<HTMLElement>('[data-workflow-execution-empty]');
-  const resultError = root.querySelector<HTMLElement>('[data-workflow-execution-run-error]');
-  const resultOutput = root.querySelector<HTMLElement>('[data-workflow-execution-output]');
-  const resultSummary = root.querySelector<HTMLElement>('[data-workflow-execution-summary]');
-  const resultTitle = root.querySelector<HTMLElement>('[data-workflow-execution-title]');
-  const resultTrace = root.querySelector<HTMLElement>('[data-workflow-execution-trace]');
-  const status = root.querySelector<HTMLElement>('[data-workflow-execution-status]');
-
-  if (
-    !runButton ||
-    !error ||
-    !result ||
-    !resultBadge ||
-    !resultContext ||
-    !resultEmpty ||
-    !resultError ||
-    !resultOutput ||
-    !resultSummary ||
-    !resultTitle ||
-    !resultTrace ||
-    !status
-  ) {
-    return null;
-  }
-
-  return {
-    error,
-    nodeRunButton,
-    result,
-    resultBadge,
-    resultContext,
-    resultEmpty,
-    resultError,
-    resultOutput,
-    resultSummary,
-    resultTitle,
-    resultTrace,
-    runButton,
-    status,
-  };
-}
+const NEXT_STEP_CATEGORY_META: Record<NextStepCategoryId, {
+  description: string;
+  icon: string;
+  label: string;
+}> = {
+  ai: {
+    description: 'Build autonomous agents, summarize or search documents, etc.',
+    icon: 'mdi-robot-outline',
+    label: 'AI',
+  },
+  data: {
+    description: 'Manipulate, filter or convert data',
+    icon: 'mdi-pencil-outline',
+    label: 'Data transformation',
+  },
+  flow: {
+    description: 'Branch, merge or control the flow.',
+    icon: 'mdi-source-branch',
+    label: 'Flow',
+  },
+  core: {
+    description: 'Run built-in workflow steps.',
+    icon: 'mdi-toolbox-outline',
+    label: 'Core',
+  },
+};
 
 function parsePersistedDefinition(
   definitionInput: HTMLInputElement | HTMLTextAreaElement,
@@ -491,85 +405,87 @@ function getRealAppLabel(definition: WorkflowNodeDefinition | undefined): string
   return getRealAppId(definition) ? definition.app_label?.trim() ?? '' : '';
 }
 
-function renderPaletteDefinitions(
-  definitions: WorkflowNodeDefinition[],
-): string {
-  return definitions
-    .map((definition) => {
-      const icon = definition.icon ?? 'mdi-vector-square';
-      const appId = getRealAppId(definition);
-      const isModelProvider = isAgentLanguageModelNodeType(definition.type);
-      const sectionLabel = getCatalogSectionLabel(definition.catalog_section);
-      const meta = isModelProvider
-        ? 'Model provider'
-        : sectionLabel || formatKindLabel(definition.kind) || definition.kind;
-      const description = isModelProvider
-        ? definition.app_description || definition.description
-        : definition.description;
-      const iconMarkup = isModelProvider
-        ? `<span class="workflow-node-browser-item-monogram">${escapeHtml(
-            getProviderMonogram(definition.label, appId),
-          )}</span>`
-        : `<i class="mdi ${escapeHtml(icon)}"></i>`;
+function renderBrowserIcon(params: {
+  appId?: string;
+  icon?: string | null;
+  isModelProvider?: boolean;
+  label: string;
+}): string {
+  if (params.isModelProvider) {
+    return `<span class="workflow-node-browser-item-monogram">${escapeHtml(
+      getProviderMonogram(params.label, params.appId),
+    )}</span>`;
+  }
 
-      return `
-        <button
-          type="button"
-          class="workflow-node-browser-item"
-          data-node-browser-item="${escapeHtml(definition.type)}"
-          data-app-id="${escapeHtml(appId)}"
-          data-model-provider="${isModelProvider ? 'true' : 'false'}"
-          aria-label="${escapeHtml(definition.label)}"
-        >
-          <span class="workflow-node-browser-item-icon${isModelProvider ? ' is-model-provider' : ''}">
-            ${iconMarkup}
-          </span>
-          <span class="workflow-node-browser-item-copy">
-            <span class="workflow-node-browser-item-title">${escapeHtml(definition.label)}</span>
-            <span class="workflow-node-browser-item-description">${escapeHtml(description)}</span>
-            <span class="workflow-node-browser-item-meta">${escapeHtml(meta)}</span>
-          </span>
-        </button>
-      `;
-    })
-    .join('');
+  if (params.icon && params.icon.trim().length > 0) {
+    return `<i class="mdi ${escapeHtml(params.icon)}"></i>`;
+  }
+
+  return `<span class="workflow-node-browser-item-monogram">${escapeHtml(
+    getProviderMonogram(params.label, params.appId),
+  )}</span>`;
 }
 
-function renderPaletteSections(sections: WorkflowPaletteSection[], query: string): string {
-  const filteredSections = sections
-    .map((section) => ({
-      ...section,
-      definitions: filterNodeDefinitions(section.definitions, query),
-    }))
-    .filter((section) => section.definitions.length > 0);
+function renderBrowserListItem(params: {
+  action: 'navigate' | 'select';
+  actionValue: string;
+  appId?: string;
+  description: string;
+  icon?: string | null;
+  isModelProvider?: boolean;
+  label: string;
+  meta?: string;
+}): string {
+  const actionAttributes = params.action === 'select'
+    ? `data-node-browser-item="${escapeHtml(params.actionValue)}"`
+    : `data-node-browser-nav="${escapeHtml(params.actionValue)}"`;
+  const trailingMarkup = params.action === 'navigate'
+    ? `
+        <span class="workflow-node-browser-item-chevron" aria-hidden="true">
+          <i class="mdi mdi-chevron-right"></i>
+        </span>
+      `
+    : '';
 
-  return filteredSections
-    .map((section) => `
-      <section class="workflow-node-browser-section" data-app-id="${escapeHtml(section.id)}">
-        <div class="workflow-node-browser-section-head">
-          <span class="workflow-node-browser-section-badge" aria-hidden="true">
-            ${
-              section.icon
-                ? `<i class="mdi ${escapeHtml(section.icon)}"></i>`
-                : escapeHtml(getProviderMonogram(section.label, section.id))
-            }
-          </span>
-          <span class="workflow-node-browser-section-copy">
-            <span class="workflow-node-browser-section-title">${escapeHtml(section.label)}</span>
-            ${
-              section.description
-                ? `<span class="workflow-node-browser-section-description">${escapeHtml(section.description)}</span>`
-                : ''
-            }
-          </span>
-        </div>
-        ${
-          section.definitions.length > 0
-            ? `<div class="workflow-node-browser-grid">${renderPaletteDefinitions(section.definitions)}</div>`
-            : ''
-        }
-      </section>
-    `)
+  return `
+    <button
+      type="button"
+      class="workflow-node-browser-item${params.action === 'navigate' ? ' is-navigation' : ''}"
+      ${actionAttributes}
+      ${params.appId ? `data-app-id="${escapeHtml(params.appId)}"` : ''}
+      aria-label="${escapeHtml(params.label)}"
+    >
+      <span class="workflow-node-browser-item-icon${params.isModelProvider ? ' is-model-provider' : ''}">
+        ${renderBrowserIcon({
+          appId: params.appId,
+          icon: params.icon,
+          isModelProvider: params.isModelProvider,
+          label: params.label,
+        })}
+      </span>
+      <span class="workflow-node-browser-item-copy">
+        <span class="workflow-node-browser-item-title">${escapeHtml(params.label)}</span>
+        <span class="workflow-node-browser-item-description">${escapeHtml(params.description)}</span>
+        ${params.meta ? `<span class="workflow-node-browser-item-meta">${escapeHtml(params.meta)}</span>` : ''}
+      </span>
+      ${trailingMarkup}
+    </button>
+  `;
+}
+
+function renderBrowserDefinitionList(definitions: WorkflowNodeDefinition[]): string {
+  return definitions
+    .map((definition) =>
+      renderBrowserListItem({
+        action: 'select',
+        actionValue: definition.type,
+        appId: getRealAppId(definition),
+        description: definition.description,
+        icon: definition.icon,
+        isModelProvider: isAgentLanguageModelDefinition(definition),
+        label: definition.label,
+        meta: definition.catalog_section ? getCatalogSectionLabel(definition.catalog_section) ?? undefined : undefined,
+      }))
     .join('');
 }
 
@@ -598,6 +514,33 @@ function clampNodePosition(
   return {
     x: clamp(Math.round(position.x), CANVAS_EDGE_MARGIN, bounds.maxX),
     y: clamp(Math.round(position.y), CANVAS_EDGE_MARGIN, bounds.maxY),
+  };
+}
+
+function getGraphBounds(nodes: WorkflowNode[]): {
+  height: number;
+  maxX: number;
+  maxY: number;
+  minX: number;
+  minY: number;
+  width: number;
+} | null {
+  if (nodes.length === 0) {
+    return null;
+  }
+
+  const minX = Math.min(...nodes.map((node) => node.position.x));
+  const minY = Math.min(...nodes.map((node) => node.position.y));
+  const maxX = Math.max(...nodes.map((node) => node.position.x + getNodeRenderWidth(node)));
+  const maxY = Math.max(...nodes.map((node) => node.position.y + getNodeRenderHeight(node)));
+
+  return {
+    height: maxY - minY,
+    maxX,
+    maxY,
+    minX,
+    minY,
+    width: maxX - minX,
   };
 }
 
@@ -827,13 +770,14 @@ function getNodeCardHeight(node: Pick<WorkflowNode, 'kind'> | null | undefined):
 
 function getCompatibleAgentAuxiliaryPort(
   sourceNode: WorkflowNode | undefined,
+  sourceDefinition: WorkflowNodeDefinition | undefined,
   targetNode: WorkflowNode | undefined,
 ): AgentAuxiliaryPortId | null {
   if (!sourceNode || !targetNode || targetNode.kind !== 'agent') {
     return null;
   }
 
-  if (isAgentLanguageModelNodeType(sourceNode.type)) {
+  if (isAgentLanguageModelDefinition(sourceDefinition)) {
     return 'ai_languageModel';
   }
   if (sourceNode.kind === 'tool') {
@@ -859,7 +803,7 @@ function getAgentAuxiliaryAllowedNodeTypes(
   return definitions
     .filter((definition) =>
       portId === 'ai_languageModel'
-        ? isAgentLanguageModelNodeType(definition.type)
+        ? isAgentLanguageModelDefinition(definition)
         : isAgentToolCompatibleNode(definition),
     )
     .map((definition) => definition.type);
@@ -1090,18 +1034,44 @@ export function initWorkflowDesigner(): void {
     nodes: [],
   });
   const persistedDefinition = parsePersistedDefinition(canvas.definitionInput) ?? fallbackDefinition;
-  const workflowDefinition = normalizeWorkflowDefinition(persistedDefinition);
+  const graphStore = createGraphStore({
+    definition: normalizeWorkflowDefinition(persistedDefinition),
+    persist(definition) {
+      canvas.definitionInput.value = JSON.stringify(serializeWorkflowDefinition(definition));
+    },
+  });
+  const workflowDefinition = graphStore.definition;
   const workflowCatalog = parseJsonScript<WorkflowCatalogPayload>('workflow-catalog-data', {
     definitions: [],
   });
   const workflowConnections = parseJsonScript<WorkflowConnection[]>('workflow-connections-data', []);
   const nodeRegistry = buildNodeRegistry(workflowCatalog.definitions, workflowConnections);
+  const viewportController = createViewportController({
+    board: canvas.board,
+    surface: canvas.surface,
+    viewport: {
+      x: workflowDefinition.viewport?.x ?? 0,
+      y: workflowDefinition.viewport?.y ?? 0,
+      zoom: workflowDefinition.viewport?.zoom ?? 1,
+    },
+    onChange(viewport) {
+      graphStore.setViewport(viewport);
+      graphStore.commit();
+      renderEdgeControls();
+      renderNodeContextMenu();
+      renderCanvasHud();
+    },
+  });
 
   let isBrowserOpen = workflowDefinition.nodes.length === 0;
+  let browserView: BrowserView = workflowDefinition.nodes.length === 0
+    ? { kind: 'trigger-root' }
+    : { kind: 'next-step-root' };
   let searchQuery = '';
   let selectedNodeId: string | null = null;
   let settingsNodeId: string | null = null;
   let dragState: DragState | null = null;
+  let panState: PanState | null = null;
   let connectionDraft: ConnectionDraft | null = null;
   let contextMenuState: ContextMenuState | null = null;
   let hoveredEdgeId: string | null = null;
@@ -1113,15 +1083,11 @@ export function initWorkflowDesigner(): void {
   let executionSucceededNodeId: string | null = null;
 
   function syncDefinitionInput(): void {
-    canvas.definitionInput.value = JSON.stringify(serializeWorkflowDefinition(workflowDefinition));
+    graphStore.commit();
   }
 
   function getNode(nodeId: string | null): WorkflowNode | undefined {
-    if (!nodeId) {
-      return undefined;
-    }
-
-    return workflowDefinition.nodes.find((node) => node.id === nodeId);
+    return graphStore.getNode(nodeId);
   }
 
   function getInitialExecutionNodeId(nodeId: string | null): string | null {
@@ -1410,7 +1376,8 @@ export function initWorkflowDesigner(): void {
       return false;
     }
 
-    const compatibleAuxiliaryPort = getCompatibleAgentAuxiliaryPort(sourceNode, targetNode);
+    const sourceNodeDefinition = getNodeDefinition(sourceNode);
+    const compatibleAuxiliaryPort = getCompatibleAgentAuxiliaryPort(sourceNode, sourceNodeDefinition, targetNode);
     if (targetPort) {
       if (compatibleAuxiliaryPort !== targetPort) {
         return false;
@@ -1446,12 +1413,7 @@ export function initWorkflowDesigner(): void {
   }
 
   function getPointFromClient(clientX: number, clientY: number): Point {
-    const boardRect = canvas.board.getBoundingClientRect();
-
-    return {
-      x: clientX - boardRect.left + canvas.board.scrollLeft,
-      y: clientY - boardRect.top + canvas.board.scrollTop,
-    };
+    return viewportController.screenToWorld(clientX, clientY);
   }
 
   function getHoveredTarget(
@@ -1535,9 +1497,9 @@ export function initWorkflowDesigner(): void {
       ),
     );
 
-    workflowDefinition.edges = workflowDefinition.edges.filter((edge) => edge.source !== node.id);
+    graphStore.replaceEdges(workflowDefinition.edges.filter((edge) => edge.source !== node.id));
     configuredTargetIds.forEach((targetId) => {
-      workflowDefinition.edges.push({
+      graphStore.addEdge({
         id: createId('edge'),
         source: node.id,
         target: targetId,
@@ -1826,6 +1788,8 @@ export function initWorkflowDesigner(): void {
     const activeNodeDefinition = nodeDefinition;
     const visibleFields = activeNodeDefinition.fields.filter((field) => isTemplateFieldVisible(activeSettingsNode, field));
     const availableInputPaths = getAvailableInputPaths(activeSettingsNode.id);
+    const renderSettingsSectionBody = (fields: WorkflowNodeTemplateField[]): string =>
+      fields.map((field) => renderSettingsField(field)).join('');
 
     function renderSettingsField(field: WorkflowNodeTemplateField): string {
         const fieldId = `workflow-node-setting-${activeSettingsNode.id}-${field.key}`;
@@ -1972,28 +1936,6 @@ export function initWorkflowDesigner(): void {
         `;
     }
 
-    function renderSettingsSection(params: {
-      description: string;
-      fields: WorkflowNodeTemplateField[];
-      title: string;
-    }): string {
-      if (params.fields.length === 0) {
-        return '';
-      }
-
-      return `
-        <section class="workflow-editor-settings-section">
-          <div class="workflow-editor-settings-section-head">
-            <div class="workflow-editor-settings-section-title">${escapeHtml(params.title)}</div>
-            <div class="workflow-editor-settings-section-description">${escapeHtml(params.description)}</div>
-          </div>
-          <div class="workflow-editor-settings-section-body">
-            ${params.fields.map((field) => renderSettingsField(field)).join('')}
-          </div>
-        </section>
-      `;
-    }
-
     const inputFields = visibleFields.filter((field) => getTemplateFieldUiGroup(field) === 'input');
     const resultFields = visibleFields.filter((field) => getTemplateFieldUiGroup(field) === 'result');
     const advancedFields = visibleFields.filter((field) => getTemplateFieldUiGroup(field) === 'advanced');
@@ -2001,17 +1943,17 @@ export function initWorkflowDesigner(): void {
       renderSettingsSection({
         title: 'Pass data in',
         description: 'Choose Static or Expression for each input, then map trigger payload and earlier node outputs.',
-        fields: inputFields,
+        body: renderSettingsSectionBody(inputFields),
       }),
       renderSettingsSection({
         title: 'Save result',
         description: 'Choose where this node should read or write workflow context values.',
-        fields: resultFields,
+        body: renderSettingsSectionBody(resultFields),
       }),
       renderSettingsSection({
         title: 'Other settings',
         description: 'Provider, routing, and runtime controls for this node.',
-        fields: advancedFields,
+        body: renderSettingsSectionBody(advancedFields),
       }),
     ]
       .filter((sectionMarkup) => sectionMarkup.length > 0)
@@ -2022,42 +1964,32 @@ export function initWorkflowDesigner(): void {
     canvas.settingsTitle.textContent = settingsNode.label || nodeDefinition.label;
     canvas.settingsDescription.textContent = description;
     canvas.settingsFields.innerHTML = `
-      <section class="workflow-editor-settings-section">
-        <div class="workflow-editor-settings-section-head">
-          <div class="workflow-editor-settings-section-title">Identity</div>
-          <div class="workflow-editor-settings-section-description">Rename the node so the graph reads clearly.</div>
-        </div>
-        <div class="workflow-editor-settings-section-body">
-          <div class="workflow-editor-settings-group">
-            <label class="form-label" for="workflow-node-label-${escapeHtml(settingsNode.id)}">Node name</label>
-            <input
-              id="workflow-node-label-${escapeHtml(settingsNode.id)}"
-              type="text"
-              class="form-control workflow-editor-settings-control"
-              value="${escapeHtml(settingsNode.label)}"
-              data-node-setting-label
-            >
-          </div>
-        </div>
-      </section>
+      ${renderSettingsOverviewSection({
+        nodeDefinitionLabel: nodeDefinition.label,
+        nodeId: settingsNode.id,
+      })}
+      ${renderSettingsIdentitySection({
+        nodeId: settingsNode.id,
+        nodeLabel: settingsNode.label,
+      })}
       ${fieldMarkup || '<div class="workflow-editor-settings-empty">No editable settings for this node yet.</div>'}
     `;
     renderExecutionNodeAction();
   }
 
   function getNodeContextMenuPosition(clientX: number, clientY: number): { x: number; y: number } {
-    const boardRect = canvas.board.getBoundingClientRect();
-    const rawX = clientX - boardRect.left + canvas.board.scrollLeft + NODE_CONTEXT_MENU_OFFSET_X;
-    const rawY = clientY - boardRect.top + canvas.board.scrollTop + NODE_CONTEXT_MENU_OFFSET_Y;
-    const minX = canvas.board.scrollLeft + NODE_CONTEXT_MENU_MARGIN;
-    const minY = canvas.board.scrollTop + NODE_CONTEXT_MENU_MARGIN;
+    const localPoint = viewportController.getBoardLocalPoint(clientX, clientY);
+    const rawX = localPoint.x + NODE_CONTEXT_MENU_OFFSET_X;
+    const rawY = localPoint.y + NODE_CONTEXT_MENU_OFFSET_Y;
+    const minX = NODE_CONTEXT_MENU_MARGIN;
+    const minY = NODE_CONTEXT_MENU_MARGIN;
     const maxX = Math.max(
       minX,
-      canvas.board.scrollLeft + canvas.board.clientWidth - NODE_CONTEXT_MENU_WIDTH - NODE_CONTEXT_MENU_MARGIN,
+      canvas.board.clientWidth - NODE_CONTEXT_MENU_WIDTH - NODE_CONTEXT_MENU_MARGIN,
     );
     const maxY = Math.max(
       minY,
-      canvas.board.scrollTop + canvas.board.clientHeight - NODE_CONTEXT_MENU_HEIGHT - NODE_CONTEXT_MENU_MARGIN,
+      canvas.board.clientHeight - NODE_CONTEXT_MENU_HEIGHT - NODE_CONTEXT_MENU_MARGIN,
     );
 
     return {
@@ -2149,10 +2081,131 @@ export function initWorkflowDesigner(): void {
     `;
   }
 
+  function getDefaultBrowserView(): BrowserView {
+    return isEmptyWorkflow() ? { kind: 'trigger-root' } : { kind: 'next-step-root' };
+  }
+
+  function setBrowserView(nextView: BrowserView): void {
+    browserView = nextView;
+    searchQuery = '';
+    browser.searchInput.value = '';
+  }
+
+  function getAppNodeDefinitions(
+    appId: string,
+    definitions: WorkflowNodeDefinition[] = nodeRegistry.definitions,
+  ): WorkflowNodeDefinition[] {
+    return definitions
+      .filter((definition) => definition.app_id === appId && !isAgentLanguageModelDefinition(definition))
+      .sort((first, second) => {
+        if (first.kind !== second.kind) {
+          if (first.kind === 'trigger') {
+            return -1;
+          }
+          if (second.kind === 'trigger') {
+            return 1;
+          }
+        }
+
+        return first.label.localeCompare(second.label);
+      });
+  }
+
+  function getAppTriggerDefinitions(
+    definitions: WorkflowNodeDefinition[] = nodeRegistry.definitions,
+  ): WorkflowNodeDefinition[] {
+    return definitions.filter(
+      (definition) => definition.kind === 'trigger' && getRealAppId(definition) !== '' && getRealAppId(definition) !== 'core',
+    );
+  }
+
+  function getAppActionDefinitions(
+    definitions: WorkflowNodeDefinition[] = nodeRegistry.definitions,
+  ): WorkflowNodeDefinition[] {
+    return definitions.filter((definition) =>
+      getRealAppId(definition) !== ''
+      && getRealAppId(definition) !== 'core'
+      && definition.kind !== 'trigger'
+      && !isAgentLanguageModelDefinition(definition));
+  }
+
+  function getNextStepCategoryDefinitions(
+    category: NextStepCategoryId,
+    definitions: WorkflowNodeDefinition[] = nodeRegistry.definitions,
+  ): WorkflowNodeDefinition[] {
+    if (category === 'ai') {
+      return definitions
+        .filter((definition) => definition.kind === 'agent')
+        .sort((first, second) => first.label.localeCompare(second.label));
+    }
+
+    if (category === 'data') {
+      return definitions
+        .filter((definition) => definition.catalog_section === 'data')
+        .sort((first, second) => first.label.localeCompare(second.label));
+    }
+
+    if (category === 'flow') {
+      return definitions
+        .filter((definition) => definition.kind === 'condition')
+        .sort((first, second) => first.label.localeCompare(second.label));
+    }
+
+    return definitions
+      .filter((definition) => {
+        const appId = getRealAppId(definition);
+        return (appId === '' || appId === 'core')
+          && definition.kind !== 'trigger'
+          && definition.kind !== 'agent'
+          && definition.kind !== 'condition'
+          && !isAgentLanguageModelDefinition(definition)
+          && definition.catalog_section !== 'data';
+      })
+      .sort((first, second) => first.label.localeCompare(second.label));
+  }
+
+  function goBackBrowserView(): void {
+    if (browserView.kind === 'app-details') {
+      setBrowserView(
+        browserView.backTo === 'trigger-apps'
+          ? { backTo: isEmptyWorkflow() ? 'trigger-root' : 'next-step-root', kind: 'trigger-apps' }
+          : { kind: 'app-actions' },
+      );
+      renderBrowser();
+      return;
+    }
+
+    if (browserView.kind === 'trigger-apps') {
+      setBrowserView(
+        browserView.backTo === 'next-step-root'
+          ? { backTo: 'next-step-root', kind: 'trigger-root' }
+          : { kind: 'trigger-root' },
+      );
+      renderBrowser();
+      return;
+    }
+
+    if (browserView.kind === 'category-details' || browserView.kind === 'app-actions') {
+      setBrowserView({ kind: 'next-step-root' });
+      renderBrowser();
+      return;
+    }
+
+    if (browserView.kind === 'trigger-root' && browserView.backTo === 'next-step-root') {
+      setBrowserView({ kind: 'next-step-root' });
+      renderBrowser();
+    }
+  }
+
   function renderBrowser(): void {
     const emptyWorkflow = isEmptyWorkflow();
     const insertPort = getAgentAuxiliaryPortDefinition(insertDraft?.targetPort);
     const allowedNodeTypes = insertDraft?.allowedNodeTypes ?? null;
+    const availableDefinitions = allowedNodeTypes
+      ? nodeRegistry.definitions.filter((definition) => allowedNodeTypes.includes(definition.type))
+      : nodeRegistry.definitions;
+    const selectedNode = getNode(selectedNodeId);
+    const selectedNodeDefinition = getNodeDefinition(selectedNode);
     const filteredSections = getAvailablePaletteSections(nodeRegistry, workflowDefinition)
       .map((section) => ({
         ...section,
@@ -2161,34 +2214,176 @@ export function initWorkflowDesigner(): void {
           : section.definitions,
       }))
       .filter((section) => section.definitions.length > 0);
+    const browserRenderHelpers = {
+      formatKindLabel,
+      getCatalogSectionLabel,
+      getProviderMonogram,
+      isModelProvider: isAgentLanguageModelDefinition,
+    };
+    const renderDefinitions = (definitions: WorkflowNodeDefinition[]): string =>
+      renderPaletteDefinitions(definitions, browserRenderHelpers);
+    const renderSections = (sections: WorkflowPaletteSection[]): string =>
+      renderPaletteSections(
+        sections
+          .map((section) => ({
+            ...section,
+            definitions: filterNodeDefinitions(section.definitions, searchQuery),
+          }))
+          .filter((section) => section.definitions.length > 0),
+        renderDefinitions,
+      );
     let title = 'Add node';
     let description = insertDraft
       ? 'Choose the next step to connect from here.'
       : 'Choose the next step to add to this workflow.';
     let emptyMessage = 'No matching nodes';
-    let markup = renderPaletteSections(filteredSections, searchQuery);
+    let markup = renderSections(filteredSections);
+    let searchPlaceholder = 'Search nodes, apps, or actions';
+    let hideSearch = false;
 
-    if (emptyWorkflow) {
-      const triggerDefinitions = filterNodeDefinitions(
-        nodeRegistry.definitions.filter((definition) => definition.kind === 'trigger'),
-        searchQuery,
-      );
-      title = 'What triggers this workflow?';
-      description = 'Choose the first trigger and build the rest of the workflow.';
+    if (browserView.kind === 'trigger-root') {
+      const triggerDefinitions = availableDefinitions.filter((definition) => definition.kind === 'trigger');
+      const manualTrigger = triggerDefinitions.find((definition) => definition.type === 'core.manual_trigger');
+      const scheduleTrigger = triggerDefinitions.find((definition) => definition.type === 'core.schedule_trigger');
+      const appTriggerDefinitions = getAppTriggerDefinitions(availableDefinitions);
+      const rootItems = [
+        ...(manualTrigger ? [renderBrowserListItem({
+          action: 'select',
+          actionValue: manualTrigger.type,
+          appId: getRealAppId(manualTrigger),
+          description: manualTrigger.description,
+          icon: 'mdi-cursor-default-click-outline',
+          label: 'Trigger manually',
+        })] : []),
+        ...(appTriggerDefinitions.length > 0 ? [renderBrowserListItem({
+          action: 'navigate',
+          actionValue: 'trigger-apps',
+          description: 'Start the workflow from an event in one of your apps.',
+          icon: 'mdi-connection',
+          label: 'On app event',
+        })] : []),
+        ...(scheduleTrigger ? [renderBrowserListItem({
+          action: 'select',
+          actionValue: scheduleTrigger.type,
+          appId: getRealAppId(scheduleTrigger),
+          description: scheduleTrigger.description,
+          icon: 'mdi-clock-outline',
+          label: 'On a schedule',
+        })] : []),
+        ...triggerDefinitions
+          .filter((definition) =>
+            definition.type !== manualTrigger?.type
+            && definition.type !== scheduleTrigger?.type
+            && !appTriggerDefinitions.some((appDefinition) => appDefinition.type === definition.type))
+          .map((definition) =>
+            renderBrowserListItem({
+              action: 'select',
+              actionValue: definition.type,
+              appId: getRealAppId(definition),
+              description: definition.description,
+              icon: definition.icon,
+              label: definition.label,
+            })),
+      ];
+      const normalizedQuery = searchQuery.trim().toLowerCase();
+      const filteredItems = normalizedQuery.length === 0
+        ? rootItems
+        : rootItems.filter((itemMarkup) => itemMarkup.toLowerCase().includes(normalizedQuery));
+
+      title = browserView.backTo === 'next-step-root' ? 'Add another trigger' : 'What triggers this workflow?';
+      description = browserView.backTo === 'next-step-root'
+        ? 'Triggers start your workflow. Workflows can have multiple triggers.'
+        : 'A trigger is a step that starts your workflow';
       emptyMessage = 'No matching triggers';
-      markup = triggerDefinitions.length > 0
-        ? renderPaletteSections(
-            [
-              {
-                definitions: triggerDefinitions,
-                description: 'Choose the first trigger and build the rest of the workflow yourself.',
-                icon: 'mdi-rocket-launch-outline',
-                id: 'triggers',
-                label: 'Triggers',
-              },
-            ],
-            searchQuery,
-          )
+      searchPlaceholder = 'Search nodes...';
+      markup = filteredItems.join('');
+    } else if (browserView.kind === 'trigger-apps') {
+      const appItems = Array.from(
+        getAppTriggerDefinitions(availableDefinitions).reduce<Map<string, WorkflowNodeDefinition>>((items, definition) => {
+          const appId = getRealAppId(definition);
+          if (!appId || items.has(appId)) {
+            return items;
+          }
+
+          items.set(appId, definition);
+          return items;
+        }, new Map()),
+      )
+        .map(([appId, definition]) => ({
+          appId,
+          definition,
+        }))
+        .filter(({ definition }) => {
+          const normalizedQuery = searchQuery.trim().toLowerCase();
+          if (!normalizedQuery) {
+            return true;
+          }
+
+          return [
+            definition.app_label ?? '',
+            definition.app_description ?? '',
+            definition.label,
+          ]
+            .join(' ')
+            .toLowerCase()
+            .includes(normalizedQuery);
+        })
+        .sort((first, second) =>
+          (first.definition.app_label ?? first.definition.label).localeCompare(
+            second.definition.app_label ?? second.definition.label,
+          ));
+
+      title = 'On app event';
+      description = '';
+      emptyMessage = 'No matching apps';
+      searchPlaceholder = 'Search nodes...';
+      markup = appItems
+        .map(({ appId, definition }) =>
+          renderBrowserListItem({
+            action: 'navigate',
+            actionValue: 'app-details',
+            appId,
+            description: definition.app_description || definition.description,
+            icon: definition.app_icon || definition.icon,
+            label: definition.app_label || definition.label,
+            meta: 'Trigger nodes',
+          }))
+        .join('');
+    } else if (browserView.kind === 'app-details') {
+      const appDefinitions = getAppNodeDefinitions(browserView.appId, availableDefinitions);
+      const triggerDefinitions = appDefinitions.filter((definition) => definition.kind === 'trigger');
+      const actionDefinitions = appDefinitions.filter((definition) => definition.kind !== 'trigger');
+      const appDefinition = appDefinitions[0];
+      const detailSections = browserView.backTo === 'trigger-apps'
+        ? [{
+          count: triggerDefinitions.length,
+          definitions: triggerDefinitions,
+          title: 'Triggers',
+        }]
+        : [{
+          count: actionDefinitions.length,
+          definitions: actionDefinitions,
+          title: 'Actions',
+        }];
+
+      title = appDefinition?.app_label || appDefinition?.label || 'Node details';
+      description = appDefinition?.app_description || '';
+      emptyMessage = 'No nodes available for this app';
+      hideSearch = true;
+      markup = appDefinitions.length > 0
+        ? `
+            <div class="workflow-node-browser-details">
+              ${detailSections
+                .filter((section) => section.count > 0)
+                .map((section) => `
+                  <section class="workflow-node-browser-detail-section">
+                    <div class="workflow-node-browser-detail-title">${section.title} (${section.count})</div>
+                    <div class="workflow-node-browser-grid">${renderBrowserDefinitionList(section.definitions)}</div>
+                  </section>
+                `)
+                .join('')}
+            </div>
+          `
         : '';
     } else if (insertPort) {
       title = insertPort.id === 'ai_languageModel' ? 'Attach model provider' : 'Attach tool';
@@ -2198,19 +2393,142 @@ export function initWorkflowDesigner(): void {
       emptyMessage = insertPort.id === 'ai_languageModel'
         ? 'No matching model providers'
         : 'No matching tools';
+      searchPlaceholder = insertPort.id === 'ai_languageModel' ? 'Search model providers' : 'Search tools';
       if (insertPort.id === 'ai_languageModel') {
         const modelDefinitions = filterNodeDefinitions(
           nodeRegistry.definitions.filter(
             (definition) =>
-              isAgentLanguageModelNodeType(definition.type)
+              isAgentLanguageModelDefinition(definition)
               && (!allowedNodeTypes || allowedNodeTypes.includes(definition.type)),
           ),
           searchQuery,
         );
         markup = modelDefinitions.length > 0
-          ? `<div class="workflow-node-browser-list workflow-node-browser-list--providers">${renderPaletteDefinitions(modelDefinitions)}</div>`
+          ? `<div class="workflow-node-browser-list workflow-node-browser-list--providers">${renderDefinitions(modelDefinitions)}</div>`
           : '';
       }
+    } else if (browserView.kind === 'next-step-root') {
+      const actionDefinitions = getAppActionDefinitions(availableDefinitions);
+      const rootItems = [
+        ...(getNextStepCategoryDefinitions('ai', availableDefinitions).length > 0 ? [renderBrowserListItem({
+          action: 'navigate',
+          actionValue: 'next-ai',
+          description: NEXT_STEP_CATEGORY_META.ai.description,
+          icon: NEXT_STEP_CATEGORY_META.ai.icon,
+          label: NEXT_STEP_CATEGORY_META.ai.label,
+        })] : []),
+        ...(actionDefinitions.length > 0 ? [renderBrowserListItem({
+          action: 'navigate',
+          actionValue: 'app-actions',
+          description: 'Do something in an app or service like Elasticsearch or Prometheus.',
+          icon: 'mdi-earth',
+          label: 'Action in an app',
+        })] : []),
+        ...(getNextStepCategoryDefinitions('data', availableDefinitions).length > 0 ? [renderBrowserListItem({
+          action: 'navigate',
+          actionValue: 'next-data',
+          description: NEXT_STEP_CATEGORY_META.data.description,
+          icon: NEXT_STEP_CATEGORY_META.data.icon,
+          label: NEXT_STEP_CATEGORY_META.data.label,
+        })] : []),
+        ...(getNextStepCategoryDefinitions('flow', availableDefinitions).length > 0 ? [renderBrowserListItem({
+          action: 'navigate',
+          actionValue: 'next-flow',
+          description: NEXT_STEP_CATEGORY_META.flow.description,
+          icon: NEXT_STEP_CATEGORY_META.flow.icon,
+          label: NEXT_STEP_CATEGORY_META.flow.label,
+        })] : []),
+        ...(getNextStepCategoryDefinitions('core', availableDefinitions).length > 0 ? [renderBrowserListItem({
+          action: 'navigate',
+          actionValue: 'next-core',
+          description: NEXT_STEP_CATEGORY_META.core.description,
+          icon: NEXT_STEP_CATEGORY_META.core.icon,
+          label: NEXT_STEP_CATEGORY_META.core.label,
+        })] : []),
+        ...(availableDefinitions.some((definition) => definition.kind === 'trigger') ? [renderBrowserListItem({
+          action: 'navigate',
+          actionValue: 'trigger-root',
+          description: 'Triggers start your workflow. Workflows can have multiple triggers.',
+          icon: 'mdi-lightning-bolt-outline',
+          label: 'Add another trigger',
+        })] : []),
+      ];
+      const normalizedQuery = searchQuery.trim().toLowerCase();
+      const filteredItems = normalizedQuery.length === 0
+        ? rootItems
+        : rootItems.filter((itemMarkup) => itemMarkup.toLowerCase().includes(normalizedQuery));
+
+      title = 'What happens next?';
+      description = '';
+      emptyMessage = 'No matching node categories';
+      searchPlaceholder = 'Search nodes...';
+      markup = filteredItems.join('');
+    } else if (browserView.kind === 'app-actions') {
+      const appItems = Array.from(
+        getAppActionDefinitions(availableDefinitions).reduce<Map<string, WorkflowNodeDefinition>>((items, definition) => {
+          const appId = getRealAppId(definition);
+          if (!appId || items.has(appId)) {
+            return items;
+          }
+
+          items.set(appId, definition);
+          return items;
+        }, new Map()),
+      )
+        .map(([appId, definition]) => ({
+          appId,
+          definition,
+        }))
+        .filter(({ definition }) => {
+          const normalizedQuery = searchQuery.trim().toLowerCase();
+          if (!normalizedQuery) {
+            return true;
+          }
+
+          return [
+            definition.app_label ?? '',
+            definition.app_description ?? '',
+            definition.label,
+          ]
+            .join(' ')
+            .toLowerCase()
+            .includes(normalizedQuery);
+        })
+        .sort((first, second) =>
+          (first.definition.app_label ?? first.definition.label).localeCompare(
+            second.definition.app_label ?? second.definition.label,
+          ));
+
+      title = 'Action in an app';
+      description = '';
+      emptyMessage = 'No matching apps';
+      searchPlaceholder = 'Search nodes...';
+      markup = appItems
+        .map(({ appId, definition }) =>
+          renderBrowserListItem({
+            action: 'navigate',
+            actionValue: 'app-details',
+            appId,
+            description: definition.app_description || definition.description,
+            icon: definition.app_icon || definition.icon,
+            label: definition.app_label || definition.label,
+            meta: 'Action nodes',
+          }))
+        .join('');
+    } else if (browserView.kind === 'category-details') {
+      const categoryMeta = NEXT_STEP_CATEGORY_META[browserView.category];
+      const categoryDefinitions = filterNodeDefinitions(
+        getNextStepCategoryDefinitions(browserView.category, availableDefinitions),
+        searchQuery,
+      );
+
+      title = categoryMeta.label;
+      description = categoryMeta.description;
+      emptyMessage = `No matching ${categoryMeta.label.toLowerCase()} nodes`;
+      searchPlaceholder = 'Search nodes...';
+      markup = categoryDefinitions.length > 0
+        ? `<div class="workflow-node-browser-list">${renderBrowserDefinitionList(categoryDefinitions)}</div>`
+        : '';
     }
 
     browser.browser.hidden = !isBrowserOpen;
@@ -2218,9 +2536,16 @@ export function initWorkflowDesigner(): void {
     browser.browserTitle.textContent = title;
     browser.browserDescription.textContent = description;
     browser.browserDescription.hidden = description.length === 0;
+    browser.backButton.hidden = !(
+      (browserView.kind === 'trigger-root' && browserView.backTo === 'next-step-root')
+      || browserView.kind === 'trigger-apps'
+      || browserView.kind === 'app-details'
+      || browserView.kind === 'app-actions'
+      || browserView.kind === 'category-details'
+    );
     browser.openButton.classList.toggle('is-active', isBrowserOpen);
-    browser.openButton.hidden = emptyWorkflow;
-    browser.searchInput.placeholder = 'Search nodes...';
+    browser.searchWrap.hidden = hideSearch;
+    browser.searchInput.placeholder = searchPlaceholder;
     browser.browserContent.innerHTML = markup;
     browser.browserEmpty.textContent = emptyMessage;
     browser.browserEmpty.hidden = markup.length > 0;
@@ -2230,6 +2555,29 @@ export function initWorkflowDesigner(): void {
     const emptyWorkflow = isEmptyWorkflow();
     canvas.board.classList.toggle('is-empty-workflow', emptyWorkflow);
     canvas.emptyState.hidden = !emptyWorkflow;
+  }
+
+  function renderCanvasHud(): void {
+    const viewport = viewportController.getViewport();
+    canvas.fitViewButton.disabled = workflowDefinition.nodes.length === 0;
+    canvas.zoomLabel.textContent = `${Math.round(viewport.zoom * 100)}%`;
+    canvas.zoomOutButton.disabled = viewport.zoom <= 0.46;
+    canvas.zoomInButton.disabled = viewport.zoom >= 1.79;
+  }
+
+  function repositionGraph(anchorNodeId?: string): void {
+    const graphBounds = getGraphBounds(workflowDefinition.nodes);
+    if (!graphBounds) {
+      return;
+    }
+
+    const anchorNode = anchorNodeId ? getNode(anchorNodeId) : null;
+    if (anchorNode) {
+      viewportController.focusPoint(getNodeCenter(anchorNode));
+      return;
+    }
+
+    viewportController.fitBounds(graphBounds, { padding: 104 });
   }
 
   function renderNodes(): void {
@@ -2253,8 +2601,9 @@ export function initWorkflowDesigner(): void {
           : false;
         const isConnectionTarget = connectionDraft?.hoveredTargetId === node.id;
         const sourceConnectionNode = connectionDraft ? getNode(connectionDraft.sourceId) : undefined;
+        const sourceConnectionDefinition = getNodeDefinition(sourceConnectionNode);
         const compatibleAuxiliaryPort = connectionDraft
-          ? getCompatibleAgentAuxiliaryPort(sourceConnectionNode, node)
+          ? getCompatibleAgentAuxiliaryPort(sourceConnectionNode, sourceConnectionDefinition, node)
           : null;
         const canReceiveConnections = canNodeReceiveConnections(node, workflowDefinition.edges, nodeDefinition);
         const canEmitConnections = canNodeEmitConnections(node, workflowDefinition.edges, nodeDefinition);
@@ -2615,8 +2964,9 @@ export function initWorkflowDesigner(): void {
       targetNode,
     );
     const midpoint = getConnectionMidpoint(sourcePoint, sourceSide, targetPoint, targetSide);
-    const controlX = clamp(Math.round(midpoint.x), 20, Math.max(canvas.board.clientWidth - 20, 20));
-    const controlY = clamp(Math.round(midpoint.y), 20, Math.max(canvas.board.clientHeight - 20, 20));
+    const controlPoint = viewportController.worldToScreen(midpoint);
+    const controlX = clamp(Math.round(controlPoint.x), 20, Math.max(canvas.board.clientWidth - 20, 20));
+    const controlY = clamp(Math.round(controlPoint.y), 20, Math.max(canvas.board.clientHeight - 20, 20));
 
     canvas.edgeControls.innerHTML = `
       <button
@@ -2636,6 +2986,7 @@ export function initWorkflowDesigner(): void {
     renderEdges();
     renderEdgeControls();
     renderEmptyState();
+    renderCanvasHud();
     renderNodeContextMenu();
   }
 
@@ -2643,6 +2994,9 @@ export function initWorkflowDesigner(): void {
     isBrowserOpen = false;
     insertDraft = null;
     contextMenuState = null;
+    browserView = getDefaultBrowserView();
+    searchQuery = '';
+    browser.searchInput.value = '';
     renderBrowser();
     renderNodeContextMenu();
   }
@@ -2655,6 +3009,7 @@ export function initWorkflowDesigner(): void {
   function openBrowser(): void {
     isBrowserOpen = true;
     contextMenuState = null;
+    setBrowserView(getDefaultBrowserView());
     renderBrowser();
     renderNodeContextMenu();
     window.setTimeout(() => {
@@ -2663,11 +3018,11 @@ export function initWorkflowDesigner(): void {
   }
 
   function openInsertBrowser(sourceId: string, clientX: number, clientY: number): void {
-    const boardRect = canvas.board.getBoundingClientRect();
+    const worldPoint = viewportController.screenToWorld(clientX, clientY);
     insertDraft = {
       position: clampNodePosition(canvas.board, {
-        x: clientX - boardRect.left + canvas.board.scrollLeft - NODE_WIDTH / 2,
-        y: clientY - boardRect.top + canvas.board.scrollTop - NODE_HEIGHT / 2,
+        x: worldPoint.x - NODE_WIDTH / 2,
+        y: worldPoint.y - NODE_HEIGHT / 2,
       }, NODE_HEIGHT),
       sourceId,
     };
@@ -2739,7 +3094,7 @@ export function initWorkflowDesigner(): void {
       selectedNodeId,
       pendingInsert?.position,
     );
-    workflowDefinition.nodes.push(newNode);
+    graphStore.addNode(newNode);
     selectedNodeId = newNode.id;
     searchQuery = '';
     browser.searchInput.value = '';
@@ -2865,7 +3220,7 @@ export function initWorkflowDesigner(): void {
       sourceNode.config = nextConfig;
     }
 
-    workflowDefinition.edges.push({
+    graphStore.addEdge({
       id: createId('edge'),
       source: sourceId,
       ...(options?.sourcePort ? { sourcePort: options.sourcePort } : {}),
@@ -2908,10 +3263,10 @@ export function initWorkflowDesigner(): void {
         sourceNode.config = nextConfig;
         syncNodeTargetEdges(sourceNode, sourceDefinition);
       } else {
-        workflowDefinition.edges = workflowDefinition.edges.filter((item) => item.id !== edgeId);
+        graphStore.removeEdge(edgeId);
       }
     } else {
-      workflowDefinition.edges = workflowDefinition.edges.filter((item) => item.id !== edgeId);
+      graphStore.removeEdge(edgeId);
     }
 
     hoveredEdgeId = null;
@@ -2954,10 +3309,7 @@ export function initWorkflowDesigner(): void {
       syncNodeTargetEdges(candidate, candidateDefinition);
     });
 
-    workflowDefinition.nodes = workflowDefinition.nodes.filter((candidate) => candidate.id !== nodeId);
-    workflowDefinition.edges = workflowDefinition.edges.filter(
-      (edge) => edge.source !== nodeId && edge.target !== nodeId,
-    );
+    graphStore.removeNode(nodeId);
 
     if (selectedNodeId === nodeId) {
       selectedNodeId = null;
@@ -3071,6 +3423,21 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
+    if (target.closest('[data-workflow-fit-view]')) {
+      repositionGraph();
+      return;
+    }
+
+    if (target.closest('[data-workflow-zoom-in]')) {
+      viewportController.zoomByStep('in');
+      return;
+    }
+
+    if (target.closest('[data-workflow-zoom-out]')) {
+      viewportController.zoomByStep('out');
+      return;
+    }
+
     const nodeAction = target.closest<HTMLElement>('[data-node-action]');
     if (nodeAction?.dataset.nodeAction && nodeAction.dataset.nodeActionId) {
       const nodeId = nodeAction.dataset.nodeActionId;
@@ -3110,6 +3477,11 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
+    if (target.closest('[data-node-browser-back]')) {
+      goBackBrowserView();
+      return;
+    }
+
     if (contextMenuState && !target.closest('[data-workflow-node-menu]')) {
       closeNodeContextMenu();
     }
@@ -3146,6 +3518,67 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
+    const browserNavigation = target.closest<HTMLElement>('[data-node-browser-nav]');
+    if (browserNavigation?.dataset.nodeBrowserNav) {
+      if (browserNavigation.dataset.nodeBrowserNav === 'trigger-apps') {
+        setBrowserView({
+          backTo: browserView.kind === 'trigger-root' && browserView.backTo === 'next-step-root'
+            ? 'next-step-root'
+            : 'trigger-root',
+          kind: 'trigger-apps',
+        });
+        renderBrowser();
+        return;
+      }
+
+      if (browserNavigation.dataset.nodeBrowserNav === 'app-details' && browserNavigation.dataset.appId) {
+        setBrowserView({
+          appId: browserNavigation.dataset.appId,
+          backTo: browserView.kind === 'trigger-apps' ? 'trigger-apps' : 'app-actions',
+          kind: 'app-details',
+        });
+        renderBrowser();
+        return;
+      }
+
+      if (browserNavigation.dataset.nodeBrowserNav === 'app-actions') {
+        setBrowserView({ kind: 'app-actions' });
+        renderBrowser();
+        return;
+      }
+
+      if (browserNavigation.dataset.nodeBrowserNav === 'trigger-root') {
+        setBrowserView(isEmptyWorkflow() ? { kind: 'trigger-root' } : { backTo: 'next-step-root', kind: 'trigger-root' });
+        renderBrowser();
+        return;
+      }
+
+      if (browserNavigation.dataset.nodeBrowserNav === 'next-ai') {
+        setBrowserView({ category: 'ai', kind: 'category-details' });
+        renderBrowser();
+        return;
+      }
+
+      if (browserNavigation.dataset.nodeBrowserNav === 'next-data') {
+        setBrowserView({ category: 'data', kind: 'category-details' });
+        renderBrowser();
+        return;
+      }
+
+      if (browserNavigation.dataset.nodeBrowserNav === 'next-flow') {
+        setBrowserView({ category: 'flow', kind: 'category-details' });
+        renderBrowser();
+        return;
+      }
+
+      if (browserNavigation.dataset.nodeBrowserNav === 'next-core') {
+        setBrowserView({ category: 'core', kind: 'category-details' });
+        renderBrowser();
+        return;
+      }
+      return;
+    }
+
     const auxiliaryPort = target.closest<HTMLElement>('[data-workflow-node-aux-port]');
     const auxiliaryTargetId = auxiliaryPort?.dataset.workflowNodeAuxNode;
     const auxiliaryTargetPort = auxiliaryPort?.dataset.workflowNodeAuxPort as AgentAuxiliaryPortId | undefined;
@@ -3171,18 +3604,14 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
-    if (selectedNodeId) {
-      selectedNodeId = null;
-      settingsNodeId = null;
-      renderCanvas();
-      renderSettingsPanel();
-      return;
-    }
-
-    if (settingsNodeId) {
-      settingsNodeId = null;
-      renderSettingsPanel();
-    }
+    panState = {
+      didMove: false,
+      lastClientX: event.clientX,
+      lastClientY: event.clientY,
+      pointerId: event.pointerId,
+    };
+    canvas.board.classList.add('is-panning');
+    canvas.board.setPointerCapture(event.pointerId);
   });
 
   canvas.nodeLayer.addEventListener('pointerdown', (event) => {
@@ -3249,14 +3678,12 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
-    const boardRect = canvas.board.getBoundingClientRect();
-    const cursorX = event.clientX - boardRect.left + canvas.board.scrollLeft;
-    const cursorY = event.clientY - boardRect.top + canvas.board.scrollTop;
+    const cursorPoint = viewportController.screenToWorld(event.clientX, event.clientY);
 
     dragState = {
       nodeId,
-      offsetX: cursorX - node.position.x,
-      offsetY: cursorY - node.position.y,
+      offsetX: cursorPoint.x - node.position.x,
+      offsetY: cursorPoint.y - node.position.y,
       pointerId: event.pointerId,
     };
 
@@ -3311,6 +3738,18 @@ export function initWorkflowDesigner(): void {
   });
 
   window.addEventListener('pointermove', (event) => {
+    if (panState && event.pointerId === panState.pointerId) {
+      const deltaX = event.clientX - panState.lastClientX;
+      const deltaY = event.clientY - panState.lastClientY;
+      if (Math.abs(deltaX) > 0 || Math.abs(deltaY) > 0) {
+        panState.didMove = true;
+        viewportController.panBy(deltaX, deltaY);
+        panState.lastClientX = event.clientX;
+        panState.lastClientY = event.clientY;
+      }
+      return;
+    }
+
     if (connectionDraft && event.pointerId === connectionDraft.pointerId) {
       const pointerPoint = getPointFromClient(event.clientX, event.clientY);
       connectionDraft.pointerX = pointerPoint.x;
@@ -3339,13 +3778,11 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
-    const boardRect = canvas.board.getBoundingClientRect();
-    const cursorX = event.clientX - boardRect.left + canvas.board.scrollLeft;
-    const cursorY = event.clientY - boardRect.top + canvas.board.scrollTop;
+    const cursorPoint = viewportController.screenToWorld(event.clientX, event.clientY);
 
     updateNodePosition(dragState.nodeId, {
-      x: cursorX - dragState.offsetX,
-      y: cursorY - dragState.offsetY,
+      x: cursorPoint.x - dragState.offsetX,
+      y: cursorPoint.y - dragState.offsetY,
     });
   });
 
@@ -3364,6 +3801,34 @@ export function initWorkflowDesigner(): void {
 
     dragState = null;
     renderCanvas();
+  }
+
+  function stopPanning(pointerId: number): void {
+    if (!panState || panState.pointerId !== pointerId) {
+      return;
+    }
+
+    const didMove = panState.didMove;
+    panState = null;
+    canvas.board.classList.remove('is-panning');
+    if (canvas.board.hasPointerCapture(pointerId)) {
+      canvas.board.releasePointerCapture(pointerId);
+    }
+
+    if (!didMove) {
+      if (selectedNodeId) {
+        selectedNodeId = null;
+        settingsNodeId = null;
+        renderCanvas();
+        renderSettingsPanel();
+        return;
+      }
+
+      if (settingsNodeId) {
+        settingsNodeId = null;
+        renderSettingsPanel();
+      }
+    }
   }
 
   function stopConnecting(pointerId: number, clientX: number, clientY: number): void {
@@ -3393,12 +3858,24 @@ export function initWorkflowDesigner(): void {
   window.addEventListener('pointerup', (event) => {
     stopConnecting(event.pointerId, event.clientX, event.clientY);
     stopDragging(event.pointerId);
+    stopPanning(event.pointerId);
   });
 
   window.addEventListener('pointercancel', (event) => {
     stopConnecting(event.pointerId, event.clientX, event.clientY);
     stopDragging(event.pointerId);
+    stopPanning(event.pointerId);
   });
+
+  canvas.board.addEventListener('wheel', (event) => {
+    if (!event.ctrlKey && !event.metaKey) {
+      return;
+    }
+
+    const zoomDelta = event.deltaY < 0 ? 0.08 : -0.08;
+    viewportController.zoomAt(event.clientX, event.clientY, zoomDelta);
+    event.preventDefault();
+  }, { passive: false });
 
   root.addEventListener('keydown', (event) => {
     if (

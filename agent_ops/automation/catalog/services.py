@@ -22,7 +22,13 @@ def get_catalog_app(app_id: str):
 
 
 def get_catalog_node(node_id: str):
-    return get_workflow_catalog()["node_types"].get(node_id)
+    registry_node = get_workflow_catalog()["node_types"].get(node_id)
+    if registry_node is not None:
+        return registry_node
+
+    from automation.nodes import get_workflow_node_definition
+
+    return get_workflow_node_definition(node_id)
 
 
 def get_catalog_connection_type(connection_type_id: str):
