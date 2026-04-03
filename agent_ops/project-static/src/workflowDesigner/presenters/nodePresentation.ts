@@ -8,6 +8,7 @@ import type {
   AgentAuxiliaryPortId,
   ConnectorSide,
   Point,
+  WorkflowAgentAuxiliaryPort,
   WorkflowDefinition,
   WorkflowEditorNodePresentation,
   WorkflowNode,
@@ -29,11 +30,6 @@ type ConnectionDraftInput = {
   pointerX: number;
   pointerY: number;
   sourceId: string;
-};
-
-type AgentAuxiliaryPortDefinition = {
-  id: AgentAuxiliaryPortId;
-  label: string;
 };
 
 function getDefinitionField(
@@ -140,7 +136,7 @@ function getDraftTargetPoint(params: {
 
 export function buildWorkflowEditorNodePresentation(params: {
   activeExecutionNodeId: string | null;
-  auxiliaryPortDefinitions: AgentAuxiliaryPortDefinition[];
+  auxiliaryPortDefinitions: WorkflowAgentAuxiliaryPort[];
   canNodeEmitConnections: (
     node: WorkflowNode,
     edges: WorkflowDefinition['edges'],

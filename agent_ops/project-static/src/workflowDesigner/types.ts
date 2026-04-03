@@ -118,6 +118,17 @@ export type WorkflowNode = WorkflowPersistedNode & {
   typeVersion: number;
 };
 
+export type WorkflowAgentAuxiliaryPort = {
+  id: AgentAuxiliaryPortId;
+  label: string;
+};
+
+export type WorkflowConnectionHoverTarget = {
+  nodeId: string;
+  side: ConnectorSide;
+  targetPort: AgentAuxiliaryPortId | null;
+};
+
 export type WorkflowEditorNodeConnector = {
   isCandidate: boolean;
   isInputActive: boolean;

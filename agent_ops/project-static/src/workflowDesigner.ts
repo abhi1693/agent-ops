@@ -25,6 +25,16 @@ import {
   getSuggestedNodePosition,
 } from './workflowDesigner/geometry';
 import {
+  AGENT_AUXILIARY_PORTS,
+  canNodeEmitConnections,
+  canNodeReceiveConnections,
+  getAgentAuxiliaryAllowedNodeTypes,
+  getAgentAuxiliaryPortDefinition,
+  getCompatibleAgentAuxiliaryPort,
+  getHoveredTarget as getHoveredConnectionTarget,
+  isValidConnection as validateConnection,
+} from './workflowDesigner/interactions/connections';
+import {
   renderBrowserState,
   getDefaultBrowserView,
   getPreviousBrowserView,
@@ -46,10 +56,6 @@ import {
 } from './workflowDesigner/presenters/nodePresentation';
 import { buildWorkflowEditorEdgesPresentation } from './workflowDesigner/presenters/edgePresentation';
 import { buildNodeRegistry, getAvailablePaletteSections } from './workflowDesigner/registry/nodeRegistry';
-import {
-  isModelDefinition,
-  isToolCompatibleDefinition,
-} from './workflowDesigner/registry/modelDefinitions';
 import { normalizeWorkflowDefinition, serializeWorkflowDefinition } from './workflowDesigner/schema/workflowSchema';
 import { createGraphStore } from './workflowDesigner/state/graphStore';
 import type {
@@ -156,19 +162,6 @@ type DesignerRunResponse = {
 };
 
 const CONNECTOR_SIDES: ConnectorSide[] = ['top', 'right', 'bottom', 'left'];
-const AGENT_AUXILIARY_PORTS: Array<{
-  id: AgentAuxiliaryPortId;
-  label: string;
-}> = [
-  {
-    id: 'ai_languageModel',
-    label: 'Model',
-  },
-  {
-    id: 'ai_tool',
-    label: 'Tools',
-  },
-];
 const NODE_CONTEXT_MENU_WIDTH = 224;
 const NODE_CONTEXT_MENU_HEIGHT = 142;
 const NODE_CONTEXT_MENU_MARGIN = 12;
@@ -246,113 +239,6 @@ function getNodeElement(nodeLayer: HTMLElement, nodeId: string): HTMLElement | n
 function setNodeElementPosition(nodeElement: HTMLElement, node: WorkflowNode): void {
   nodeElement.style.left = `${node.position.x}px`;
   nodeElement.style.top = `${node.position.y}px`;
-}
-
-function getPrimaryIncomingConnectionLimit(
-  node: WorkflowNode,
-  definition?: WorkflowNodeDefinition,
-): number | null {
-  if ((definition?.kind ?? node.kind) === 'trigger') {
-    return 0;
-  }
-
-  return null;
-}
-
-function getPrimaryOutgoingConnectionLimit(
-  node: WorkflowNode,
-  definition?: WorkflowNodeDefinition,
-): number | null {
-  const resolvedKind = definition?.kind ?? node.kind;
-  if (resolvedKind === 'response') {
-    return 0;
-  }
-
-  const targetFieldCount = definition?.fields.filter((field) => field.type === 'node_target').length ?? 0;
-  if (targetFieldCount > 0) {
-    return targetFieldCount;
-  }
-
-  if (resolvedKind === 'trigger' || resolvedKind === 'agent' || resolvedKind === 'tool') {
-    return 1;
-  }
-
-  return null;
-}
-
-function countPrimaryIncomingConnections(edges: WorkflowDefinition['edges'], nodeId: string): number {
-  return edges.filter((edge) => edge.target === nodeId && !edge.targetPort).length;
-}
-
-function countPrimaryOutgoingConnections(edges: WorkflowDefinition['edges'], nodeId: string): number {
-  return edges.filter((edge) => edge.source === nodeId && !edge.targetPort).length;
-}
-
-function canNodeReceiveConnections(
-  node: WorkflowNode,
-  edges: WorkflowDefinition['edges'],
-  definition?: WorkflowNodeDefinition,
-): boolean {
-  const limit = getPrimaryIncomingConnectionLimit(node, definition);
-  if (limit === null) {
-    return true;
-  }
-
-  return countPrimaryIncomingConnections(edges, node.id) < limit;
-}
-
-function canNodeEmitConnections(
-  node: WorkflowNode,
-  edges: WorkflowDefinition['edges'],
-  definition?: WorkflowNodeDefinition,
-): boolean {
-  const limit = getPrimaryOutgoingConnectionLimit(node, definition);
-  if (limit === null) {
-    return true;
-  }
-
-  return countPrimaryOutgoingConnections(edges, node.id) < limit;
-}
-
-function getCompatibleAgentAuxiliaryPort(
-  sourceNode: WorkflowNode | undefined,
-  sourceDefinition: WorkflowNodeDefinition | undefined,
-  targetNode: WorkflowNode | undefined,
-): AgentAuxiliaryPortId | null {
-  if (!sourceNode || !targetNode || targetNode.kind !== 'agent') {
-    return null;
-  }
-
-  if (isModelDefinition(sourceDefinition)) {
-    return 'ai_languageModel';
-  }
-  if (sourceNode.kind === 'tool') {
-    return 'ai_tool';
-  }
-  return null;
-}
-
-function getAgentAuxiliaryPortDefinition(
-  portId: AgentAuxiliaryPortId | null | undefined,
-): (typeof AGENT_AUXILIARY_PORTS)[number] | undefined {
-  if (!portId) {
-    return undefined;
-  }
-
-  return AGENT_AUXILIARY_PORTS.find((port) => port.id === portId);
-}
-
-function getAgentAuxiliaryAllowedNodeTypes(
-  definitions: WorkflowNodeDefinition[],
-  portId: AgentAuxiliaryPortId,
-): string[] {
-  return definitions
-    .filter((definition) =>
-      portId === 'ai_languageModel'
-        ? isModelDefinition(definition)
-        : isToolCompatibleDefinition(definition),
-    )
-    .map((definition) => definition.type);
 }
 
 function getNodeTargetOptions(currentNode: WorkflowNode, definition: WorkflowDefinition): Array<{ label: string; value: string }> {
@@ -705,15 +591,6 @@ export function initWorkflowDesigner(): void {
     }
   }
 
-  function hasConnection(sourceId: string, targetId: string, targetPort?: string | null): boolean {
-    return workflowDefinition.edges.some(
-      (edge) =>
-        edge.source === sourceId &&
-        edge.target === targetId &&
-        (edge.targetPort ?? null) === (targetPort ?? null),
-    );
-  }
-
   function isEmptyWorkflow(): boolean {
     return workflowDefinition.nodes.length === 0;
   }
@@ -723,46 +600,14 @@ export function initWorkflowDesigner(): void {
     targetId: string,
     targetPort?: AgentAuxiliaryPortId | null,
   ): boolean {
-    const sourceNode = getNode(sourceId);
-    const targetNode = getNode(targetId);
-    if (!sourceNode || !targetNode || sourceId === targetId) {
-      return false;
-    }
-
-    const sourceNodeDefinition = getNodeDefinition(sourceNode);
-    const compatibleAuxiliaryPort = getCompatibleAgentAuxiliaryPort(sourceNode, sourceNodeDefinition, targetNode);
-    if (targetPort) {
-      if (compatibleAuxiliaryPort !== targetPort) {
-        return false;
-      }
-
-      if (hasConnection(sourceId, targetId, targetPort)) {
-        return false;
-      }
-
-      if (targetPort === 'ai_languageModel') {
-        return !workflowDefinition.edges.some(
-          (edge) => edge.target === targetId && edge.targetPort === targetPort,
-        );
-      }
-
-      return true;
-    }
-
-    if (compatibleAuxiliaryPort) {
-      return false;
-    }
-
-    const sourceDefinition = getNodeDefinition(sourceNode);
-    const targetDefinition = getNodeDefinition(targetNode);
-    if (
-      !canNodeEmitConnections(sourceNode, workflowDefinition.edges, sourceDefinition)
-      || !canNodeReceiveConnections(targetNode, workflowDefinition.edges, targetDefinition)
-    ) {
-      return false;
-    }
-
-    return !hasConnection(sourceId, targetId, null);
+    return validateConnection({
+      getNode,
+      getNodeDefinition,
+      sourceId,
+      targetId,
+      targetPort,
+      workflowDefinition,
+    });
   }
 
   function getPointFromClient(clientX: number, clientY: number): Point {
@@ -774,42 +619,16 @@ export function initWorkflowDesigner(): void {
     clientY: number,
     sourceId: string,
   ): { nodeId: string; side: ConnectorSide; targetPort: AgentAuxiliaryPortId | null } | null {
-    const target = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
-    const auxiliaryPort = target?.closest<HTMLElement>('[data-workflow-node-aux-port]');
-    const auxiliaryTargetId = auxiliaryPort?.dataset.workflowNodeAuxNode ?? null;
-    const auxiliaryTargetPort = (auxiliaryPort?.dataset.workflowNodeAuxPort as AgentAuxiliaryPortId | undefined) ?? null;
-    if (
-      auxiliaryTargetId &&
-      auxiliaryTargetPort &&
-      isValidConnection(sourceId, auxiliaryTargetId, auxiliaryTargetPort)
-    ) {
-      return {
-        nodeId: auxiliaryTargetId,
-        side: 'top',
-        targetPort: auxiliaryTargetPort,
-      };
-    }
-
-    const connector = target?.closest<HTMLElement>('[data-workflow-node-connector]');
-    const nodeElement = target?.closest<HTMLElement>('[data-workflow-node-id]');
-    const targetId = connector?.dataset.workflowNodeConnector ?? nodeElement?.dataset.workflowNodeId ?? null;
-
-    if (!targetId || !isValidConnection(sourceId, targetId)) {
-      return null;
-    }
-
-    const targetNode = getNode(targetId);
-    if (!targetNode) {
-      return null;
-    }
-
-    return {
-      nodeId: targetId,
-      side:
-        (connector?.dataset.workflowNodeConnectorSide as ConnectorSide | undefined) ??
-        getPreferredConnectorSide(targetNode, getPointFromClient(clientX, clientY)),
-      targetPort: null,
-    };
+    return getHoveredConnectionTarget({
+      clientX,
+      clientY,
+      getElementFromPoint: (nextClientX: number, nextClientY: number) =>
+        document.elementFromPoint(nextClientX, nextClientY) as HTMLElement | null,
+      getNode,
+      getPointFromClient,
+      isValidConnection,
+      sourceId,
+    });
   }
 
   function getNodeDefinition(node: WorkflowNode | undefined): WorkflowNodeDefinition | undefined {
