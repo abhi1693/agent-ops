@@ -1,2 +1,12 @@
 """App-scoped workflow node packages."""
+from .registry import (
+    WORKFLOW_APP_DEFINITION_MAP,
+    WORKFLOW_APP_DEFINITIONS,
+    WORKFLOW_APP_NODE_DEFINITIONS,
+)
 
+__all__ = [
+    "WORKFLOW_APP_DEFINITION_MAP",
+    "WORKFLOW_APP_DEFINITIONS",
+    "WORKFLOW_APP_NODE_DEFINITIONS",
+]

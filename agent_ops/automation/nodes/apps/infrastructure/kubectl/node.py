@@ -736,8 +736,4 @@ NODE_DEFINITION = tool_definition_as_node_definition(
     TOOL_DEFINITION,
     node_type="tool.kubectl",
     details="Operate infrastructure workflows against the local app host environment.",
-    app_id="infrastructure",
-    app_label="Infrastructure",
-    app_description="Operate infrastructure workflows against the local app host environment.",
-    app_icon="mdi-kubernetes",
 )

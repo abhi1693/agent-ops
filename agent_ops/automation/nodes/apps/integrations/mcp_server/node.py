@@ -820,8 +820,4 @@ NODE_DEFINITION = tool_definition_as_node_definition(
     TOOL_DEFINITION,
     node_type="tool.mcp_server",
     details="Connect to remote servers and external runtime capabilities.",
-    app_id="integrations",
-    app_label="Integrations",
-    app_description="Connect to remote servers and external runtime capabilities.",
-    app_icon="mdi-connection",
 )

@@ -65,8 +65,4 @@ NODE_DEFINITION = trigger_definition_as_node_definition(
     TRIGGER_DEFINITION,
     node_type="trigger.alertmanager_webhook",
     details="Alertmanager webhook trigger for observability alert ingestion.",
-    app_id="observability",
-    app_label="Observability",
-    app_description="Ingest alerts and query monitoring systems such as Prometheus and Elasticsearch.",
-    app_icon="mdi-chart-areaspline",
 )

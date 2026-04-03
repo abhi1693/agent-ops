@@ -16,10 +16,6 @@ NODE_DEFINITION = build_openai_compatible_chat_model_definition(
     ),
     display_name="Groq",
     icon="mdi-lightning-bolt",
-    app_id="groq",
-    app_label="Groq",
-    app_description="Ultra-low-latency hosted models optimized for real-time and tool-heavy agent flows.",
-    app_icon="mdi-lightning-bolt",
     base_url="https://api.groq.com/openai/v1",
     default_model="llama-3.3-70b-versatile",
     model_options=(

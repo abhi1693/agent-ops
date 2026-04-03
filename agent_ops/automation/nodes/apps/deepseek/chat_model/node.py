@@ -16,10 +16,6 @@ NODE_DEFINITION = build_openai_compatible_chat_model_definition(
     ),
     display_name="DeepSeek",
     icon="mdi-radar",
-    app_id="deepseek",
-    app_label="DeepSeek",
-    app_description="Fast open-weight chat and reasoning models exposed through an OpenAI-compatible API.",
-    app_icon="mdi-radar",
     base_url="https://api.deepseek.com/v1",
     default_model="deepseek-chat",
     model_options=(

@@ -270,6 +270,24 @@ export function renderNodeMarkup(params: {
   `;
 }
 
+function renderPaletteDefinitionCards(definitions: WorkflowNodeDefinition[]): string {
+  return definitions
+    .map(
+      (definition) => `
+        <button type="button" class="workflow-template-card" data-add-node="${escapeHtml(definition.type)}">
+          <span class="workflow-template-icon">
+            <i class="mdi ${escapeHtml(definition.icon ?? 'mdi-vector-square')}"></i>
+          </span>
+          <span class="workflow-template-copy">
+            <span class="workflow-template-title">${escapeHtml(definition.label)}</span>
+            <span class="workflow-template-description">${escapeHtml(definition.description)}</span>
+          </span>
+        </button>
+      `,
+    )
+    .join('');
+}
+
 export function renderNodePaletteMarkup(sections: WorkflowPaletteSection[]): string {
   return sections
     .map(
@@ -286,23 +304,11 @@ export function renderNodePaletteMarkup(sections: WorkflowPaletteSection[]): str
             </div>
             <div class="workflow-block-group-copy">${escapeHtml(section.description)}</div>
           </div>
-          <div class="workflow-block-grid">
-            ${section.definitions
-              .map(
-                (definition) => `
-                  <button type="button" class="workflow-template-card" data-add-node="${escapeHtml(definition.type)}">
-                    <span class="workflow-template-icon">
-                      <i class="mdi ${escapeHtml(definition.icon ?? 'mdi-vector-square')}"></i>
-                    </span>
-                    <span class="workflow-template-copy">
-                      <span class="workflow-template-title">${escapeHtml(definition.label)}</span>
-                      <span class="workflow-template-description">${escapeHtml(definition.description)}</span>
-                    </span>
-                  </button>
-                `,
-              )
-              .join('')}
-          </div>
+          ${
+            section.definitions.length > 0
+              ? `<div class="workflow-block-grid">${renderPaletteDefinitionCards(section.definitions)}</div>`
+              : ''
+          }
         </div>
       `,
     )

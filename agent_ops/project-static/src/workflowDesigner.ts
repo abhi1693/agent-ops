@@ -479,20 +479,35 @@ function filterNodeDefinitions(
   });
 }
 
+function getRealAppId(definition: WorkflowNodeDefinition | undefined): string {
+  const appId = definition?.app_id?.trim();
+  if (!appId || appId === 'builtins') {
+    return '';
+  }
+
+  return appId;
+}
+
+function getRealAppLabel(definition: WorkflowNodeDefinition | undefined): string {
+  if (!definition) {
+    return '';
+  }
+
+  return getRealAppId(definition) ? definition.app_label?.trim() ?? '' : '';
+}
+
 function renderPaletteDefinitions(
   definitions: WorkflowNodeDefinition[],
 ): string {
   return definitions
     .map((definition) => {
       const icon = definition.icon ?? 'mdi-vector-square';
-      const appId = definition.app_id ?? '';
+      const appId = getRealAppId(definition);
       const isModelProvider = isAgentLanguageModelNodeType(definition.type);
       const sectionLabel = getCatalogSectionLabel(definition.catalog_section);
       const meta = isModelProvider
         ? 'Model provider'
-        : definition.catalog_section === 'apps' && definition.app_label && definition.app_label !== definition.label
-          ? definition.app_label
-          : sectionLabel || formatKindLabel(definition.kind) || definition.kind;
+        : sectionLabel || formatKindLabel(definition.kind) || definition.kind;
       const description = isModelProvider
         ? definition.app_description || definition.description
         : definition.description;
@@ -553,9 +568,11 @@ function renderPaletteSections(sections: WorkflowPaletteSection[], query: string
             }
           </span>
         </div>
-        <div class="workflow-node-browser-grid">
-          ${renderPaletteDefinitions(section.definitions)}
-        </div>
+        ${
+          section.definitions.length > 0
+            ? `<div class="workflow-node-browser-grid">${renderPaletteDefinitions(section.definitions)}</div>`
+            : ''
+        }
       </section>
     `)
     .join('');
@@ -2092,9 +2109,9 @@ export function initWorkflowDesigner(): void {
     const meta = [
       formatKindLabel(node.kind),
       nodeDefinition?.catalog_section === 'apps'
-      && nodeDefinition.app_label
-      && nodeDefinition.app_label !== 'Workflow'
-        ? nodeDefinition.app_label
+      && getRealAppLabel(nodeDefinition)
+      && getRealAppLabel(nodeDefinition) !== 'Workflow'
+        ? getRealAppLabel(nodeDefinition)
         : null,
     ]
       .filter((value): value is string => Boolean(value))
@@ -2162,22 +2179,18 @@ export function initWorkflowDesigner(): void {
       description = 'Choose the first trigger and build the rest of the workflow.';
       emptyMessage = 'No matching triggers';
       markup = triggerDefinitions.length > 0
-        ? `
-          <section class="workflow-node-browser-section" data-app-id="starter-triggers">
-            <div class="workflow-node-browser-section-head">
-              <span class="workflow-node-browser-section-badge" aria-hidden="true">
-                <i class="mdi mdi-rocket-launch-outline"></i>
-              </span>
-              <span class="workflow-node-browser-section-copy">
-                <span class="workflow-node-browser-section-title">Triggers</span>
-                <span class="workflow-node-browser-section-description">Choose the first trigger and build the rest of the workflow yourself.</span>
-              </span>
-            </div>
-            <div class="workflow-node-browser-grid">
-              ${renderPaletteDefinitions(triggerDefinitions)}
-            </div>
-          </section>
-        `
+        ? renderPaletteSections(
+            [
+              {
+                definitions: triggerDefinitions,
+                description: 'Choose the first trigger and build the rest of the workflow yourself.',
+                icon: 'mdi-rocket-launch-outline',
+                id: 'triggers',
+                label: 'Triggers',
+              },
+            ],
+            searchQuery,
+          )
         : '';
     } else if (insertPort) {
       title = insertPort.id === 'ai_languageModel' ? 'Attach model provider' : 'Attach tool';

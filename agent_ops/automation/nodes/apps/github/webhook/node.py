@@ -112,8 +112,4 @@ NODE_DEFINITION = trigger_definition_as_node_definition(
     TRIGGER_DEFINITION,
     node_type="trigger.github_webhook",
     details="GitHub trigger node for repository and workflow webhook events.",
-    app_id="github",
-    app_label="GitHub",
-    app_description="Receive webhook events from GitHub workflows and repositories.",
-    app_icon="mdi-github",
 )

@@ -134,8 +134,4 @@ NODE_DEFINITION = tool_definition_as_node_definition(
     TOOL_DEFINITION,
     node_type="tool.prometheus_query",
     details="Prometheus query node for observability workflows.",
-    app_id="observability",
-    app_label="Observability",
-    app_description="Ingest alerts and query monitoring systems such as Prometheus and Elasticsearch.",
-    app_icon="mdi-chart-areaspline",
 )

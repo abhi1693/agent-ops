@@ -82,9 +82,5 @@ NODE_DEFINITION = tool_definition_as_node_definition(
     TOOL_DEFINITION,
     node_type="tool.secret",
     details="Resolve a scoped secret and store the redacted value path in context.",
-    app_id="utilities",
-    app_label="AgentOps utilities",
-    app_description="AgentOps-specific helper nodes that are intentionally separate from the n8n-style built-in set.",
-    app_icon="mdi-tools",
     catalog_section="data",
 )

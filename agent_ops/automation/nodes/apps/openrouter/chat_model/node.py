@@ -16,10 +16,6 @@ NODE_DEFINITION = build_openai_compatible_chat_model_definition(
     ),
     display_name="OpenRouter",
     icon="mdi-router-wireless",
-    app_id="openrouter",
-    app_label="OpenRouter",
-    app_description="One provider node that can route across multiple frontier model ecosystems.",
-    app_icon="mdi-router-wireless",
     base_url="https://openrouter.ai/api/v1",
     default_model="openai/gpt-5.2",
     model_options=(

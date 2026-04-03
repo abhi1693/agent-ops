@@ -65,8 +65,4 @@ NODE_DEFINITION = trigger_definition_as_node_definition(
     TRIGGER_DEFINITION,
     node_type="trigger.kibana_webhook",
     details="Kibana webhook trigger for observability rule ingestion.",
-    app_id="observability",
-    app_label="Observability",
-    app_description="Ingest alerts and query monitoring systems such as Prometheus and Elasticsearch.",
-    app_icon="mdi-chart-areaspline",
 )

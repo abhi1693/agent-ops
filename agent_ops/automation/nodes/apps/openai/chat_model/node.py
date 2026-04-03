@@ -16,10 +16,6 @@ NODE_DEFINITION = build_openai_compatible_chat_model_definition(
     ),
     display_name="OpenAI",
     icon="mdi-brain",
-    app_id="openai",
-    app_label="OpenAI",
-    app_description="General-purpose GPT models for production agents and enterprise workflows.",
-    app_icon="mdi-brain",
     base_url="https://api.openai.com/v1",
     default_model="gpt-4.1-mini",
     model_options=(

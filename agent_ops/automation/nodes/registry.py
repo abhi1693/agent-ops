@@ -6,6 +6,7 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 
+from automation.nodes.apps import WORKFLOW_APP_NODE_DEFINITIONS
 from automation.nodes.base import (
     WorkflowNodeDefinition,
     WorkflowNodeExecutionContext,
@@ -16,7 +17,6 @@ from automation.tools.base import WORKFLOW_INPUT_MODES_CONFIG_KEY, SUPPORTED_WOR
 
 
 _PACKAGE_MANIFEST_PATH = Path(__file__).with_name("package.json")
-_APP_PACKAGE_MANIFEST_PATH = _PACKAGE_MANIFEST_PATH.with_name("apps").joinpath("package.json")
 
 
 def _load_package_manifest(path: Path) -> dict[str, Any]:
@@ -27,7 +27,6 @@ def _load_package_manifest(path: Path) -> dict[str, Any]:
 
 
 _WORKFLOW_BUILTIN_PACKAGE = _load_package_manifest(_PACKAGE_MANIFEST_PATH)
-_WORKFLOW_APP_PACKAGE = _load_package_manifest(_APP_PACKAGE_MANIFEST_PATH)
 
 
 def _load_node_definition(module_import_path: str) -> WorkflowNodeDefinition:
@@ -52,65 +51,11 @@ def _load_builtin_node_definitions() -> tuple[WorkflowNodeDefinition, ...]:
     return tuple(definitions)
 
 
-def _validate_runtime_mapped_node_type(definition: WorkflowNodeDefinition) -> None:
-    prefix = f"{definition.kind}."
-    if not definition.type.startswith(prefix):
-        raise RuntimeError(
-            f'Node "{definition.type}" must use a "{prefix}<name>" type.'
-        )
-
-    runtime_name = definition.type.removeprefix(prefix).strip()
-    if not runtime_name:
-        raise RuntimeError(
-            f'Node "{definition.type}" must use a "{prefix}<name>" type.'
-        )
-
-
-def _resolve_app_node_module_path(node_path: str, kind: str) -> str:
-    candidates = [f"automation.nodes.apps.{node_path}.node"]
-
-    parent_path, separator, leaf_name = node_path.rpartition(".")
-    if separator:
-        candidates.append(f"automation.nodes.apps.{parent_path}.{kind}.{leaf_name}")
-
-    for candidate in candidates:
-        if importlib.util.find_spec(candidate) is not None:
-            return candidate
-
-    raise RuntimeError(
-        f'App node "{node_path}" kind "{kind}" is missing a matching Python module.'
-    )
-
-
-def _load_app_node_definitions() -> tuple[WorkflowNodeDefinition, ...]:
-    nodes_config = _WORKFLOW_APP_PACKAGE.get("agentOps", {})
-    node_paths = nodes_config.get("nodes", ())
-    definitions: list[WorkflowNodeDefinition] = []
-
-    for node_path in node_paths:
-        definition = None
-        for kind in ("tool", "trigger"):
-            try:
-                module_import_path = _resolve_app_node_module_path(node_path, kind)
-            except RuntimeError:
-                continue
-            definition = _load_node_definition(module_import_path)
-            break
-
-        if definition is None:
-            raise RuntimeError(f'App node "{node_path}" is missing a matching Python module.')
-        _validate_runtime_mapped_node_type(definition)
-        definitions.append(definition)
-
-    return tuple(definitions)
-
-
 _BUILTIN_NODE_DEFINITIONS = _load_builtin_node_definitions()
-_APP_NODE_DEFINITIONS = _load_app_node_definitions()
 
 WORKFLOW_NODE_DEFINITIONS = (
     *_BUILTIN_NODE_DEFINITIONS,
-    *_APP_NODE_DEFINITIONS,
+    *WORKFLOW_APP_NODE_DEFINITIONS,
 )
 
 WORKFLOW_NODE_REGISTRY = {

@@ -63,9 +63,5 @@ NODE_DEFINITION = tool_definition_as_node_definition(
     TOOL_DEFINITION,
     node_type="tool.template",
     details="AgentOps helper node that renders a template and saves the result.",
-    app_id="utilities",
-    app_label="AgentOps utilities",
-    app_description="AgentOps-specific helper nodes that are intentionally separate from the n8n-style built-in set.",
-    app_icon="mdi-tools",
     catalog_section="data",
 )

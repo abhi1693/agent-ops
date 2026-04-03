@@ -16,10 +16,6 @@ NODE_DEFINITION = build_openai_compatible_chat_model_definition(
     ),
     display_name="Mistral",
     icon="mdi-weather-windy",
-    app_id="mistral",
-    app_label="Mistral",
-    app_description="Flagship, coding, and efficient frontier models served through Mistral's chat API.",
-    app_icon="mdi-weather-windy",
     base_url="https://api.mistral.ai/v1",
     default_model="mistral-large-latest",
     model_options=(

@@ -14,6 +14,14 @@ export type WorkflowNodeRegistry = {
   paletteSections: WorkflowPaletteSection[];
 };
 
+type WorkflowPaletteSectionAccumulator = {
+  definitions: WorkflowNodeDefinition[];
+  description: string;
+  icon: string;
+  id: WorkflowNodeCatalogSection;
+  label: string;
+};
+
 const CHAT_MODEL_NODE_TYPES = new Set<string>([
   'tool.deepseek_chat_model',
   'tool.fireworks_chat_model',
@@ -105,7 +113,7 @@ function normalizeCatalogSection(definition: WorkflowNodeDefinition): WorkflowNo
 export function buildNodeRegistry(nodeTemplates: WorkflowNodeTemplate[]): WorkflowNodeRegistry {
   const definitions = nodeTemplates.map(createNodeDefinition);
   const definitionMap = new Map(definitions.map((definition) => [definition.type, definition]));
-  const sectionsById = new Map<WorkflowNodeCatalogSection, WorkflowPaletteSection>(
+  const sectionsById = new Map<WorkflowNodeCatalogSection, WorkflowPaletteSectionAccumulator>(
     WORKFLOW_CATALOG_SECTION_ORDER.map((sectionId) => [
       sectionId,
       {
@@ -122,11 +130,29 @@ export function buildNodeRegistry(nodeTemplates: WorkflowNodeTemplate[]): Workfl
       return;
     }
 
-    sectionsById.get(normalizeCatalogSection(definition))?.definitions.push(definition);
+    const section = sectionsById.get(normalizeCatalogSection(definition));
+    if (!section) {
+      return;
+    }
+
+    section.definitions.push(definition);
   });
   const paletteSections = WORKFLOW_CATALOG_SECTION_ORDER
-    .map((sectionId) => sectionsById.get(sectionId))
-    .filter((section): section is WorkflowPaletteSection => Boolean(section && section.definitions.length));
+    .map<WorkflowPaletteSection | null>((sectionId) => {
+      const section = sectionsById.get(sectionId);
+      if (!section || section.definitions.length === 0) {
+        return null;
+      }
+
+      return {
+        definitions: section.definitions,
+        description: section.description,
+        icon: section.icon,
+        id: section.id,
+        label: section.label,
+      };
+    })
+    .filter((section): section is WorkflowPaletteSection => section !== null);
 
   return {
     definitions,

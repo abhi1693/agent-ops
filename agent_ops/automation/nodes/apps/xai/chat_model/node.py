@@ -16,10 +16,6 @@ NODE_DEFINITION = build_openai_compatible_chat_model_definition(
     ),
     display_name="xAI",
     icon="mdi-alpha-x-circle-outline",
-    app_id="xai",
-    app_label="xAI",
-    app_description="Grok reasoning and coding models exposed through xAI's OpenAI-compatible API.",
-    app_icon="mdi-alpha-x-circle-outline",
     base_url="https://api.x.ai/v1",
     default_model="grok-code-fast-1",
     model_options=(

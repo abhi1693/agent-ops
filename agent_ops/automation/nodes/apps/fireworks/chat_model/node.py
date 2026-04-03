@@ -16,10 +16,6 @@ NODE_DEFINITION = build_openai_compatible_chat_model_definition(
     ),
     display_name="Fireworks",
     icon="mdi-rocket-launch",
-    app_id="fireworks",
-    app_label="Fireworks",
-    app_description="High-throughput serverless inference for open models with OpenAI-compatible chat completions.",
-    app_icon="mdi-rocket-launch",
     base_url="https://api.fireworks.ai/inference/v1",
     default_model="accounts/fireworks/models/llama-v3p1-8b-instruct",
     model_options=(
