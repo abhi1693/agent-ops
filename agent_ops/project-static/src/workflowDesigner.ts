@@ -60,6 +60,7 @@ import { buildNodeRegistry, getAvailablePaletteSections } from './workflowDesign
 import { normalizeWorkflowDefinition, serializeWorkflowDefinition } from './workflowDesigner/schema/workflowSchema';
 import { createWorkflowDesignerGraphController } from './workflowDesigner/state/graphController';
 import { createGraphStore } from './workflowDesigner/state/graphStore';
+import { createWorkflowDesignerSelectionController } from './workflowDesigner/state/selectionController';
 import type {
   AgentAuxiliaryPortId,
   ConnectorSide,
@@ -89,12 +90,6 @@ import {
   parseJsonScript,
 } from './workflowDesigner/utils';
 import { createViewportController } from './workflowDesigner/viewport/controller';
-
-type ContextMenuState = {
-  nodeId: string;
-  x: number;
-  y: number;
-};
 
 type DesignerRunResponse = {
   message: string;
@@ -265,12 +260,9 @@ export function initWorkflowDesigner(): void {
     },
   });
 
-  let selectedNodeId: string | null = null;
-  let settingsNodeId: string | null = null;
   let dragState: DragState | null = null;
   let panState: PanState | null = null;
   let connectionDraft: ConnectionDraft | null = null;
-  let contextMenuState: ContextMenuState | null = null;
   let hoveredEdgeId: string | null = null;
   let isExecutionPending = false;
   let activeExecutionNodeId: string | null = null;
@@ -313,7 +305,7 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
-    const settingsNode = getNode(settingsNodeId);
+    const settingsNode = getNode(getSettingsNodeId());
     if (!settingsNode) {
       execution.nodeRunButton.hidden = true;
       execution.nodeRunButton.disabled = true;
@@ -490,10 +482,10 @@ export function initWorkflowDesigner(): void {
     }
 
     const nodeId = options?.nodeId ?? null;
-    if (nodeId && settingsNodeId !== nodeId) {
+    if (nodeId && getSettingsNodeId() !== nodeId) {
       openNodeSettings(nodeId);
-    } else if (!nodeId && !settingsNodeId && selectedNodeId) {
-      openNodeSettings(selectedNodeId);
+    } else if (!nodeId && !getSettingsNodeId() && getSelectedNodeId()) {
+      openNodeSettings(getSelectedNodeId() as string);
     }
 
     const inputData = parseExecutionInput();
@@ -609,19 +601,6 @@ export function initWorkflowDesigner(): void {
     );
   }
 
-  function openNodeSettings(nodeId: string): void {
-    selectedNodeId = nodeId;
-    settingsNodeId = nodeId;
-    contextMenuState = null;
-    renderCanvas();
-    renderSettingsPanel();
-  }
-
-  function closeNodeSettings(): void {
-    settingsNodeId = null;
-    renderSettingsPanel();
-  }
-
   function isTextEntryTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) {
       return false;
@@ -639,7 +618,7 @@ export function initWorkflowDesigner(): void {
   }
 
   function renderSettingsPanel(): void {
-    const settingsNode = getNode(settingsNodeId);
+    const settingsNode = getNode(getSettingsNodeId());
     const nodeDefinition = getNodeDefinition(settingsNode);
     if (!settingsNode || !nodeDefinition) {
       canvas.settingsPanel.hidden = true;
@@ -703,28 +682,8 @@ export function initWorkflowDesigner(): void {
     };
   }
 
-  function closeNodeContextMenu(): void {
-    contextMenuState = null;
-    renderNodeContextMenu();
-  }
-
-  function openNodeContextMenu(nodeId: string, clientX: number, clientY: number): void {
-    const node = getNode(nodeId);
-    if (!node) {
-      return;
-    }
-
-    selectedNodeId = nodeId;
-    settingsNodeId = null;
-    contextMenuState = {
-      nodeId,
-      ...getNodeContextMenuPosition(clientX, clientY),
-    };
-    renderCanvas();
-    renderSettingsPanel();
-  }
-
   function renderNodeContextMenu(): void {
+    const contextMenuState = getContextMenuState();
     if (!contextMenuState) {
       canvas.nodeMenu.hidden = true;
       canvas.nodeMenu.innerHTML = '';
@@ -733,7 +692,7 @@ export function initWorkflowDesigner(): void {
 
     const node = getNode(contextMenuState.nodeId);
     if (!node) {
-      contextMenuState = null;
+      clearContextMenuState();
       canvas.nodeMenu.hidden = true;
       canvas.nodeMenu.innerHTML = '';
       return;
@@ -808,7 +767,7 @@ export function initWorkflowDesigner(): void {
             isValidConnection,
             node,
             nodeDefinition,
-            selectedNodeId,
+            selectedNodeId: getSelectedNodeId(),
             workflowDefinition,
           }),
         );
@@ -859,6 +818,27 @@ export function initWorkflowDesigner(): void {
   }
 
   const {
+    cleanupDeletedNode,
+    clearContextMenuState,
+    closeNodeContextMenu,
+    closeNodeSettings,
+    getContextMenuState,
+    getSelectedNodeId,
+    getSettingsNodeId,
+    hasOpenContextMenu,
+    openNodeContextMenu,
+    openNodeSettings,
+    setSelectedNodeId,
+    setSettingsNodeId,
+  } = createWorkflowDesignerSelectionController({
+    getContextMenuPosition: getNodeContextMenuPosition,
+    getNode: (nodeId) => getNode(nodeId ?? null),
+    renderCanvas,
+    renderNodeContextMenu,
+    renderSettingsPanel,
+  });
+
+  const {
     closeBrowser,
     getInsertDraft,
     getIsBrowserOpen,
@@ -873,12 +853,8 @@ export function initWorkflowDesigner(): void {
   } = createWorkflowDesignerBrowserController({
     board: canvas.board,
     browser,
-    clearContextMenuState: () => {
-      contextMenuState = null;
-    },
-    clearSettingsNodeId: () => {
-      settingsNodeId = null;
-    },
+    clearContextMenuState,
+    clearSettingsNodeId: () => setSettingsNodeId(null),
     definitions: nodeRegistry.definitions,
     getAvailableSections: () => getAvailablePaletteSections(nodeRegistry, workflowDefinition),
     getIsEmptyWorkflow: isEmptyWorkflow,
@@ -891,9 +867,7 @@ export function initWorkflowDesigner(): void {
     renderNodeContextMenu,
     renderSettingsPanel,
     screenToWorld: viewportController.screenToWorld,
-    setSelectedNodeId: (nodeId) => {
-      selectedNodeId = nodeId;
-    },
+    setSelectedNodeId: (nodeId) => setSelectedNodeId(nodeId),
   });
 
   const {
@@ -913,15 +887,7 @@ export function initWorkflowDesigner(): void {
       hoveredEdgeId = null;
     },
     onDeleteNodeStateCleanup: (nodeId) => {
-      if (selectedNodeId === nodeId) {
-        selectedNodeId = null;
-      }
-      if (settingsNodeId === nodeId) {
-        settingsNodeId = null;
-      }
-      if (contextMenuState?.nodeId === nodeId) {
-        contextMenuState = null;
-      }
+      cleanupDeletedNode(nodeId);
       if (connectionDraft?.sourceId === nodeId) {
         connectionDraft = null;
       }
@@ -963,22 +929,22 @@ export function initWorkflowDesigner(): void {
       canvas.board,
       workflowDefinition,
       nodeDefinition,
-      selectedNodeId,
+      getSelectedNodeId(),
       pendingInsert?.position,
     );
     graphStore.addNode(newNode);
-    selectedNodeId = newNode.id;
+    setSelectedNodeId(newNode.id);
     syncDefinitionInput();
     closeBrowser();
     if (pendingInsert?.sourceId) {
       addEdge(pendingInsert.sourceId, newNode.id);
-      settingsNodeId = newNode.id;
+      setSettingsNodeId(newNode.id);
     } else if (pendingInsert?.targetId && pendingInsert.targetPort) {
       addEdge(newNode.id, pendingInsert.targetId, {
         sourcePort: pendingInsert.targetPort,
         targetPort: pendingInsert.targetPort,
       });
-      settingsNodeId = newNode.id;
+      setSettingsNodeId(newNode.id);
     }
     renderCanvas();
     renderBrowser();
@@ -994,7 +960,7 @@ export function initWorkflowDesigner(): void {
     canvas,
     getNode: (nodeId) => getNode(nodeId ?? null),
     getNodeDefinition,
-    getSettingsNodeId: () => settingsNodeId,
+    getSettingsNodeId,
     renderCanvas,
     renderSettingsPanel,
     syncDefinitionInput,
@@ -1009,7 +975,7 @@ export function initWorkflowDesigner(): void {
     }
 
     const pointerPoint = getPointFromClient(clientX, clientY);
-    selectedNodeId = sourceId;
+    setSelectedNodeId(sourceId);
     hoveredEdgeId = null;
     connectionDraft = {
       hoveredTargetId: null,
@@ -1058,9 +1024,9 @@ export function initWorkflowDesigner(): void {
     getNodeElement: (nodeId) => getNodeElement(canvas.nodeLayer, nodeId),
     getPanState: () => panState,
     getPointFromClient,
-    getSelectedNodeId: () => selectedNodeId,
-    getSettingsNodeId: () => settingsNodeId,
-    hasOpenContextMenu: () => Boolean(contextMenuState),
+    getSelectedNodeId,
+    getSettingsNodeId,
+    hasOpenContextMenu,
     isValidConnection,
     openInsertBrowser,
     openNodeContextMenu,
@@ -1080,12 +1046,8 @@ export function initWorkflowDesigner(): void {
     setPanState: (nextState) => {
       panState = nextState;
     },
-    setSelectedNodeId: (nextState) => {
-      selectedNodeId = nextState;
-    },
-    setSettingsNodeId: (nextState) => {
-      settingsNodeId = nextState;
-    },
+    setSelectedNodeId,
+    setSettingsNodeId,
     shouldOpenInsertBrowser,
     updateNodePosition,
     viewportController,
@@ -1102,10 +1064,10 @@ export function initWorkflowDesigner(): void {
     closeNodeSettings,
     deleteNode,
     getConnectionDraftActive: () => Boolean(connectionDraft),
-    getContextMenuNodeId: () => contextMenuState?.nodeId ?? null,
+    getContextMenuNodeId: () => getContextMenuState()?.nodeId ?? null,
     getIsBrowserOpen,
-    getSelectedNodeId: () => selectedNodeId,
-    getSettingsNodeId: () => settingsNodeId,
+    getSelectedNodeId,
+    getSettingsNodeId,
     goBackBrowserView,
     isTextEntryTarget,
     navigateBrowser,
@@ -1120,6 +1082,7 @@ export function initWorkflowDesigner(): void {
       void executeDesignerRun(getNodeRunUrl(nodeId), { nodeId });
     },
     runSelectedNode: () => {
+      const settingsNodeId = getSettingsNodeId();
       if (!settingsNodeId) {
         return;
       }
