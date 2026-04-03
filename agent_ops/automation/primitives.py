@@ -8,6 +8,7 @@ from automation.nodes import (
     normalize_workflow_node_config,
     validate_workflow_node,
 )
+from automation.nodes.base import WORKFLOW_NODE_CATALOG_SECTION_ORDER, WORKFLOW_NODE_CATALOG_SECTIONS
 from automation.workflow_connections import (
     split_workflow_edges,
     validate_agent_auxiliary_edges,
@@ -72,34 +73,28 @@ def _copy_node_template(template: dict) -> dict:
 
 
 def _build_workflow_group_definitions():
-    app_groups: list[dict] = []
-    groups_by_id: dict[str, dict] = {}
+    section_groups = {
+        section_id: {
+            **section_definition,
+            "templates": [],
+        }
+        for section_id, section_definition in WORKFLOW_NODE_CATALOG_SECTIONS.items()
+    }
 
     for node_definition in WORKFLOW_NODE_DEFINITIONS:
         template = _WORKFLOW_NODE_TEMPLATE_REGISTRY.get(node_definition.type)
         if template is None:
             raise KeyError(f'Missing workflow node template for "{node_definition.type}".')
 
-        app_group = groups_by_id.get(node_definition.app_id)
-        if app_group is None:
-            app_group = {
-                "id": node_definition.app_id,
-                "label": node_definition.app_label,
-                "description": node_definition.app_description,
-                "icon": node_definition.app_icon,
-                "templates": [],
-            }
-            groups_by_id[node_definition.app_id] = app_group
-            app_groups.append(app_group)
-
-        app_group["templates"].append(_copy_node_template(template))
+        section_groups[node_definition.catalog_section]["templates"].append(_copy_node_template(template))
 
     return tuple(
         {
-            **app_group,
-            "templates": tuple(app_group["templates"]),
+            **section_groups[section_id],
+            "templates": tuple(section_groups[section_id]["templates"]),
         }
-        for app_group in app_groups
+        for section_id in WORKFLOW_NODE_CATALOG_SECTION_ORDER
+        if section_groups[section_id]["templates"]
     )
 
 

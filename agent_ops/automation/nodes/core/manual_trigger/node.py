@@ -38,6 +38,7 @@ NODE_DEFINITION = WorkflowNodeDefinition(
     icon="mdi-play-circle-outline",
     app_description="Core workflow nodes, runtime primitives, and n8n-style built-in blocks available in the designer.",
     app_icon="mdi-toy-brick-outline",
+    catalog_section="triggers",
     validator=NODE_IMPLEMENTATION.validator,
     executor=NODE_IMPLEMENTATION.executor,
 )

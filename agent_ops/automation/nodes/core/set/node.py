@@ -44,6 +44,7 @@ NODE_DEFINITION = WorkflowNodeDefinition(
     display_name="Set",
     description="Write a static value into workflow context, following n8n's Set node pattern.",
     icon="mdi-form-textbox",
+    catalog_section="data",
     config={"output_key": "tool.output"},
     fields=(
         node_text_field(

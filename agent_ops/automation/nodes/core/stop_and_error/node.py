@@ -73,6 +73,7 @@ NODE_DEFINITION = WorkflowNodeDefinition(
     display_name="Stop and Error",
     description="End the workflow with a failed status, modeled after n8n's Stop and Error node.",
     icon="mdi-alert-octagon-outline",
+    catalog_section="flow",
     config={"error_type": "errorMessage"},
     fields=(
         node_select_field(

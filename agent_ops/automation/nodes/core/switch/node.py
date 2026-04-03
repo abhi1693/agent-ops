@@ -75,6 +75,7 @@ NODE_DEFINITION = WorkflowNodeDefinition(
         "after n8n's Switch node."
     ),
     icon="mdi-call-split",
+    catalog_section="flow",
     fields=(
         node_text_field(
             "path",

@@ -11,6 +11,7 @@ import {
 import { buildNodeRegistry, getAvailablePaletteSections } from './workflowDesigner/registry/nodeRegistry';
 import { normalizeWorkflowDefinition, serializeWorkflowDefinition } from './workflowDesigner/schema/workflowSchema';
 import type {
+  WorkflowNodeCatalogSection,
   WorkflowDefinition,
   WorkflowNode,
   WorkflowNodeDefinition,
@@ -195,6 +196,23 @@ function isAgentLanguageModelNodeType(nodeType: string | null | undefined): bool
 
 function isAgentToolCompatibleNode(definition: Pick<WorkflowNodeDefinition, 'kind' | 'type'>): boolean {
   return definition.kind === 'tool' && !isAgentLanguageModelNodeType(definition.type);
+}
+
+function getCatalogSectionLabel(
+  catalogSection: WorkflowNodeCatalogSection | string | null | undefined,
+): string | null {
+  switch (catalogSection) {
+    case 'triggers':
+      return 'Triggers';
+    case 'flow':
+      return 'Flow';
+    case 'data':
+      return 'Data';
+    case 'apps':
+      return 'Apps';
+    default:
+      return null;
+  }
 }
 
 function getBrowserElements(root: ParentNode): BrowserElements | null {
@@ -449,6 +467,7 @@ function filterNodeDefinitions(
       definition.description,
       definition.type,
       definition.kind,
+      definition.catalog_section ?? '',
       definition.app_label ?? '',
       definition.app_description ?? '',
       typeof definition.config?.model === 'string' ? definition.config.model : '',
@@ -470,11 +489,12 @@ function renderPaletteDefinitions(
       const icon = definition.icon ?? 'mdi-vector-square';
       const appId = definition.app_id ?? '';
       const isModelProvider = isAgentLanguageModelNodeType(definition.type);
+      const sectionLabel = getCatalogSectionLabel(definition.catalog_section);
       const meta = isModelProvider
         ? 'Model provider'
-        : definition.app_label && definition.app_label !== definition.label
+        : definition.catalog_section === 'apps' && definition.app_label && definition.app_label !== definition.label
           ? definition.app_label
-          : formatKindLabel(definition.kind) || definition.kind;
+          : sectionLabel || formatKindLabel(definition.kind) || definition.kind;
       const description = isModelProvider
         ? definition.app_description || definition.description
         : definition.description;
@@ -2007,7 +2027,9 @@ export function initWorkflowDesigner(): void {
     const nodeDefinition = getNodeDefinition(node);
     const meta = [
       formatKindLabel(node.kind),
-      nodeDefinition?.app_label && nodeDefinition.app_label !== 'Workflow'
+      nodeDefinition?.catalog_section === 'apps'
+      && nodeDefinition.app_label
+      && nodeDefinition.app_label !== 'Workflow'
         ? nodeDefinition.app_label
         : null,
     ]
@@ -2087,9 +2109,13 @@ export function initWorkflowDesigner(): void {
         ? 'No matching model providers'
         : 'No matching tools';
       if (insertPort.id === 'ai_languageModel') {
-        const modelDefinitions = filteredSections.reduce<WorkflowNodeDefinition[]>(
-          (definitions, section) => definitions.concat(section.definitions),
-          [],
+        const modelDefinitions = filterNodeDefinitions(
+          nodeRegistry.definitions.filter(
+            (definition) =>
+              isAgentLanguageModelNodeType(definition.type)
+              && (!allowedNodeTypes || allowedNodeTypes.includes(definition.type)),
+          ),
+          searchQuery,
         );
         markup = modelDefinitions.length > 0
           ? `<div class="workflow-node-browser-list workflow-node-browser-list--providers">${renderPaletteDefinitions(modelDefinitions, 'default')}</div>`

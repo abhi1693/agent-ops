@@ -77,6 +77,7 @@ NODE_DEFINITION = WorkflowNodeDefinition(
         "n8n's schedule trigger pattern."
     ),
     icon="mdi-clock-outline",
+    catalog_section="triggers",
     config={
         "mode": "interval",
         "interval_unit": "minutes",

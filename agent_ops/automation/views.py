@@ -17,6 +17,7 @@ from automation.auth import (
 )
 from automation.forms import SecretForm, SecretGroupForm, WorkflowDesignerForm, WorkflowForm, WorkflowRunForm
 from automation.models import Secret, SecretGroup, Workflow, WorkflowRun
+from automation.nodes.base import WORKFLOW_NODE_CATALOG_SECTION_ORDER, WORKFLOW_NODE_CATALOG_SECTIONS
 from automation.nodes import prepare_workflow_node_webhook_request
 from automation.primitives import WORKFLOW_NODE_TEMPLATES, normalize_workflow_definition_nodes
 from automation.runtime import enqueue_workflow, execute_workflow
@@ -322,26 +323,33 @@ def _build_designer_run_payload(run: WorkflowRun, *, mode: str, node: dict | Non
     return payload
 
 
-def _group_workflow_node_templates_by_app(*, node_templates):
-    grouped_templates = []
-    app_index = {}
+def _group_workflow_node_templates_by_section(*, node_templates):
+    grouped_templates = {
+        section_id: {
+            **section_definition,
+            "templates": [],
+        }
+        for section_id, section_definition in WORKFLOW_NODE_CATALOG_SECTIONS.items()
+    }
 
     for template in node_templates:
-        app_id = template.get("app_id") or "builtins"
-        app_group = app_index.get(app_id)
-        if app_group is None:
-            app_group = {
-                "id": app_id,
-                "label": template.get("app_label") or "Built-ins",
-                "description": template.get("app_description") or "",
-                "icon": template.get("app_icon") or "mdi-vector-square",
+        section_id = template.get("catalog_section") or "apps"
+        grouped_templates.setdefault(
+            section_id,
+            {
+                "id": section_id,
+                "label": section_id.title(),
+                "description": "",
+                "icon": "mdi-vector-square",
                 "templates": [],
-            }
-            app_index[app_id] = app_group
-            grouped_templates.append(app_group)
-        app_group["templates"].append(template)
+            },
+        )["templates"].append(template)
 
-    return grouped_templates
+    return [
+        grouped_templates[section_id]
+        for section_id in WORKFLOW_NODE_CATALOG_SECTION_ORDER
+        if grouped_templates.get(section_id, {}).get("templates")
+    ]
 
 
 def _hydrate_workflow_node_templates_for_workflow(workflow) -> list[dict]:
@@ -501,7 +509,7 @@ class WorkflowDesignerView(RestrictedObjectEditMixin, ObjectEditView):
                 "workflow_definition": normalized_definition,
                 "workflow_nodes": normalized_definition.get("nodes", []),
                 "workflow_node_templates": hydrated_templates,
-                "workflow_node_template_groups": _group_workflow_node_templates_by_app(
+                "workflow_node_template_groups": _group_workflow_node_templates_by_section(
                     node_templates=hydrated_templates,
                 ),
                 "workflow_list_url": reverse("workflow_list"),

@@ -24,6 +24,7 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         }
 
         self.assertEqual(mcp_template["app_id"], "integrations")
+        self.assertEqual(mcp_template["catalog_section"], "apps")
         self.assertEqual(mcp_template["label"], "MCP server")
         self.assertEqual(mcp_template["config"]["protocol_version"], "2025-11-25")
         self.assertEqual(mcp_template["config"]["timeout_seconds"], 30)
@@ -55,6 +56,11 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
             },
         )
         self.assertEqual(template_fields, {"output_key", "template"})
+        self.assertEqual(template_template["catalog_section"], "data")
+        self.assertEqual(secret_template["catalog_section"], "data")
+        self.assertEqual(agent_template["catalog_section"], "flow")
+        self.assertEqual(response_template["catalog_section"], "flow")
+        self.assertEqual(github_template["catalog_section"], "triggers")
         self.assertEqual(
             secret_fields,
             {"output_key", "secret_name", "secret_group_id"},
@@ -74,6 +80,7 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         alertmanager_fields = {field["key"] for field in alertmanager_template["fields"]}
 
         self.assertEqual(prometheus_template["config"]["output_key"], "prometheus.query")
+        self.assertEqual(prometheus_template["catalog_section"], "apps")
         self.assertNotIn("resource", prometheus_template)
         self.assertNotIn("operation", prometheus_template)
         self.assertNotIn("resource", prometheus_fields)

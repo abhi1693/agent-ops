@@ -10,9 +10,38 @@ from django.core.exceptions import ValidationError
 WorkflowNodeFieldType = Literal["text", "textarea", "select", "node_target"]
 WorkflowNodeFieldUiGroup = Literal["input", "result", "advanced"]
 WorkflowNodeFieldBinding = Literal["literal", "template", "path"]
+WorkflowNodeCatalogSection = Literal["triggers", "flow", "data", "apps"]
 SUPPORTED_WORKFLOW_NODE_FIELD_TYPES = frozenset(("text", "textarea", "select", "node_target"))
 SUPPORTED_WORKFLOW_NODE_FIELD_UI_GROUPS = frozenset(("input", "result", "advanced"))
 SUPPORTED_WORKFLOW_NODE_FIELD_BINDINGS = frozenset(("literal", "template", "path"))
+SUPPORTED_WORKFLOW_NODE_CATALOG_SECTIONS = frozenset(("triggers", "flow", "data", "apps"))
+WORKFLOW_NODE_CATALOG_SECTION_ORDER = ("triggers", "flow", "data", "apps")
+WORKFLOW_NODE_CATALOG_SECTIONS = {
+    "triggers": {
+        "id": "triggers",
+        "label": "Triggers",
+        "description": "Choose how the workflow starts.",
+        "icon": "mdi-rocket-launch-outline",
+    },
+    "flow": {
+        "id": "flow",
+        "label": "Flow",
+        "description": "Control execution and AI-driven workflow steps.",
+        "icon": "mdi-vector-polyline",
+    },
+    "data": {
+        "id": "data",
+        "label": "Data",
+        "description": "Set values, render templates, and resolve workflow data.",
+        "icon": "mdi-database-outline",
+    },
+    "apps": {
+        "id": "apps",
+        "label": "Apps",
+        "description": "Connect workflow steps to external systems and providers.",
+        "icon": "mdi-apps",
+    },
+}
 WorkflowNodeValidator = Callable[[dict[str, Any], str, list[str], set[str]], None]
 WorkflowNodeExecutor = Callable[["WorkflowNodeExecutionContext"], "WorkflowNodeExecutionResult"]
 WorkflowNodeWebhookHandler = Callable[
@@ -23,6 +52,37 @@ WorkflowNodeWebhookHandler = Callable[
 _DEFAULT_WORKFLOW_NODE_APP_DESCRIPTION = (
     "n8n-style built-in nodes packaged as first-class workflow node types."
 )
+
+
+def resolve_workflow_node_catalog_section(
+    *,
+    catalog_section: str | None,
+    kind: str,
+    node_type: str,
+    app_id: str,
+) -> WorkflowNodeCatalogSection:
+    if isinstance(catalog_section, str) and catalog_section.strip():
+        normalized_section = catalog_section.strip().lower()
+        if normalized_section not in SUPPORTED_WORKFLOW_NODE_CATALOG_SECTIONS:
+            raise ValueError(
+                f'Unsupported workflow node catalog section "{catalog_section}". '
+                f"Expected one of: {', '.join(WORKFLOW_NODE_CATALOG_SECTION_ORDER)}."
+            )
+        return normalized_section
+
+    if kind == "trigger":
+        return "triggers"
+
+    if node_type in {"n8n-nodes-base.set", "tool.template", "tool.secret"}:
+        return "data"
+
+    if kind in {"agent", "condition", "response"}:
+        return "flow"
+
+    if kind == "tool":
+        return "apps" if app_id != "builtins" else "data"
+
+    return "apps" if app_id != "builtins" else "flow"
 
 
 def _require_manifest_string(payload: dict[str, Any], *keys: str) -> str:
@@ -379,9 +439,22 @@ class WorkflowNodeDefinition:
     app_label: str = "Built-ins"
     app_description: str = _DEFAULT_WORKFLOW_NODE_APP_DESCRIPTION
     app_icon: str = "mdi-toy-brick-outline"
+    catalog_section: WorkflowNodeCatalogSection | None = None
     validator: WorkflowNodeValidator | None = None
     executor: WorkflowNodeExecutor | None = None
     webhook_handler: WorkflowNodeWebhookHandler | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "catalog_section",
+            resolve_workflow_node_catalog_section(
+                catalog_section=self.catalog_section,
+                kind=self.kind,
+                node_type=self.type,
+                app_id=self.app_id,
+            ),
+        )
 
     @property
     def documentation_url(self) -> str | None:
@@ -453,6 +526,7 @@ class WorkflowNodeDefinition:
                 or _DEFAULT_WORKFLOW_NODE_APP_DESCRIPTION
             ),
             app_icon=_optional_manifest_string(agent_ops, "appIcon", "app_icon") or "mdi-toy-brick-outline",
+            catalog_section=_optional_manifest_string(agent_ops, "catalogSection", "catalog_section"),
             validator=implementation.validator,
             executor=implementation.executor,
             webhook_handler=implementation.webhook_handler,
@@ -471,6 +545,7 @@ class WorkflowNodeDefinition:
             "app_label": self.app_label,
             "app_description": self.app_description,
             "app_icon": self.app_icon,
+            "catalog_section": self.catalog_section,
         }
         if self.node_version is not None:
             payload["node_version"] = self.node_version

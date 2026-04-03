@@ -1,5 +1,6 @@
 import { getNodeCategoryForKind } from './categories';
 import type {
+  WorkflowNodeCatalogSection,
   WorkflowDefinition,
   WorkflowNode,
   WorkflowNodeDefinition,
@@ -22,6 +23,41 @@ const CHAT_MODEL_NODE_TYPES = new Set<string>([
   'tool.openrouter_chat_model',
   'tool.xai_chat_model',
 ]);
+const WORKFLOW_CATALOG_SECTION_ORDER: WorkflowNodeCatalogSection[] = [
+  'triggers',
+  'flow',
+  'data',
+  'apps',
+];
+const WORKFLOW_CATALOG_SECTION_META: Record<
+  WorkflowNodeCatalogSection,
+  {
+    description: string;
+    icon: string;
+    label: string;
+  }
+> = {
+  triggers: {
+    label: 'Triggers',
+    description: 'Choose how the workflow starts.',
+    icon: 'mdi-rocket-launch-outline',
+  },
+  flow: {
+    label: 'Flow',
+    description: 'Control execution and AI-driven workflow steps.',
+    icon: 'mdi-vector-polyline',
+  },
+  data: {
+    label: 'Data',
+    description: 'Set values, render templates, and resolve workflow data.',
+    icon: 'mdi-database-outline',
+  },
+  apps: {
+    label: 'Apps',
+    description: 'Connect workflow steps to external systems and providers.',
+    icon: 'mdi-apps',
+  },
+};
 
 function createNodeDefinition(template: WorkflowNodeTemplate): WorkflowNodeDefinition {
   return {
@@ -29,6 +65,7 @@ function createNodeDefinition(template: WorkflowNodeTemplate): WorkflowNodeDefin
     app_icon: template.app_icon,
     app_id: template.app_id,
     app_label: template.app_label,
+    catalog_section: template.catalog_section,
     category: getNodeCategoryForKind(template.kind),
     config: template.config,
     description: template.description,
@@ -45,49 +82,51 @@ function isChatModelDefinition(definition: WorkflowNodeDefinition): boolean {
   return CHAT_MODEL_NODE_TYPES.has(definition.type);
 }
 
-function getPaletteSectionMetadata(definition: WorkflowNodeDefinition): {
-  description: string;
-  icon?: string;
-  id: string;
-  label: string;
-} {
-  if (isChatModelDefinition(definition)) {
-    return {
-      description: 'Provider-backed chat completion models for agent nodes.',
-      icon: 'mdi-message-processing-outline',
-      id: 'chat_models',
-      label: 'Chat Models',
-    };
+function normalizeCatalogSection(definition: WorkflowNodeDefinition): WorkflowNodeCatalogSection {
+  if (definition.catalog_section && definition.catalog_section in WORKFLOW_CATALOG_SECTION_META) {
+    return definition.catalog_section;
   }
 
-  const appId = definition.app_id ?? 'builtins';
-  return {
-    description: definition.app_description ?? '',
-    icon: definition.app_icon,
-    id: appId,
-    label: definition.app_label ?? definition.label,
-  };
+  if (definition.kind === 'trigger') {
+    return 'triggers';
+  }
+
+  if (definition.type === 'n8n-nodes-base.set' || definition.type === 'tool.template' || definition.type === 'tool.secret') {
+    return 'data';
+  }
+
+  if (definition.kind === 'agent' || definition.kind === 'condition' || definition.kind === 'response') {
+    return 'flow';
+  }
+
+  return 'apps';
 }
 
 export function buildNodeRegistry(nodeTemplates: WorkflowNodeTemplate[]): WorkflowNodeRegistry {
   const definitions = nodeTemplates.map(createNodeDefinition);
   const definitionMap = new Map(definitions.map((definition) => [definition.type, definition]));
-  const paletteSections = definitions.reduce<WorkflowPaletteSection[]>((sections, definition) => {
-    const sectionMeta = getPaletteSectionMetadata(definition);
-    let section = sections.find((item) => item.id === sectionMeta.id);
-    if (!section) {
-      section = {
+  const sectionsById = new Map<WorkflowNodeCatalogSection, WorkflowPaletteSection>(
+    WORKFLOW_CATALOG_SECTION_ORDER.map((sectionId) => [
+      sectionId,
+      {
         definitions: [],
-        description: sectionMeta.description,
-        icon: sectionMeta.icon,
-        id: sectionMeta.id,
-        label: sectionMeta.label,
-      };
-      sections.push(section);
+        description: WORKFLOW_CATALOG_SECTION_META[sectionId].description,
+        icon: WORKFLOW_CATALOG_SECTION_META[sectionId].icon,
+        id: sectionId,
+        label: WORKFLOW_CATALOG_SECTION_META[sectionId].label,
+      },
+    ]),
+  );
+  definitions.forEach((definition) => {
+    if (isChatModelDefinition(definition)) {
+      return;
     }
-    section.definitions.push(definition);
-    return sections;
-  }, []);
+
+    sectionsById.get(normalizeCatalogSection(definition))?.definitions.push(definition);
+  });
+  const paletteSections = WORKFLOW_CATALOG_SECTION_ORDER
+    .map((sectionId) => sectionsById.get(sectionId))
+    .filter((section): section is WorkflowPaletteSection => Boolean(section && section.definitions.length));
 
   return {
     definitions,

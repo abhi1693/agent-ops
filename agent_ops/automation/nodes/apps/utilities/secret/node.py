@@ -86,4 +86,5 @@ NODE_DEFINITION = tool_definition_as_node_definition(
     app_label="AgentOps utilities",
     app_description="AgentOps-specific helper nodes that are intentionally separate from the n8n-style built-in set.",
     app_icon="mdi-tools",
+    catalog_section="data",
 )

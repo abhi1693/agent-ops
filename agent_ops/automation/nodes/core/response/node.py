@@ -70,6 +70,7 @@ NODE_DEFINITION = WorkflowNodeDefinition(
     icon="mdi-flag-checkered",
     app_description="Core workflow nodes, runtime primitives, and n8n-style built-in blocks available in the designer.",
     app_icon="mdi-toy-brick-outline",
+    catalog_section="flow",
     config={"status": "succeeded"},
     fields=(
         node_textarea_field(

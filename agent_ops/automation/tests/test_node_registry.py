@@ -100,6 +100,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
 
         set_template = templates_by_type["n8n-nodes-base.set"]
         self.assertEqual(set_template["label"], "Set")
+        self.assertEqual(set_template["catalog_section"], "data")
         self.assertEqual(set_template["config"]["output_key"], "tool.output")
         self.assertEqual(set_template["fields"][0]["key"], "output_key")
         self.assertEqual(set_template["fields"][0]["ui_group"], "result")
@@ -107,6 +108,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
 
         chat_model_template = templates_by_type["tool.openai_chat_model"]
         self.assertEqual(chat_model_template["label"], "OpenAI")
+        self.assertEqual(chat_model_template["catalog_section"], "apps")
         self.assertEqual(chat_model_template["config"]["custom_model"], "")
         self.assertEqual(chat_model_template["fields"][0]["key"], "base_url")
         self.assertEqual(chat_model_template["fields"][1]["type"], "select")
@@ -167,6 +169,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
 
         serialized = definition.serialize()
 
+        self.assertEqual(serialized["catalog_section"], "data")
         self.assertEqual(
             serialized["fields"][1]["visible_when"],
             {"resource": ["prometheus", "elasticsearch"]},

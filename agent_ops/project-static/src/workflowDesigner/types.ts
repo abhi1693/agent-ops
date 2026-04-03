@@ -17,11 +17,14 @@ export type WorkflowNodeTemplateField = {
   visible_when?: Record<string, string[]>;
 };
 
+export type WorkflowNodeCatalogSection = 'triggers' | 'flow' | 'data' | 'apps';
+
 export type WorkflowNodeTemplate = {
   app_description?: string;
   app_icon?: string;
   app_id?: string;
   app_label?: string;
+  catalog_section?: WorkflowNodeCatalogSection;
   category?: string;
   config?: Record<string, unknown>;
   description: string;
@@ -52,6 +55,7 @@ export type WorkflowNodeDefinition = {
   app_icon?: string;
   app_id?: string;
   app_label?: string;
+  catalog_section?: WorkflowNodeCatalogSection;
   category: WorkflowNodeCategoryId;
   config?: Record<string, unknown>;
   description: string;

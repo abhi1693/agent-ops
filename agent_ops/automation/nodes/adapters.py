@@ -126,6 +126,7 @@ def tool_definition_as_node_definition(
     app_label: str = "Built-ins",
     app_description: str = _DEFAULT_WORKFLOW_NODE_APP_DESCRIPTION,
     app_icon: str = "mdi-toy-brick-outline",
+    catalog_section: str = "apps",
 ) -> WorkflowNodeDefinition:
     implementation = tool_definition_as_node_implementation(tool_definition)
     return WorkflowNodeDefinition(
@@ -140,6 +141,7 @@ def tool_definition_as_node_definition(
         app_label=app_label,
         app_description=app_description,
         app_icon=app_icon,
+        catalog_section=catalog_section,
         validator=implementation.validator,
         executor=implementation.executor,
         webhook_handler=implementation.webhook_handler,
@@ -229,6 +231,7 @@ def trigger_definition_as_node_definition(
     app_label: str = "Built-ins",
     app_description: str = _DEFAULT_WORKFLOW_NODE_APP_DESCRIPTION,
     app_icon: str = "mdi-toy-brick-outline",
+    catalog_section: str = "triggers",
 ) -> WorkflowNodeDefinition:
     implementation = trigger_definition_as_node_implementation(trigger_definition)
     return WorkflowNodeDefinition(
@@ -243,6 +246,7 @@ def trigger_definition_as_node_definition(
         app_label=app_label,
         app_description=app_description,
         app_icon=app_icon,
+        catalog_section=catalog_section,
         validator=implementation.validator,
         executor=implementation.executor,
         webhook_handler=implementation.webhook_handler,

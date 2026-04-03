@@ -65,6 +65,7 @@ def build_openai_compatible_chat_model_definition(
         app_label=app_label,
         app_description=app_description,
         app_icon=app_icon,
+        catalog_section="apps",
         config={
             "base_url": base_url,
             "model": default_model,

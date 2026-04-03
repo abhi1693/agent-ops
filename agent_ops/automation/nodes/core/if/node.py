@@ -77,6 +77,7 @@ NODE_DEFINITION = WorkflowNodeDefinition(
     display_name="If",
     description="Branch to one of two connected targets using a simple conditional check.",
     icon="mdi-source-branch",
+    catalog_section="flow",
     config={"operator": "equals"},
     fields=(
         node_text_field(
