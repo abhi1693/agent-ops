@@ -733,12 +733,70 @@ function setNodeElementPosition(nodeElement: HTMLElement, node: WorkflowNode): v
   nodeElement.style.top = `${node.position.y}px`;
 }
 
-function canNodeReceiveConnections(node: WorkflowNode): boolean {
-  return node.kind !== 'trigger';
+function getPrimaryIncomingConnectionLimit(
+  node: WorkflowNode,
+  definition?: WorkflowNodeDefinition,
+): number | null {
+  if ((definition?.kind ?? node.kind) === 'trigger') {
+    return 0;
+  }
+
+  return null;
 }
 
-function canNodeEmitConnections(node: WorkflowNode): boolean {
-  return node.kind !== 'response';
+function getPrimaryOutgoingConnectionLimit(
+  node: WorkflowNode,
+  definition?: WorkflowNodeDefinition,
+): number | null {
+  const resolvedKind = definition?.kind ?? node.kind;
+  if (resolvedKind === 'response') {
+    return 0;
+  }
+
+  const targetFieldCount = definition?.fields.filter((field) => field.type === 'node_target').length ?? 0;
+  if (targetFieldCount > 0) {
+    return targetFieldCount;
+  }
+
+  if (resolvedKind === 'trigger' || resolvedKind === 'agent' || resolvedKind === 'tool') {
+    return 1;
+  }
+
+  return null;
+}
+
+function countPrimaryIncomingConnections(edges: WorkflowDefinition['edges'], nodeId: string): number {
+  return edges.filter((edge) => edge.target === nodeId && !edge.targetPort).length;
+}
+
+function countPrimaryOutgoingConnections(edges: WorkflowDefinition['edges'], nodeId: string): number {
+  return edges.filter((edge) => edge.source === nodeId && !edge.targetPort).length;
+}
+
+function canNodeReceiveConnections(
+  node: WorkflowNode,
+  edges: WorkflowDefinition['edges'],
+  definition?: WorkflowNodeDefinition,
+): boolean {
+  const limit = getPrimaryIncomingConnectionLimit(node, definition);
+  if (limit === null) {
+    return true;
+  }
+
+  return countPrimaryIncomingConnections(edges, node.id) < limit;
+}
+
+function canNodeEmitConnections(
+  node: WorkflowNode,
+  edges: WorkflowDefinition['edges'],
+  definition?: WorkflowNodeDefinition,
+): boolean {
+  const limit = getPrimaryOutgoingConnectionLimit(node, definition);
+  if (limit === null) {
+    return true;
+  }
+
+  return countPrimaryOutgoingConnections(edges, node.id) < limit;
 }
 
 function getNodeRenderWidth(node: Pick<WorkflowNode, 'kind'> | null | undefined): number {
@@ -1341,7 +1399,12 @@ export function initWorkflowDesigner(): void {
       return false;
     }
 
-    if (!canNodeEmitConnections(sourceNode) || !canNodeReceiveConnections(targetNode)) {
+    const sourceDefinition = getNodeDefinition(sourceNode);
+    const targetDefinition = getNodeDefinition(targetNode);
+    if (
+      !canNodeEmitConnections(sourceNode, workflowDefinition.edges, sourceDefinition)
+      || !canNodeReceiveConnections(targetNode, workflowDefinition.edges, targetDefinition)
+    ) {
       return false;
     }
 
@@ -2162,8 +2225,9 @@ export function initWorkflowDesigner(): void {
         const compatibleAuxiliaryPort = connectionDraft
           ? getCompatibleAgentAuxiliaryPort(sourceConnectionNode, node)
           : null;
-        const canReceiveConnections = canNodeReceiveConnections(node);
-        const canEmitConnections = canNodeEmitConnections(node);
+        const canReceiveConnections = canNodeReceiveConnections(node, workflowDefinition.edges, nodeDefinition);
+        const canEmitConnections = canNodeEmitConnections(node, workflowDefinition.edges, nodeDefinition);
+        const shouldRenderConnectors = canEmitConnections || (Boolean(connectionDraft) && canReceiveConnections);
         const draftTargetPoint =
           connectionDraft && isConnectionSource
             ? connectionDraft.hoveredTargetId
@@ -2205,7 +2269,7 @@ export function initWorkflowDesigner(): void {
           (edge) => edge.target === node.id && edge.targetPort === 'ai_tool',
         );
         const agentNeedsModel = node.kind === 'agent' && modelConnections.length === 0;
-        const connectors = (canReceiveConnections || canEmitConnections)
+        const connectors = shouldRenderConnectors
           ? CONNECTOR_SIDES.map((side) => {
               const isActiveSourceConnector = activeSourceSide === side;
               const isActiveTargetConnector = activeTargetSide === side;
@@ -2831,7 +2895,8 @@ export function initWorkflowDesigner(): void {
 
   function beginConnection(sourceId: string, pointerId: number, clientX: number, clientY: number): void {
     const sourceNode = getNode(sourceId);
-    if (!sourceNode || !canNodeEmitConnections(sourceNode)) {
+    const sourceDefinition = getNodeDefinition(sourceNode);
+    if (!sourceNode || !canNodeEmitConnections(sourceNode, workflowDefinition.edges, sourceDefinition)) {
       return;
     }
 
@@ -3048,7 +3113,11 @@ export function initWorkflowDesigner(): void {
     const connector = target.closest<HTMLElement>('[data-workflow-node-connector]');
     if (connector?.dataset.workflowNodeConnector) {
       const connectorNode = getNode(connector.dataset.workflowNodeConnector);
-      if (connectorNode && canNodeEmitConnections(connectorNode)) {
+      const connectorDefinition = getNodeDefinition(connectorNode);
+      if (
+        connectorNode
+        && canNodeEmitConnections(connectorNode, workflowDefinition.edges, connectorDefinition)
+      ) {
         beginConnection(
           connector.dataset.workflowNodeConnector,
           event.pointerId,
