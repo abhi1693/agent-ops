@@ -15,7 +15,6 @@ import {
 } from './workflowDesigner/markup';
 import {
   clampNodePosition,
-  getAgentAuxiliaryPortPoint,
   getConnectorPoint,
   getGraphBounds,
   getNodeCenter,
@@ -28,8 +27,6 @@ import {
   AGENT_AUXILIARY_PORTS,
   canNodeEmitConnections,
   canNodeReceiveConnections,
-  getAgentAuxiliaryAllowedNodeTypes,
-  getAgentAuxiliaryPortDefinition,
   getCompatibleAgentAuxiliaryPort,
   getHoveredTarget as getHoveredConnectionTarget,
   isValidConnection as validateConnection,
@@ -42,11 +39,9 @@ import {
 } from './workflowDesigner/interactions/pointerController';
 import { registerWorkflowDesignerUiBindings } from './workflowDesigner/interactions/uiBindings';
 import {
-  renderBrowserState,
   getDefaultBrowserView,
-  getPreviousBrowserView,
-  type BrowserView,
 } from './workflowDesigner/panels/browserState';
+import { createWorkflowDesignerBrowserController } from './workflowDesigner/panels/browserController';
 import {
   renderSettingsIdentitySection,
   renderNodeSettingsFieldsMarkup,
@@ -93,17 +88,6 @@ import {
   parseJsonScript,
 } from './workflowDesigner/utils';
 import { createViewportController } from './workflowDesigner/viewport/controller';
-
-type InsertDraft = {
-  allowedNodeTypes?: string[];
-  position: {
-    x: number;
-    y: number;
-  };
-  sourceId?: string;
-  targetId?: string;
-  targetPort?: AgentAuxiliaryPortId;
-};
 
 type ContextMenuState = {
   nodeId: string;
@@ -280,11 +264,6 @@ export function initWorkflowDesigner(): void {
     },
   });
 
-  let isBrowserOpen = workflowDefinition.nodes.length === 0;
-  let browserView: BrowserView = workflowDefinition.nodes.length === 0
-    ? { kind: 'trigger-root' }
-    : { kind: 'next-step-root' };
-  let searchQuery = '';
   let selectedNodeId: string | null = null;
   let settingsNodeId: string | null = null;
   let dragState: DragState | null = null;
@@ -292,7 +271,6 @@ export function initWorkflowDesigner(): void {
   let connectionDraft: ConnectionDraft | null = null;
   let contextMenuState: ContextMenuState | null = null;
   let hoveredEdgeId: string | null = null;
-  let insertDraft: InsertDraft | null = null;
   let isExecutionPending = false;
   let activeExecutionNodeId: string | null = null;
   let executionActiveNodeIds: string[] = [];
@@ -805,55 +783,6 @@ export function initWorkflowDesigner(): void {
     canvas.nodeMenu.innerHTML = renderNodeContextMenuMarkup({ meta, title });
   }
 
-  function setBrowserView(nextView: BrowserView): void {
-    browserView = nextView;
-    searchQuery = '';
-    browser.searchInput.value = '';
-  }
-
-  function goBackBrowserView(): void {
-    const previousView = getPreviousBrowserView(browserView, isEmptyWorkflow());
-    if (previousView) {
-      setBrowserView(previousView);
-      renderBrowser();
-    }
-  }
-
-  function renderBrowser(): void {
-    const insertPort = getAgentAuxiliaryPortDefinition(insertDraft?.targetPort);
-    const allowedNodeTypes = insertDraft?.allowedNodeTypes ?? null;
-    const filteredSections = getAvailablePaletteSections(nodeRegistry, workflowDefinition)
-      .map((section) => ({
-        ...section,
-        definitions: allowedNodeTypes
-          ? section.definitions.filter((definition) => allowedNodeTypes.includes(definition.type))
-          : section.definitions,
-      }))
-      .filter((section) => section.definitions.length > 0);
-    const browserState = renderBrowserState({
-      allowedNodeTypes,
-      browserView,
-      definitions: nodeRegistry.definitions,
-      filteredSections,
-      insertPort: insertPort?.id,
-      isEmptyWorkflow: isEmptyWorkflow(),
-      searchQuery,
-    });
-
-    browser.browser.hidden = !isBrowserOpen;
-    browser.browser.classList.toggle('is-starter-mode', isEmptyWorkflow());
-    browser.browserTitle.textContent = browserState.title;
-    browser.browserDescription.textContent = browserState.description;
-    browser.browserDescription.hidden = browserState.description.length === 0;
-    browser.backButton.hidden = !browserState.showBackButton;
-    browser.openButton.classList.toggle('is-active', isBrowserOpen);
-    browser.searchWrap.hidden = browserState.hideSearch;
-    browser.searchInput.placeholder = browserState.searchPlaceholder;
-    browser.browserContent.innerHTML = browserState.markup;
-    browser.browserEmpty.textContent = browserState.emptyMessage;
-    browser.browserEmpty.hidden = browserState.markup.length > 0;
-  }
-
   function renderEmptyState(): void {
     const emptyWorkflow = isEmptyWorkflow();
     canvas.board.classList.toggle('is-empty-workflow', emptyWorkflow);
@@ -950,79 +879,49 @@ export function initWorkflowDesigner(): void {
     renderNodeContextMenu();
   }
 
-  function closeBrowser(): void {
-    const emptyWorkflow = isEmptyWorkflow();
-    isBrowserOpen = false;
-    insertDraft = null;
-    contextMenuState = null;
-    browserView = getDefaultBrowserView(emptyWorkflow);
-    searchQuery = '';
-    browser.searchInput.value = '';
-    renderBrowser();
-    renderNodeContextMenu();
-  }
-
   function cancelConnection(): void {
     connectionDraft = null;
     renderCanvas();
   }
 
-  function openBrowser(): void {
-    const emptyWorkflow = isEmptyWorkflow();
-    isBrowserOpen = true;
-    contextMenuState = null;
-    setBrowserView(getDefaultBrowserView(emptyWorkflow));
-    renderBrowser();
-    renderNodeContextMenu();
-    window.setTimeout(() => {
-      browser.searchInput.focus();
-    }, 0);
-  }
-
-  function openInsertBrowser(sourceId: string, clientX: number, clientY: number): void {
-    const worldPoint = viewportController.screenToWorld(clientX, clientY);
-    insertDraft = {
-      position: clampNodePosition(canvas.board, {
-        x: worldPoint.x - NODE_WIDTH / 2,
-        y: worldPoint.y - NODE_HEIGHT / 2,
-      }, NODE_HEIGHT),
-      sourceId,
-    };
-    openBrowser();
-  }
-
-  function openAuxiliaryInsertBrowser(targetId: string, targetPort: AgentAuxiliaryPortId): void {
-    const targetNode = getNode(targetId);
-    const portDefinition = getAgentAuxiliaryPortDefinition(targetPort);
-    if (!targetNode || !portDefinition) {
-      return;
-    }
-
-    const existingModelEdge = targetPort === 'ai_languageModel'
-      ? workflowDefinition.edges.find((edge) => edge.target === targetId && edge.targetPort === targetPort)
-      : undefined;
-    if (existingModelEdge) {
-      openNodeSettings(existingModelEdge.source);
-      return;
-    }
-
-    const portPoint = getAgentAuxiliaryPortPoint(targetNode, targetPort);
-    const targetNodeHeight = getNodeRenderHeight(targetNode);
-    insertDraft = {
-      allowedNodeTypes: getAgentAuxiliaryAllowedNodeTypes(nodeRegistry.definitions, targetPort),
-      position: clampNodePosition(canvas.board, {
-        x: portPoint.x - NODE_WIDTH / 2,
-        y: targetNode.position.y + targetNodeHeight + 44,
-      }, NODE_HEIGHT),
-      targetId,
-      targetPort,
-    };
-    selectedNodeId = targetId;
-    settingsNodeId = null;
-    openBrowser();
-    renderCanvas();
-    renderSettingsPanel();
-  }
+  const {
+    closeBrowser,
+    getBrowserView,
+    getInsertDraft,
+    getIsBrowserOpen,
+    goBackBrowserView,
+    openAuxiliaryInsertBrowser,
+    openBrowser,
+    openInsertBrowser,
+    renderBrowser,
+    setBrowserView,
+    setSearchQuery,
+    showEmptyWorkflowBrowser,
+  } = createWorkflowDesignerBrowserController({
+    board: canvas.board,
+    browser,
+    clearContextMenuState: () => {
+      contextMenuState = null;
+    },
+    clearSettingsNodeId: () => {
+      settingsNodeId = null;
+    },
+    definitions: nodeRegistry.definitions,
+    getAvailableSections: () => getAvailablePaletteSections(nodeRegistry, workflowDefinition),
+    getIsEmptyWorkflow: isEmptyWorkflow,
+    getNode: (nodeId) => getNode(nodeId ?? null),
+    getWorkflowDefinition: () => workflowDefinition,
+    initialIsOpen: workflowDefinition.nodes.length === 0,
+    initialView: getDefaultBrowserView(workflowDefinition.nodes.length === 0),
+    openNodeSettings,
+    renderCanvas,
+    renderNodeContextMenu,
+    renderSettingsPanel,
+    screenToWorld: viewportController.screenToWorld,
+    setSelectedNodeId: (nodeId) => {
+      selectedNodeId = nodeId;
+    },
+  });
 
   function shouldOpenInsertBrowser(clientX: number, clientY: number): boolean {
     const target = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
@@ -1048,7 +947,7 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
-    const pendingInsert = insertDraft;
+    const pendingInsert = getInsertDraft();
     const newNode = createWorkflowNode(
       canvas.board,
       workflowDefinition,
@@ -1058,8 +957,6 @@ export function initWorkflowDesigner(): void {
     );
     graphStore.addNode(newNode);
     selectedNodeId = newNode.id;
-    searchQuery = '';
-    browser.searchInput.value = '';
     syncDefinitionInput();
     closeBrowser();
     if (pendingInsert?.sourceId) {
@@ -1232,9 +1129,7 @@ export function initWorkflowDesigner(): void {
     hoveredEdgeId = null;
 
     if (workflowDefinition.nodes.length === 0) {
-      isBrowserOpen = true;
-      searchQuery = '';
-      browser.searchInput.value = '';
+      showEmptyWorkflowBrowser();
     }
 
     syncDefinitionInput();
@@ -1343,10 +1238,10 @@ export function initWorkflowDesigner(): void {
     closeNodeContextMenu,
     closeNodeSettings,
     deleteNode,
-    getBrowserView: () => browserView,
+    getBrowserView,
     getConnectionDraftActive: () => Boolean(connectionDraft),
     getContextMenuNodeId: () => contextMenuState?.nodeId ?? null,
-    getIsBrowserOpen: () => isBrowserOpen,
+    getIsBrowserOpen,
     getSelectedNodeId: () => selectedNodeId,
     getSettingsNodeId: () => settingsNodeId,
     goBackBrowserView,
@@ -1372,9 +1267,7 @@ export function initWorkflowDesigner(): void {
       void executeDesignerRun(workflowRunUrl);
     },
     setBrowserView,
-    setSearchQuery: (value) => {
-      searchQuery = value;
-    },
+    setSearchQuery,
     updateSelectedNodeField,
     updateSelectedNodeFieldMode,
     updateSelectedNodeLabel,
