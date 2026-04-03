@@ -52,10 +52,9 @@ import {
   renderNodeSettingsFieldsMarkup,
   renderSettingsOverviewSection,
 } from './workflowDesigner/panels/settingsPanel';
+import { createWorkflowDesignerSettingsController } from './workflowDesigner/panels/settingsController';
 import {
-  buildTemplateInsertionValue,
   getAvailableInputPaths,
-  getNodeSettingControl,
 } from './workflowDesigner/panels/settingsAssist';
 import {
   buildWorkflowEditorNodePresentation,
@@ -88,14 +87,10 @@ import {
   formatKindLabel,
   getConfigString,
   inferTemplateFieldInputMode,
-  getRuntimeTemplateFieldInputModeDefault,
-  getTemplateFieldInputMode,
   getTemplateFieldOptions,
   getTemplateFieldValue,
   isTemplateFieldVisible,
   parseJsonScript,
-  supportsTemplateFieldInputMode,
-  WORKFLOW_NODE_INPUT_MODES_KEY,
 } from './workflowDesigner/utils';
 import { createViewportController } from './workflowDesigner/viewport/controller';
 
@@ -691,85 +686,6 @@ export function initWorkflowDesigner(): void {
     return {};
   }
 
-  function getSelectedSettingsField(
-    key: string,
-  ): { field: WorkflowNodeTemplateField; node: WorkflowNode } | null {
-    const settingsNode = getNode(settingsNodeId);
-    const nodeDefinition = getNodeDefinition(settingsNode);
-    if (!settingsNode || !nodeDefinition) {
-      return null;
-    }
-
-    const field = nodeDefinition.fields.find((item) => item.key === key);
-    if (!field) {
-      return null;
-    }
-
-    return { field, node: settingsNode };
-  }
-
-  function updateSelectedNodeFieldMode(
-    key: string,
-    mode: 'expression' | 'static',
-    options?: { rerenderSettings?: boolean },
-  ): void {
-    const fieldSelection = getSelectedSettingsField(key);
-    if (!fieldSelection || !supportsTemplateFieldInputMode(fieldSelection.field)) {
-      return;
-    }
-
-    const { field, node } = fieldSelection;
-    const nextConfig = { ...(node.config ?? {}) };
-    const currentModesValue = nextConfig[WORKFLOW_NODE_INPUT_MODES_KEY];
-    const nextModes =
-      currentModesValue && typeof currentModesValue === 'object' && !Array.isArray(currentModesValue)
-        ? { ...(currentModesValue as Record<string, unknown>) }
-        : {};
-    const defaultMode = getRuntimeTemplateFieldInputModeDefault(field);
-
-    if (mode === defaultMode) {
-      delete nextModes[key];
-    } else {
-      nextModes[key] = mode;
-    }
-
-    if (Object.keys(nextModes).length > 0) {
-      nextConfig[WORKFLOW_NODE_INPUT_MODES_KEY] = nextModes;
-    } else {
-      delete nextConfig[WORKFLOW_NODE_INPUT_MODES_KEY];
-    }
-
-    node.config = nextConfig;
-    syncDefinitionInput();
-    renderCanvas();
-    if (options?.rerenderSettings) {
-      renderSettingsPanel();
-    }
-  }
-
-  function applyNodeSettingSuggestion(
-    key: string,
-    value: string,
-    binding: string,
-  ): void {
-    const control = getNodeSettingControl(canvas.settingsFields, key);
-    if (!control) {
-      return;
-    }
-
-    const fieldSelection = getSelectedSettingsField(key);
-    if (fieldSelection && supportsTemplateFieldInputMode(fieldSelection.field) && binding === 'template') {
-      updateSelectedNodeFieldMode(key, 'expression');
-    }
-
-    const nextValue = binding === 'template' && (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement)
-      ? buildTemplateInsertionValue(control, value)
-      : value;
-
-    control.value = nextValue;
-    updateSelectedNodeField(key, nextValue, { rerenderSettings: true });
-  }
-
   function renderSettingsPanel(): void {
     const settingsNode = getNode(settingsNodeId);
     const nodeDefinition = getNodeDefinition(settingsNode);
@@ -1161,77 +1077,21 @@ export function initWorkflowDesigner(): void {
     renderSettingsPanel();
   }
 
-  function updateSelectedNodeLabel(value: string, options?: { rerenderSettings?: boolean }): void {
-    const settingsNode = getNode(settingsNodeId);
-    if (!settingsNode) {
-      return;
-    }
-
-    settingsNode.label = value;
-    syncDefinitionInput();
-    renderCanvas();
-    if (options?.rerenderSettings) {
-      renderSettingsPanel();
-      return;
-    }
-
-    canvas.settingsTitle.textContent = value || getNodeDefinition(settingsNode)?.label || settingsNode.type;
-  }
-
-  function updateSelectedNodeField(
-    key: string,
-    value: string,
-    options?: { rerenderSettings?: boolean },
-  ): void {
-    const settingsNode = getNode(settingsNodeId);
-    const nodeDefinition = getNodeDefinition(settingsNode);
-    if (!settingsNode || !nodeDefinition) {
-      return;
-    }
-
-    const nextConfig = { ...(settingsNode.config ?? {}) };
-    if (value === '') {
-      delete nextConfig[key];
-    } else {
-      nextConfig[key] = value;
-    }
-
-    const field = nodeDefinition.fields.find((item) => item.key === key);
-    if (field && supportsTemplateFieldInputMode(field)) {
-      const currentModesValue = nextConfig[WORKFLOW_NODE_INPUT_MODES_KEY];
-      const nextModes =
-        currentModesValue && typeof currentModesValue === 'object' && !Array.isArray(currentModesValue)
-          ? { ...(currentModesValue as Record<string, unknown>) }
-          : {};
-      if (value === '') {
-        delete nextModes[key];
-      } else {
-        const runtimeDefaultMode = getRuntimeTemplateFieldInputModeDefault(field);
-        const selectedMode = getTemplateFieldInputMode(settingsNode, field);
-
-        if (selectedMode === runtimeDefaultMode) {
-          delete nextModes[key];
-        } else {
-          nextModes[key] = selectedMode;
-        }
-      }
-
-      if (Object.keys(nextModes).length > 0) {
-        nextConfig[WORKFLOW_NODE_INPUT_MODES_KEY] = nextModes;
-      } else {
-        delete nextConfig[WORKFLOW_NODE_INPUT_MODES_KEY];
-      }
-    }
-
-    settingsNode.config = nextConfig;
-
-    syncNodeTargetEdges(settingsNode, getNodeDefinition(settingsNode));
-    syncDefinitionInput();
-    renderCanvas();
-    if (options?.rerenderSettings) {
-      renderSettingsPanel();
-    }
-  }
+  const {
+    applyNodeSettingSuggestion,
+    updateSelectedNodeField,
+    updateSelectedNodeFieldMode,
+    updateSelectedNodeLabel,
+  } = createWorkflowDesignerSettingsController({
+    canvas,
+    getNode: (nodeId) => getNode(nodeId ?? null),
+    getNodeDefinition,
+    getSettingsNodeId: () => settingsNodeId,
+    renderCanvas,
+    renderSettingsPanel,
+    syncDefinitionInput,
+    syncNodeTargetEdges,
+  });
 
   function addEdge(
     sourceId: string,
