@@ -35,6 +35,12 @@ import {
   isValidConnection as validateConnection,
 } from './workflowDesigner/interactions/connections';
 import {
+  registerWorkflowDesignerPointerInteractions,
+  type ConnectionDraft,
+  type DragState,
+  type PanState,
+} from './workflowDesigner/interactions/pointerController';
+import {
   renderBrowserState,
   getDefaultBrowserView,
   getPreviousBrowserView,
@@ -91,30 +97,6 @@ import {
   WORKFLOW_NODE_INPUT_MODES_KEY,
 } from './workflowDesigner/utils';
 import { createViewportController } from './workflowDesigner/viewport/controller';
-
-type DragState = {
-  nodeId: string;
-  offsetX: number;
-  offsetY: number;
-  pointerId: number;
-};
-
-type PanState = {
-  didMove: boolean;
-  lastClientX: number;
-  lastClientY: number;
-  pointerId: number;
-};
-
-type ConnectionDraft = {
-  hoveredTargetId: string | null;
-  hoveredTargetPort: AgentAuxiliaryPortId | null;
-  hoveredTargetSide: ConnectorSide | null;
-  pointerId: number;
-  pointerX: number;
-  pointerY: number;
-  sourceId: string;
-};
 
 type InsertDraft = {
   allowedNodeTypes?: string[];
@@ -1650,293 +1632,51 @@ export function initWorkflowDesigner(): void {
     }
   });
 
-  canvas.board.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) {
-      return;
-    }
-
-    const target = event.target as HTMLElement;
-    if (
-      target.closest('[data-workflow-node-id]') ||
-      target.closest('[data-workflow-node-menu]') ||
-      target.closest('[data-node-browser]') ||
-      target.closest('[data-open-node-browser]') ||
-      target.closest('[data-remove-edge]') ||
-      target.closest('[data-workflow-settings-panel]')
-    ) {
-      return;
-    }
-
-    panState = {
-      didMove: false,
-      lastClientX: event.clientX,
-      lastClientY: event.clientY,
-      pointerId: event.pointerId,
-    };
-    canvas.board.classList.add('is-panning');
-    canvas.board.setPointerCapture(event.pointerId);
+  registerWorkflowDesignerPointerInteractions({
+    addEdge,
+    beginConnection,
+    canvas,
+    closeNodeContextMenu,
+    getConnectionDraft: () => connectionDraft,
+    getDragState: () => dragState,
+    getHoveredEdgeId: () => hoveredEdgeId,
+    getHoveredTarget,
+    getNode: (nodeId) => getNode(nodeId),
+    getNodeElement: (nodeId) => getNodeElement(canvas.nodeLayer, nodeId),
+    getPanState: () => panState,
+    getPointFromClient,
+    getSelectedNodeId: () => selectedNodeId,
+    getSettingsNodeId: () => settingsNodeId,
+    hasOpenContextMenu: () => Boolean(contextMenuState),
+    isValidConnection,
+    openInsertBrowser,
+    openNodeContextMenu,
+    renderCanvas,
+    renderEdges,
+    renderNodes,
+    renderSettingsPanel,
+    setConnectionDraft: (nextState) => {
+      connectionDraft = nextState;
+    },
+    setDragState: (nextState) => {
+      dragState = nextState;
+    },
+    setHoveredEdgeId: (nextState) => {
+      hoveredEdgeId = nextState;
+    },
+    setPanState: (nextState) => {
+      panState = nextState;
+    },
+    setSelectedNodeId: (nextState) => {
+      selectedNodeId = nextState;
+    },
+    setSettingsNodeId: (nextState) => {
+      settingsNodeId = nextState;
+    },
+    shouldOpenInsertBrowser,
+    updateNodePosition,
+    viewportController,
   });
-
-  canvas.nodeLayer.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) {
-      return;
-    }
-
-    const target = event.target as HTMLElement;
-    if (target.closest('[data-node-action]')) {
-      return;
-    }
-    if (contextMenuState) {
-      closeNodeContextMenu();
-    }
-    const auxiliaryPort = target.closest<HTMLElement>('[data-workflow-node-aux-port]');
-    if (auxiliaryPort) {
-      return;
-    }
-
-    const connector = target.closest<HTMLElement>('[data-workflow-node-connector]');
-    if (connector?.dataset.workflowNodeConnector) {
-      const connectorNode = getNode(connector.dataset.workflowNodeConnector);
-      const connectorDefinition = getNodeDefinition(connectorNode);
-      if (
-        connectorNode
-        && canNodeEmitConnections(connectorNode, workflowDefinition.edges, connectorDefinition)
-      ) {
-        beginConnection(
-          connector.dataset.workflowNodeConnector,
-          event.pointerId,
-          event.clientX,
-          event.clientY,
-        );
-        event.preventDefault();
-        return;
-      }
-    }
-
-    const nodeElement = target.closest<HTMLElement>('[data-workflow-node-id]');
-    const nodeId = nodeElement?.dataset.workflowNodeId;
-    if (!nodeElement || !nodeId) {
-      return;
-    }
-
-    const node = workflowDefinition.nodes.find((item) => item.id === nodeId);
-    if (!node) {
-      return;
-    }
-
-    if (selectedNodeId !== nodeId) {
-      selectedNodeId = nodeId;
-      settingsNodeId = null;
-      renderNodes();
-      renderSettingsPanel();
-    }
-
-    if (settingsNodeId) {
-      settingsNodeId = null;
-      renderSettingsPanel();
-    }
-
-    const activeNodeElement = getNodeElement(canvas.nodeLayer, nodeId);
-    if (!activeNodeElement) {
-      return;
-    }
-
-    const cursorPoint = viewportController.screenToWorld(event.clientX, event.clientY);
-
-    dragState = {
-      nodeId,
-      offsetX: cursorPoint.x - node.position.x,
-      offsetY: cursorPoint.y - node.position.y,
-      pointerId: event.pointerId,
-    };
-
-    activeNodeElement.classList.add('is-dragging');
-    activeNodeElement.setPointerCapture(event.pointerId);
-    event.preventDefault();
-  });
-
-  canvas.nodeLayer.addEventListener('contextmenu', (event) => {
-    const target = event.target as HTMLElement;
-    const nodeElement = target.closest<HTMLElement>('[data-workflow-node-id]');
-    const nodeId = nodeElement?.dataset.workflowNodeId;
-    if (!nodeId) {
-      return;
-    }
-
-    event.preventDefault();
-    openNodeContextMenu(nodeId, event.clientX, event.clientY);
-  });
-
-  canvas.board.addEventListener('pointermove', (event) => {
-    if (dragState || connectionDraft) {
-      if (hoveredEdgeId) {
-        hoveredEdgeId = null;
-        renderEdges();
-      }
-      return;
-    }
-
-    const target = event.target as Element;
-    const hoveredRemoveButton = target.closest<HTMLElement>('[data-remove-edge]');
-    const hoveredEdgeHit = target.closest<SVGPathElement>('[data-workflow-edge-hit-id]');
-    const nextHoveredEdgeId = hoveredRemoveButton?.dataset.removeEdge ?? hoveredEdgeHit?.dataset.workflowEdgeHitId ?? null;
-    if (hoveredEdgeId === nextHoveredEdgeId) {
-      return;
-    }
-
-    hoveredEdgeId = nextHoveredEdgeId;
-    renderEdges();
-  });
-
-  canvas.board.addEventListener('pointerleave', () => {
-    if (!hoveredEdgeId) {
-      return;
-    }
-
-    hoveredEdgeId = null;
-    renderEdges();
-  });
-
-  window.addEventListener('pointermove', (event) => {
-    if (panState && event.pointerId === panState.pointerId) {
-      const deltaX = event.clientX - panState.lastClientX;
-      const deltaY = event.clientY - panState.lastClientY;
-      if (Math.abs(deltaX) > 0 || Math.abs(deltaY) > 0) {
-        panState.didMove = true;
-        viewportController.panBy(deltaX, deltaY);
-        panState.lastClientX = event.clientX;
-        panState.lastClientY = event.clientY;
-      }
-      return;
-    }
-
-    if (connectionDraft && event.pointerId === connectionDraft.pointerId) {
-      const pointerPoint = getPointFromClient(event.clientX, event.clientY);
-      connectionDraft.pointerX = pointerPoint.x;
-      connectionDraft.pointerY = pointerPoint.y;
-      const nextHoveredTarget = getHoveredTarget(
-        event.clientX,
-        event.clientY,
-        connectionDraft.sourceId,
-      );
-      const didHoverTargetChange =
-        connectionDraft.hoveredTargetId !== nextHoveredTarget?.nodeId ||
-        connectionDraft.hoveredTargetPort !== nextHoveredTarget?.targetPort ||
-        connectionDraft.hoveredTargetSide !== nextHoveredTarget?.side;
-      connectionDraft.hoveredTargetId = nextHoveredTarget?.nodeId ?? null;
-      connectionDraft.hoveredTargetPort = nextHoveredTarget?.targetPort ?? null;
-      connectionDraft.hoveredTargetSide = nextHoveredTarget?.side ?? null;
-      renderNodes();
-      if (didHoverTargetChange) {
-        renderEdges();
-        return;
-      }
-      renderEdges();
-      return;
-    }
-
-    if (!dragState || event.pointerId !== dragState.pointerId) {
-      return;
-    }
-
-    const cursorPoint = viewportController.screenToWorld(event.clientX, event.clientY);
-
-    updateNodePosition(dragState.nodeId, {
-      x: cursorPoint.x - dragState.offsetX,
-      y: cursorPoint.y - dragState.offsetY,
-    });
-  });
-
-  function stopDragging(pointerId: number): void {
-    if (!dragState || dragState.pointerId !== pointerId) {
-      return;
-    }
-
-    const nodeElement = getNodeElement(canvas.nodeLayer, dragState.nodeId);
-    if (nodeElement) {
-      nodeElement.classList.remove('is-dragging');
-      if (nodeElement.hasPointerCapture(pointerId)) {
-        nodeElement.releasePointerCapture(pointerId);
-      }
-    }
-
-    dragState = null;
-    renderCanvas();
-  }
-
-  function stopPanning(pointerId: number): void {
-    if (!panState || panState.pointerId !== pointerId) {
-      return;
-    }
-
-    const didMove = panState.didMove;
-    panState = null;
-    canvas.board.classList.remove('is-panning');
-    if (canvas.board.hasPointerCapture(pointerId)) {
-      canvas.board.releasePointerCapture(pointerId);
-    }
-
-    if (!didMove) {
-      if (selectedNodeId) {
-        selectedNodeId = null;
-        settingsNodeId = null;
-        renderCanvas();
-        renderSettingsPanel();
-        return;
-      }
-
-      if (settingsNodeId) {
-        settingsNodeId = null;
-        renderSettingsPanel();
-      }
-    }
-  }
-
-  function stopConnecting(pointerId: number, clientX: number, clientY: number): void {
-    if (!connectionDraft || connectionDraft.pointerId !== pointerId) {
-      return;
-    }
-
-    const targetId = connectionDraft.hoveredTargetId;
-    const targetPort = connectionDraft.hoveredTargetPort;
-    const sourceId = connectionDraft.sourceId;
-    connectionDraft = null;
-
-    if (targetId && isValidConnection(sourceId, targetId, targetPort)) {
-      addEdge(sourceId, targetId, targetPort ? { sourcePort: targetPort, targetPort } : undefined);
-      return;
-    }
-
-    if (shouldOpenInsertBrowser(clientX, clientY)) {
-      openInsertBrowser(sourceId, clientX, clientY);
-      renderCanvas();
-      return;
-    }
-
-    renderCanvas();
-  }
-
-  window.addEventListener('pointerup', (event) => {
-    stopConnecting(event.pointerId, event.clientX, event.clientY);
-    stopDragging(event.pointerId);
-    stopPanning(event.pointerId);
-  });
-
-  window.addEventListener('pointercancel', (event) => {
-    stopConnecting(event.pointerId, event.clientX, event.clientY);
-    stopDragging(event.pointerId);
-    stopPanning(event.pointerId);
-  });
-
-  canvas.board.addEventListener('wheel', (event) => {
-    if (!event.ctrlKey && !event.metaKey) {
-      return;
-    }
-
-    const zoomDelta = event.deltaY < 0 ? 0.08 : -0.08;
-    viewportController.zoomAt(event.clientX, event.clientY, zoomDelta);
-    event.preventDefault();
-  }, { passive: false });
 
   root.addEventListener('keydown', (event) => {
     if (
