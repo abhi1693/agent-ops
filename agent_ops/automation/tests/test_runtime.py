@@ -274,6 +274,85 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.output_data["response"], "Static prompt preserved")
 
+    def test_execute_workflow_supports_fanout_and_join(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Fanout join",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "tool.template",
+                        "label": "Branch root",
+                        "config": {
+                            "output_key": "branch.root",
+                            "template": "fanout {{ trigger.payload.ticket_id }}",
+                        },
+                        "position": {"x": 320, "y": 60},
+                    },
+                    {
+                        "id": "set-1",
+                        "kind": "tool",
+                        "type": "n8n-nodes-base.set",
+                        "label": "Branch one",
+                        "config": {
+                            "output_key": "branch.one",
+                            "value": "alpha",
+                        },
+                        "position": {"x": 608, "y": 0},
+                    },
+                    {
+                        "id": "set-2",
+                        "kind": "tool",
+                        "type": "n8n-nodes-base.set",
+                        "label": "Branch two",
+                        "config": {
+                            "output_key": "branch.two",
+                            "value": "beta",
+                        },
+                        "position": {"x": 608, "y": 120},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ branch.one }}|{{ branch.two }}",
+                        },
+                        "position": {"x": 608, "y": 60},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                    {"id": "edge-2", "source": "tool-1", "target": "set-1"},
+                    {"id": "edge-3", "source": "tool-1", "target": "set-2"},
+                    {"id": "edge-4", "source": "set-1", "target": "response-1"},
+                    {"id": "edge-5", "source": "set-2", "target": "response-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow, input_data={"ticket_id": "T-77"})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"], "alpha|beta")
+        self.assertEqual(run.context_data["branch"]["one"], "alpha")
+        self.assertEqual(run.context_data["branch"]["two"], "beta")
+        self.assertEqual(run.step_count, 5)
+        self.assertCountEqual(
+            run.scheduler_state["completed_node_ids"],
+            ["trigger-1", "tool-1", "set-1", "set-2", "response-1"],
+        )
+
     def test_execute_workflow_allows_expression_mode_for_literal_input_fields(self):
         workflow = Workflow.objects.create(
             environment=self.environment,

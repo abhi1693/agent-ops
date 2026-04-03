@@ -77,6 +77,7 @@ class WorkflowRun(ChangeLoggedModel):
     input_data = models.JSONField(default=dict, blank=True)
     output_data = models.JSONField(default=dict, blank=True)
     context_data = models.JSONField(default=dict, blank=True)
+    scheduler_state = models.JSONField(default=dict, blank=True)
     step_results = models.JSONField(default=list, blank=True)
     error = models.TextField(blank=True)
     requested_by = models.ForeignKey(

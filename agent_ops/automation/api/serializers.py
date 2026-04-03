@@ -340,6 +340,7 @@ class WorkflowRunSerializer(serializers.ModelSerializer):
             "input_data",
             "output_data",
             "context_data",
+            "scheduler_state",
             "step_results",
             "step_count",
             "error",
