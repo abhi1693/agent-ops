@@ -22,24 +22,30 @@
         "key": "output_key",
         "label": "Save result as",
         "type": "text",
+        "uiGroup": "result",
+        "binding": "path",
         "placeholder": "mcp.result"
       },
       {
         "key": "server_url",
         "label": "MCP endpoint URL",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "https://mcp.example.com/mcp"
       },
       {
         "key": "remote_tool_name",
         "label": "Server tool name",
         "type": "text",
+        "uiGroup": "input",
         "placeholder": "weather_current"
       },
       {
         "key": "arguments_json",
         "label": "Tool arguments JSON",
         "type": "textarea",
+        "uiGroup": "input",
+        "binding": "template",
         "rows": 8,
         "placeholder": "{\"location\": \"San Francisco\", \"units\": \"imperial\"}",
         "help_text": "Optional. Rendered JSON object passed as the MCP tool arguments."
@@ -48,6 +54,7 @@
         "key": "auth_header_name",
         "label": "Auth header name",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "Authorization",
         "help_text": "Optional. Defaults to `Authorization` when a stored Secret object is configured for auth."
       },
@@ -55,6 +62,7 @@
         "key": "secret_name",
         "label": "Secret name",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "MCP_API_TOKEN",
         "help_text": "Optional. Resolve this secret and inject it into the auth header for each MCP request."
       },
@@ -62,6 +70,7 @@
         "key": "secret_group_id",
         "label": "Secret group",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "Use workflow secret group",
         "help_text": "Optional. Override the workflow secret group for this node with a scoped secret group ID."
       },
@@ -69,6 +78,7 @@
         "key": "auth_header_template",
         "label": "Auth header template",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "Bearer {token}",
         "help_text": "Optional. Use `{token}` where the resolved secret should be inserted. Leave blank to send the raw token."
       },
@@ -76,6 +86,7 @@
         "key": "headers_json",
         "label": "Extra headers JSON",
         "type": "textarea",
+        "uiGroup": "advanced",
         "rows": 5,
         "placeholder": "{\"X-Tenant\": \"ops\"}",
         "help_text": "Optional non-secret headers merged into every request. Auth and session headers are managed separately from stored Secret objects."
@@ -84,12 +95,14 @@
         "key": "protocol_version",
         "label": "Protocol version",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "2025-11-25"
       },
       {
         "key": "timeout_seconds",
         "label": "Timeout seconds",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "30"
       }
     ]

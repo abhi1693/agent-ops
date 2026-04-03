@@ -17,12 +17,16 @@
         "key": "output_key",
         "label": "Save result as",
         "type": "text",
+        "uiGroup": "result",
+        "binding": "path",
         "placeholder": "tool.output"
       },
       {
         "key": "template",
         "label": "Template",
         "type": "textarea",
+        "uiGroup": "input",
+        "binding": "template",
         "rows": 4,
         "placeholder": "Service: {{ workflow.scope_label }}"
       }

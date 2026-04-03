@@ -83,8 +83,10 @@ def resolve_openai_chat_model_config(
     config: dict[str, Any],
 ) -> OpenAICompatibleRequestConfig:
     runtime_view = _build_runtime_view(runtime, node=node, config=config)
-    base_url = (_render_runtime_external_url(runtime_view, "base_url", required=True) or "").rstrip("/")
-    secret_name = _render_runtime_string(runtime_view, "secret_name")
+    base_url = (
+        _render_runtime_external_url(runtime_view, "base_url", required=True, default_mode="static") or ""
+    ).rstrip("/")
+    secret_name = _render_runtime_string(runtime_view, "secret_name", default_mode="static")
     if not secret_name:
         raise ValidationError({"definition": f'Node "{node["id"]}" must define config.secret_name.'})
     api_key, secret_meta = _resolve_runtime_secret(
@@ -92,8 +94,8 @@ def resolve_openai_chat_model_config(
         secret_name=secret_name,
         secret_group_id=runtime_view.config.get("secret_group_id"),
     )
-    custom_model = _render_runtime_string(runtime_view, "custom_model")
-    model = custom_model or _render_runtime_string(runtime_view, "model", required=True)
+    custom_model = _render_runtime_string(runtime_view, "custom_model", default_mode="static")
+    model = custom_model or _render_runtime_string(runtime_view, "model", required=True, default_mode="static")
     temperature = _coerce_optional_float(
         runtime_view.config.get("temperature"),
         field_name="temperature",
@@ -109,7 +111,7 @@ def resolve_openai_chat_model_config(
             default=1,
         )
 
-    extra_body = _render_runtime_json(runtime_view, "extra_body_json")
+    extra_body = _render_runtime_json(runtime_view, "extra_body_json", default_mode="static")
     if extra_body is not None and not isinstance(extra_body, dict):
         raise ValidationError(
             {"definition": f'Node "{node["id"]}" config.extra_body_json must render a JSON object.'}

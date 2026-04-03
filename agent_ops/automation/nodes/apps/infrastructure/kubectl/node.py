@@ -70,12 +70,12 @@ def _parse_kubectl_command(command: str) -> list[str]:
 
 
 def _execute_kubectl_tool(runtime: WorkflowToolExecutionContext) -> dict:
-    output_key = _render_runtime_string(runtime, "output_key", required=True)
-    binary_path = _render_runtime_string(runtime, "binary_path") or "kubectl"
-    context_name = _render_runtime_string(runtime, "context_name")
-    namespace = _render_runtime_string(runtime, "namespace")
-    command = _render_runtime_string(runtime, "command", required=True)
-    output_format = _render_runtime_string(runtime, "output_format") or "text"
+    output_key = _render_runtime_string(runtime, "output_key", required=True, default_mode="static")
+    binary_path = _render_runtime_string(runtime, "binary_path", default_mode="static") or "kubectl"
+    context_name = _render_runtime_string(runtime, "context_name", default_mode="static")
+    namespace = _render_runtime_string(runtime, "namespace", default_mode="static")
+    command = _render_runtime_string(runtime, "command", required=True, default_mode="expression")
+    output_format = _render_runtime_string(runtime, "output_format", default_mode="static") or "text"
     timeout_seconds = _coerce_positive_int(
         runtime.config.get("timeout_seconds"),
         field_name="timeout_seconds",
@@ -159,18 +159,23 @@ TOOL_DEFINITION = WorkflowToolDefinition(
         tool_text_field(
             "output_key",
             "Save result as",
+            ui_group="result",
+            binding="path",
             placeholder="kubectl.result",
         ),
         tool_textarea_field(
             "command",
             "kubectl command",
             rows=4,
+            ui_group="input",
+            binding="template",
             placeholder="get pods -A -o json",
             help_text="Arguments passed after the kubectl binary. A leading `kubectl` is ignored if you include it.",
         ),
         tool_select_field(
             "output_format",
             "Output format",
+            ui_group="advanced",
             options=(
                 tool_field_option("text"),
                 tool_field_option("json"),
@@ -180,24 +185,28 @@ TOOL_DEFINITION = WorkflowToolDefinition(
         tool_text_field(
             "context_name",
             "Kube context",
+            ui_group="advanced",
             placeholder="prod-cluster",
             help_text="Optional. Adds `--context` before the command.",
         ),
         tool_text_field(
             "namespace",
             "Namespace",
+            ui_group="advanced",
             placeholder="payments",
             help_text="Optional. Adds `--namespace` before the command.",
         ),
         tool_text_field(
             "binary_path",
             "kubectl binary",
+            ui_group="advanced",
             placeholder="kubectl",
             help_text="Optional. Defaults to `kubectl` from PATH on the app host.",
         ),
         tool_text_field(
             "timeout_seconds",
             "Timeout seconds",
+            ui_group="advanced",
             placeholder="20",
         ),
     ),

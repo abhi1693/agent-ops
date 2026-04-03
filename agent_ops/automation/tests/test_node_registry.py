@@ -108,6 +108,8 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
         )
         self.assertEqual(set_template["config"]["output_key"], "tool.output")
         self.assertEqual(set_template["fields"][0]["key"], "output_key")
+        self.assertEqual(set_template["fields"][0]["ui_group"], "result")
+        self.assertEqual(set_template["fields"][0]["binding"], "path")
 
         chat_model_template = templates_by_type["tool.openai_chat_model"]
         self.assertEqual(chat_model_template["label"], "OpenAI")
@@ -148,6 +150,8 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
                             "key": "operation",
                             "label": "Operation",
                             "type": "select",
+                            "uiGroup": "input",
+                            "binding": "template",
                             "visible_when": {
                                 "resource": ["prometheus", "elasticsearch"],
                             },
@@ -182,6 +186,8 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
                 }
             },
         )
+        self.assertEqual(serialized["fields"][1]["ui_group"], "input")
+        self.assertEqual(serialized["fields"][1]["binding"], "template")
 
     def test_registry_validates_and_executes_manifest_trigger_and_tool_nodes(self):
         tool_node = {

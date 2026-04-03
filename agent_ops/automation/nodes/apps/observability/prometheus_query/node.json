@@ -17,18 +17,23 @@
         "key": "output_key",
         "label": "Save result as",
         "type": "text",
+        "uiGroup": "result",
+        "binding": "path",
         "placeholder": "prometheus.query"
       },
       {
         "key": "base_url",
         "label": "Service base URL",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "https://prometheus.example.com"
       },
       {
         "key": "query",
         "label": "PromQL query",
         "type": "textarea",
+        "uiGroup": "input",
+        "binding": "template",
         "rows": 4,
         "placeholder": "sum(rate(http_requests_total[5m]))"
       },
@@ -36,12 +41,15 @@
         "key": "time",
         "label": "Query time",
         "type": "text",
+        "uiGroup": "input",
+        "binding": "template",
         "placeholder": "Optional RFC3339 or unix timestamp"
       },
       {
         "key": "secret_name",
         "label": "Secret name",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "PROMETHEUS_API_TOKEN",
         "help_text": "Optional. Resolve this secret and send it as a bearer token."
       },
@@ -49,6 +57,7 @@
         "key": "secret_group_id",
         "label": "Secret group",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "Use workflow secret group",
         "help_text": "Optional. Override the workflow secret group for this node with a scoped secret group ID."
       }

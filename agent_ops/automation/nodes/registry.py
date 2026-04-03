@@ -14,6 +14,7 @@ from automation.nodes.base import (
     WorkflowNodeImplementation,
     WorkflowNodeWebhookContext,
 )
+from automation.tools.base import WORKFLOW_INPUT_MODES_CONFIG_KEY, SUPPORTED_WORKFLOW_FIELD_VALUE_MODES
 
 
 _PACKAGE_MANIFEST_PATH = Path(__file__).with_name("package.json")
@@ -163,8 +164,12 @@ def validate_workflow_node(*, node: dict, outgoing_targets: list[str], node_ids:
     node_definition = get_workflow_node_definition(node.get("type"))
     if node_definition is None:
         return None
+    normalized_config = normalize_workflow_node_config(
+        node_type=node_definition.type,
+        config=node.get("config") or {},
+    )
     if node_definition.validator is not None:
-        node_definition.validator(node.get("config") or {}, node["id"], outgoing_targets, node_ids)
+        node_definition.validator(normalized_config, node["id"], outgoing_targets, node_ids)
     return node_definition
 
 
@@ -186,11 +191,15 @@ def execute_workflow_node(
     node_definition = get_workflow_node_definition(node.get("type"))
     if node_definition is None or node_definition.executor is None:
         return None
+    normalized_config = normalize_workflow_node_config(
+        node_type=node_definition.type,
+        config=node.get("config") or {},
+    )
     return node_definition.executor(
         WorkflowNodeExecutionContext(
             workflow=workflow,
             node=node,
-            config=node.get("config") or {},
+            config=normalized_config,
             next_node_id=next_node_id,
             connected_nodes_by_port=connected_nodes_by_port,
             context=context,
@@ -261,5 +270,45 @@ def normalize_workflow_node_config(
         normalized["type"] = node_definition.type.removeprefix(prefix).strip()
     elif node_definition.kind == "tool" and node_definition.type.startswith(prefix):
         normalized["tool_name"] = node_definition.type.removeprefix(prefix).strip()
+
+    raw_input_modes = normalized.get(WORKFLOW_INPUT_MODES_CONFIG_KEY)
+    if isinstance(raw_input_modes, dict):
+        allowed_modes_by_field: dict[str, str] = {}
+        for field in node_definition.fields:
+            if field.type not in {"text", "textarea"}:
+                continue
+            if field.binding == "path" or field.ui_group == "result":
+                continue
+            if field.ui_group != "input" and field.binding != "template":
+                continue
+            allowed_modes_by_field[field.key] = "expression" if field.binding == "template" else "static"
+
+        normalized_input_modes: dict[str, str] = {}
+        for field_key, mode in raw_input_modes.items():
+            if not isinstance(field_key, str) or not isinstance(mode, str):
+                continue
+            if mode not in SUPPORTED_WORKFLOW_FIELD_VALUE_MODES:
+                continue
+            default_mode = allowed_modes_by_field.get(field_key)
+            if default_mode is None:
+                continue
+            field_value = normalized.get(field_key)
+            inferred_mode = (
+                "expression"
+                if default_mode == "static"
+                and isinstance(field_value, str)
+                and ("{{" in field_value or "{%" in field_value)
+                else default_mode
+            )
+            if mode == inferred_mode:
+                continue
+            normalized_input_modes[field_key] = mode
+
+        if normalized_input_modes:
+            normalized[WORKFLOW_INPUT_MODES_CONFIG_KEY] = normalized_input_modes
+        else:
+            normalized.pop(WORKFLOW_INPUT_MODES_CONFIG_KEY, None)
+    else:
+        normalized.pop(WORKFLOW_INPUT_MODES_CONFIG_KEY, None)
 
     return normalized

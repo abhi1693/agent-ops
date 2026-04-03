@@ -362,7 +362,7 @@ def _delete_session(
 
 
 def _render_headers_json(runtime: WorkflowToolExecutionContext) -> dict[str, str]:
-    rendered_headers = _render_runtime_json(runtime, "headers_json")
+    rendered_headers = _render_runtime_json(runtime, "headers_json", default_mode="static")
     if rendered_headers is None:
         return {}
     if not isinstance(rendered_headers, dict):
@@ -452,9 +452,9 @@ def _resolve_mcp_runtime_config(
     arguments: dict | None = None,
 ) -> tuple[dict, dict | None, dict | None]:
     runtime_view = _build_runtime_view(runtime, node=node, config=config)
-    server_url = _render_runtime_external_url(runtime_view, "server_url", required=True)
-    remote_tool_name = _render_runtime_string(runtime_view, "remote_tool_name", required=True)
-    protocol_version = _render_runtime_string(runtime_view, "protocol_version") or _DEFAULT_PROTOCOL_VERSION
+    server_url = _render_runtime_external_url(runtime_view, "server_url", required=True, default_mode="static")
+    remote_tool_name = _render_runtime_string(runtime_view, "remote_tool_name", required=True, default_mode="static")
+    protocol_version = _render_runtime_string(runtime_view, "protocol_version", default_mode="static") or _DEFAULT_PROTOCOL_VERSION
     timeout_seconds = _coerce_positive_int(
         runtime_view.config.get("timeout_seconds"),
         field_name="timeout_seconds",
@@ -465,7 +465,7 @@ def _resolve_mcp_runtime_config(
 
     resolved_arguments = arguments
     if resolved_arguments is None:
-        resolved_arguments = _render_runtime_json(runtime_view, "arguments_json")
+        resolved_arguments = _render_runtime_json(runtime_view, "arguments_json", default_mode="expression")
         if resolved_arguments is None:
             resolved_arguments = {}
         if not isinstance(resolved_arguments, dict):
@@ -481,7 +481,7 @@ def _resolve_mcp_runtime_config(
     base_headers["Accept"] = _REQUEST_ACCEPT_HEADER
 
     secret_meta = None
-    secret_name = _render_runtime_string(runtime_view, "secret_name")
+    secret_name = _render_runtime_string(runtime_view, "secret_name", default_mode="static")
     auth_token = None
     if secret_name:
         auth_token, secret_meta = _resolve_runtime_secret(
@@ -490,7 +490,7 @@ def _resolve_mcp_runtime_config(
             secret_group_id=runtime_view.config.get("secret_group_id"),
         )
     if auth_token:
-        auth_header_name = _render_runtime_string(runtime_view, "auth_header_name") or "Authorization"
+        auth_header_name = _render_runtime_string(runtime_view, "auth_header_name", default_mode="static") or "Authorization"
         base_headers[auth_header_name] = _render_auth_header_value(runtime_view, token=auth_token)
 
     return {
@@ -696,7 +696,7 @@ def call_mcp_server_tool(
 
 
 def _execute_mcp_server_tool(runtime: WorkflowToolExecutionContext) -> dict:
-    output_key = _render_runtime_string(runtime, "output_key", required=True)
+    output_key = _render_runtime_string(runtime, "output_key", required=True, default_mode="static")
     payload, secret_meta = call_mcp_server_tool(
         runtime,
         node=runtime.node,
@@ -731,45 +731,59 @@ TOOL_DEFINITION = WorkflowToolDefinition(
         "auth_header_template": "Bearer {token}",
     },
     fields=(
-        tool_text_field("output_key", "Save result as", placeholder="mcp.result"),
+        tool_text_field(
+            "output_key",
+            "Save result as",
+            ui_group="result",
+            binding="path",
+            placeholder="mcp.result",
+        ),
         tool_text_field(
             "server_url",
             "MCP endpoint URL",
+            ui_group="advanced",
             placeholder="https://mcp.example.com/mcp",
         ),
         tool_text_field(
             "remote_tool_name",
             "Server tool name",
+            ui_group="input",
             placeholder="weather_current",
         ),
         tool_textarea_field(
             "arguments_json",
             "Tool arguments JSON",
             rows=8,
+            ui_group="input",
+            binding="template",
             placeholder='{"location": "San Francisco", "units": "imperial"}',
             help_text="Optional. Rendered JSON object passed as the MCP tool arguments.",
         ),
         tool_text_field(
             "auth_header_name",
             "Auth header name",
+            ui_group="advanced",
             placeholder="Authorization",
             help_text="Optional. Defaults to `Authorization` when a stored Secret object is configured for auth.",
         ),
         tool_text_field(
             "secret_name",
             "Secret name",
+            ui_group="advanced",
             placeholder="MCP_API_TOKEN",
             help_text="Optional. Resolve this secret and inject it into the auth header for each MCP request.",
         ),
         tool_text_field(
             "secret_group_id",
             "Secret group",
+            ui_group="advanced",
             placeholder="Use workflow secret group",
             help_text="Optional. Override the workflow secret group for this node with a scoped secret group ID.",
         ),
         tool_text_field(
             "auth_header_template",
             "Auth header template",
+            ui_group="advanced",
             placeholder="Bearer {token}",
             help_text="Optional. Use `{token}` where the resolved secret should be inserted. Leave blank to send the raw token.",
         ),
@@ -777,17 +791,20 @@ TOOL_DEFINITION = WorkflowToolDefinition(
             "headers_json",
             "Extra headers JSON",
             rows=5,
+            ui_group="advanced",
             placeholder='{"X-Tenant": "ops"}',
             help_text="Optional non-secret headers merged into every request. Auth and session headers are managed separately from stored Secret objects.",
         ),
         tool_text_field(
             "protocol_version",
             "Protocol version",
+            ui_group="advanced",
             placeholder=_DEFAULT_PROTOCOL_VERSION,
         ),
         tool_text_field(
             "timeout_seconds",
             "Timeout seconds",
+            ui_group="advanced",
             placeholder=str(_DEFAULT_TIMEOUT_SECONDS),
         ),
     ),

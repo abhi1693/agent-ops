@@ -19,12 +19,16 @@
         "key": "output_key",
         "label": "Save result as",
         "type": "text",
+        "uiGroup": "result",
+        "binding": "path",
         "placeholder": "kubectl.result"
       },
       {
         "key": "command",
         "label": "kubectl command",
         "type": "textarea",
+        "uiGroup": "input",
+        "binding": "template",
         "rows": 4,
         "placeholder": "get pods -A -o json",
         "help_text": "Arguments passed after the kubectl binary. A leading `kubectl` is ignored if you include it."
@@ -33,6 +37,7 @@
         "key": "output_format",
         "label": "Output format",
         "type": "select",
+        "uiGroup": "advanced",
         "options": [
           {
             "value": "text",
@@ -49,6 +54,7 @@
         "key": "context_name",
         "label": "Kube context",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "prod-cluster",
         "help_text": "Optional. Adds `--context` before the command."
       },
@@ -56,6 +62,7 @@
         "key": "namespace",
         "label": "Namespace",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "payments",
         "help_text": "Optional. Adds `--namespace` before the command."
       },
@@ -63,6 +70,7 @@
         "key": "binary_path",
         "label": "kubectl binary",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "kubectl",
         "help_text": "Optional. Defaults to `kubectl` from PATH on the app host."
       },
@@ -70,6 +78,7 @@
         "key": "timeout_seconds",
         "label": "Timeout seconds",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "20"
       }
     ]

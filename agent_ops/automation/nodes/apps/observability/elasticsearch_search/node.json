@@ -18,18 +18,23 @@
         "key": "output_key",
         "label": "Save result as",
         "type": "text",
+        "uiGroup": "result",
+        "binding": "path",
         "placeholder": "elasticsearch.search"
       },
       {
         "key": "base_url",
         "label": "Service base URL",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "https://elasticsearch.example.com"
       },
       {
         "key": "index",
         "label": "Index",
         "type": "text",
+        "uiGroup": "input",
+        "binding": "template",
         "placeholder": "logs-*",
         "help_text": "Optional. Leave blank to search all indices reachable at this endpoint."
       },
@@ -37,6 +42,7 @@
         "key": "auth_scheme",
         "label": "Auth scheme",
         "type": "select",
+        "uiGroup": "advanced",
         "options": [
           {
             "value": "ApiKey",
@@ -52,6 +58,7 @@
         "key": "secret_name",
         "label": "Secret name",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "ELASTICSEARCH_API_KEY",
         "help_text": "Optional. Resolve this secret and send it in the Authorization header."
       },
@@ -59,6 +66,7 @@
         "key": "secret_group_id",
         "label": "Secret group",
         "type": "text",
+        "uiGroup": "advanced",
         "placeholder": "Use workflow secret group",
         "help_text": "Optional. Override the workflow secret group for this node with a scoped secret group ID."
       },
@@ -66,6 +74,8 @@
         "key": "query_json",
         "label": "Query JSON",
         "type": "textarea",
+        "uiGroup": "input",
+        "binding": "template",
         "rows": 8,
         "placeholder": "{\"size\": 10, \"query\": {\"match\": {\"service\": \"api\"}}}"
       }

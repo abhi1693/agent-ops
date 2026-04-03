@@ -6,6 +6,7 @@ from automation.tools.base import (
     WorkflowToolFieldDefinition,
     tool_field_option,
     tool_select_field,
+    tool_text_field,
     tool_textarea_field,
 )
 
@@ -51,6 +52,27 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
                 rows=4,
             )
 
+    def test_tool_field_definition_serializes_ui_metadata(self):
+        field = tool_text_field(
+            "output_key",
+            "Save result as",
+            ui_group="result",
+            binding="path",
+            placeholder="tool.output",
+        )
+
+        self.assertEqual(
+            field.serialize(),
+            {
+                "key": "output_key",
+                "label": "Save result as",
+                "type": "text",
+                "ui_group": "result",
+                "binding": "path",
+                "placeholder": "tool.output",
+            },
+        )
+
     def test_tool_node_template_still_serializes_plain_json_field_payloads(self):
         elasticsearch_tool = get_workflow_node_template(node_type="tool.elasticsearch_search")
 
@@ -73,10 +95,14 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
                 {"value": "Bearer", "label": "Bearer"},
             ],
         )
+        self.assertEqual(query_json_field["ui_group"], "input")
+        self.assertEqual(query_json_field["binding"], "template")
         self.assertEqual(query_json_field, tool_textarea_field(
             "query_json",
             "Query JSON",
             rows=8,
+            ui_group="input",
+            binding="template",
             placeholder='{"size": 10, "query": {"match": {"service": "api"}}}',
         ).serialize())
 
@@ -101,6 +127,7 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
                 "headers_json",
                 "Extra headers JSON",
                 rows=5,
+                ui_group="advanced",
                 placeholder='{"X-Tenant": "ops"}',
                 help_text="Optional non-secret headers merged into every request. Auth and session headers are managed separately from stored Secret objects.",
             ).serialize(),

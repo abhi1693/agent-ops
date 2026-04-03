@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from automation.tools.base import WORKFLOW_INPUT_MODES_CONFIG_KEY
+
 
 AGENT_LANGUAGE_MODEL_INPUT_PORT = "ai_languageModel"
 AGENT_TOOL_INPUT_PORT = "ai_tool"
@@ -75,8 +77,17 @@ def build_workflow_agent_tool_config(*, node: dict[str, Any], config: dict[str, 
         rendered_prompt_template = prompt_template.strip()
     else:
         rendered_prompt_template = (node.get("label") or node["id"]).strip()
+    input_modes = normalized.get(WORKFLOW_INPUT_MODES_CONFIG_KEY)
+    next_input_modes = dict(input_modes) if isinstance(input_modes, dict) else None
+    if next_input_modes and isinstance(next_input_modes.get("template"), str):
+        next_input_modes["user_prompt"] = next_input_modes["template"]
     return {
         **normalized,
         "user_prompt": rendered_prompt_template,
         "tool_name": "openai_compatible_chat",
+        **(
+            {WORKFLOW_INPUT_MODES_CONFIG_KEY: next_input_modes}
+            if next_input_modes
+            else {}
+        ),
     }

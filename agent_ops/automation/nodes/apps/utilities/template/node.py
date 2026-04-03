@@ -4,6 +4,7 @@ from automation.nodes.adapters import tool_definition_as_node_implementation
 from automation.tools.base import (
     WorkflowToolDefinition,
     WorkflowToolExecutionContext,
+    _render_runtime_string,
     _tool_result,
     _validate_required_string,
     tool_text_field,
@@ -17,9 +18,12 @@ def _validate_template_tool(config: dict, node_id: str) -> None:
 
 
 def _execute_template_tool(runtime: WorkflowToolExecutionContext) -> dict:
-    output_key = runtime.config.get("output_key") or runtime.node["id"]
-    template = runtime.config.get("template") or runtime.node.get("label") or runtime.node["id"]
-    rendered = runtime.render_template(str(template), runtime.context)
+    output_key = _render_runtime_string(runtime, "output_key", required=True)
+    rendered = (
+        _render_runtime_string(runtime, "template", required=True, default_mode="expression")
+        or runtime.node.get("label")
+        or runtime.node["id"]
+    )
     runtime.set_path_value(runtime.context, output_key, rendered)
     return _tool_result("template", output_key=output_key, value=rendered)
 
@@ -31,11 +35,19 @@ TOOL_DEFINITION = WorkflowToolDefinition(
     icon="mdi-text-box-edit-outline",
     config={"output_key": "tool.output"},
     fields=(
-        tool_text_field("output_key", "Save result as", placeholder="tool.output"),
+        tool_text_field(
+            "output_key",
+            "Save result as",
+            ui_group="result",
+            binding="path",
+            placeholder="tool.output",
+        ),
         tool_textarea_field(
             "template",
             "Template",
             rows=4,
+            ui_group="input",
+            binding="template",
             placeholder="Service: {{ workflow.scope_label }}",
         ),
     ),

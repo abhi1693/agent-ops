@@ -151,6 +151,36 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
             "prometheus.query",
         )
 
+    def test_normalize_workflow_definition_prunes_invalid_input_mode_overrides(self):
+        definition = {
+            "nodes": [
+                {
+                    "id": "set-1",
+                    "kind": "tool",
+                    "type": "n8n-nodes-base.set",
+                    "label": "Set",
+                    "config": {
+                        "value": "hello",
+                        "__input_modes": {
+                            "value": "expression",
+                            "output_key": "expression",
+                            "missing": "expression",
+                            "invalid": "dynamic",
+                        },
+                    },
+                    "position": {"x": 320, "y": 40},
+                },
+            ],
+            "edges": [],
+        }
+
+        normalized = normalize_workflow_definition_nodes(definition)
+
+        self.assertEqual(
+            normalized["nodes"][0]["config"]["__input_modes"],
+            {"value": "expression"},
+        )
+
     def test_runtime_validation_allows_agent_auxiliary_model_and_tool_edges(self):
         definition = normalize_workflow_definition_nodes(
             {

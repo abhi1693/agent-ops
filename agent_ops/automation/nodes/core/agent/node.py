@@ -409,9 +409,23 @@ def _execute_connected_agent(runtime: WorkflowNodeExecutionContext) -> WorkflowN
             config=normalized_agent_config,
         ),
     )
-    output_key = _render_runtime_string(agent_runtime_view, "output_key", required=True)
-    system_prompt = _render_runtime_string(agent_runtime_view, "system_prompt")
-    user_prompt = _render_runtime_string(agent_runtime_view, "user_prompt", required=True)
+    output_key = _render_runtime_string(
+        agent_runtime_view,
+        "output_key",
+        required=True,
+        default_mode="static",
+    )
+    system_prompt = _render_runtime_string(
+        agent_runtime_view,
+        "system_prompt",
+        default_mode="expression",
+    )
+    user_prompt = _render_runtime_string(
+        agent_runtime_view,
+        "user_prompt",
+        required=True,
+        default_mode="expression",
+    )
 
     if connected_model_node is not None:
         model_node = connected_model_node

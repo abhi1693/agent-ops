@@ -4,6 +4,7 @@ export type WorkflowNodeTemplateOption = {
 };
 
 export type WorkflowNodeTemplateField = {
+  binding?: 'literal' | 'path' | 'template';
   help_text?: string;
   key: string;
   label: string;
@@ -12,6 +13,7 @@ export type WorkflowNodeTemplateField = {
   placeholder?: string;
   rows?: number;
   type: 'text' | 'textarea' | 'select' | 'node_target';
+  ui_group?: 'advanced' | 'input' | 'result';
   visible_when?: Record<string, string[]>;
 };
 

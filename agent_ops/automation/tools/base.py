@@ -15,6 +15,13 @@ from django.utils import timezone
 WorkflowToolValidator = Callable[[dict[str, Any], str], None]
 WorkflowToolExecutor = Callable[["WorkflowToolExecutionContext"], dict[str, Any]]
 WorkflowToolFieldType = Literal["text", "textarea", "select", "node_target"]
+WorkflowToolFieldUiGroup = Literal["input", "result", "advanced"]
+WorkflowToolFieldBinding = Literal["literal", "template", "path"]
+WorkflowFieldValueMode = Literal["static", "expression"]
+SUPPORTED_WORKFLOW_TOOL_FIELD_UI_GROUPS = frozenset({"input", "result", "advanced"})
+SUPPORTED_WORKFLOW_TOOL_FIELD_BINDINGS = frozenset({"literal", "template", "path"})
+SUPPORTED_WORKFLOW_FIELD_VALUE_MODES = frozenset({"static", "expression"})
+WORKFLOW_INPUT_MODES_CONFIG_KEY = "__input_modes"
 
 
 @dataclass(frozen=True)
@@ -35,6 +42,8 @@ class WorkflowToolFieldDefinition:
     label: str
     type: WorkflowToolFieldType
     options: tuple[WorkflowToolFieldOption, ...] = ()
+    ui_group: WorkflowToolFieldUiGroup | None = None
+    binding: WorkflowToolFieldBinding | None = None
     placeholder: str | None = None
     help_text: str | None = None
     rows: int | None = None
@@ -46,6 +55,16 @@ class WorkflowToolFieldDefinition:
             raise ValueError(f'Field "{self.key}" can only define rows for textarea fields.')
         if self.rows is not None and self.rows < 1:
             raise ValueError(f'Field "{self.key}" rows must be greater than zero.')
+        if self.ui_group is not None and self.ui_group not in SUPPORTED_WORKFLOW_TOOL_FIELD_UI_GROUPS:
+            raise ValueError(
+                f'Field "{self.key}" ui_group must be one of: '
+                f'{", ".join(sorted(SUPPORTED_WORKFLOW_TOOL_FIELD_UI_GROUPS))}.'
+            )
+        if self.binding is not None and self.binding not in SUPPORTED_WORKFLOW_TOOL_FIELD_BINDINGS:
+            raise ValueError(
+                f'Field "{self.key}" binding must be one of: '
+                f'{", ".join(sorted(SUPPORTED_WORKFLOW_TOOL_FIELD_BINDINGS))}.'
+            )
 
     def serialize(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -55,6 +74,10 @@ class WorkflowToolFieldDefinition:
         }
         if self.options:
             payload["options"] = [option.serialize() for option in self.options]
+        if self.ui_group is not None:
+            payload["ui_group"] = self.ui_group
+        if self.binding is not None:
+            payload["binding"] = self.binding
         if self.placeholder is not None:
             payload["placeholder"] = self.placeholder
         if self.help_text is not None:
@@ -73,6 +96,8 @@ def tool_text_field(
     key: str,
     label: str,
     *,
+    ui_group: WorkflowToolFieldUiGroup | None = None,
+    binding: WorkflowToolFieldBinding | None = None,
     placeholder: str | None = None,
     help_text: str | None = None,
 ) -> WorkflowToolFieldDefinition:
@@ -80,6 +105,8 @@ def tool_text_field(
         key=key,
         label=label,
         type="text",
+        ui_group=ui_group,
+        binding=binding,
         placeholder=placeholder,
         help_text=help_text,
     )
@@ -90,6 +117,8 @@ def tool_textarea_field(
     label: str,
     *,
     rows: int,
+    ui_group: WorkflowToolFieldUiGroup | None = None,
+    binding: WorkflowToolFieldBinding | None = None,
     placeholder: str | None = None,
     help_text: str | None = None,
 ) -> WorkflowToolFieldDefinition:
@@ -97,6 +126,8 @@ def tool_textarea_field(
         key=key,
         label=label,
         type="textarea",
+        ui_group=ui_group,
+        binding=binding,
         rows=rows,
         placeholder=placeholder,
         help_text=help_text,
@@ -108,6 +139,8 @@ def tool_select_field(
     label: str,
     *,
     options: Iterable[WorkflowToolFieldOption],
+    ui_group: WorkflowToolFieldUiGroup | None = None,
+    binding: WorkflowToolFieldBinding | None = None,
     help_text: str | None = None,
 ) -> WorkflowToolFieldDefinition:
     return WorkflowToolFieldDefinition(
@@ -115,6 +148,8 @@ def tool_select_field(
         label=label,
         type="select",
         options=tuple(options),
+        ui_group=ui_group,
+        binding=binding,
         help_text=help_text,
     )
 
@@ -324,12 +359,33 @@ def _coerce_csv_strings(value: Any, *, field_name: str, node_id: str, default: l
     )
 
 
+def _looks_like_runtime_expression(value: Any) -> bool:
+    return isinstance(value, str) and ("{{" in value or "{%" in value)
+
+
+def _get_runtime_input_mode(
+    config: dict[str, Any],
+    key: str,
+    *,
+    default: WorkflowFieldValueMode = "static",
+) -> WorkflowFieldValueMode:
+    raw_modes = config.get(WORKFLOW_INPUT_MODES_CONFIG_KEY)
+    if isinstance(raw_modes, dict):
+        mode = raw_modes.get(key)
+        if isinstance(mode, str) and mode in SUPPORTED_WORKFLOW_FIELD_VALUE_MODES:
+            return mode
+    if default == "static" and _looks_like_runtime_expression(config.get(key)):
+        return "expression"
+    return default
+
+
 def _render_runtime_string(
     runtime: WorkflowToolExecutionContext,
     key: str,
     *,
     required: bool = False,
     default: str | None = None,
+    default_mode: WorkflowFieldValueMode = "static",
 ) -> str | None:
     value = runtime.config.get(key, default)
     if value in (None, ""):
@@ -337,7 +393,12 @@ def _render_runtime_string(
             raise ValidationError({"definition": f'Node "{runtime.node["id"]}" must define config.{key}.'})
         return None
 
-    rendered = runtime.render_template(str(value), runtime.context).strip()
+    mode = _get_runtime_input_mode(runtime.config, key, default=default_mode)
+    rendered = (
+        runtime.render_template(str(value), runtime.context).strip()
+        if mode == "expression"
+        else str(value).strip()
+    )
     if not rendered:
         if required:
             raise ValidationError({"definition": f'Node "{runtime.node["id"]}" config.{key} rendered empty.'})
@@ -351,8 +412,15 @@ def _render_runtime_external_url(
     *,
     required: bool = False,
     default: str | None = None,
+    default_mode: WorkflowFieldValueMode = "static",
 ) -> str | None:
-    rendered = _render_runtime_string(runtime, key, required=required, default=default)
+    rendered = _render_runtime_string(
+        runtime,
+        key,
+        required=required,
+        default=default,
+        default_mode=default_mode,
+    )
     if rendered is None:
         return None
 
@@ -374,6 +442,7 @@ def _render_runtime_json(
     key: str,
     *,
     required: bool = False,
+    default_mode: WorkflowFieldValueMode = "static",
 ) -> Any:
     value = runtime.config.get(key)
     if value in (None, ""):
@@ -381,12 +450,18 @@ def _render_runtime_json(
             raise ValidationError({"definition": f'Node "{runtime.node["id"]}" must define config.{key}.'})
         return None
 
-    if isinstance(value, (dict, list)):
-        raw_template = json.dumps(value)
+    mode = _get_runtime_input_mode(runtime.config, key, default=default_mode)
+    if mode == "static":
+        if isinstance(value, (dict, list)):
+            return value
+        rendered = str(value).strip()
     else:
-        raw_template = str(value)
+        if isinstance(value, (dict, list)):
+            raw_template = json.dumps(value)
+        else:
+            raw_template = str(value)
+        rendered = runtime.render_template(raw_template, runtime.context).strip()
 
-    rendered = runtime.render_template(raw_template, runtime.context).strip()
     if not rendered:
         if required:
             raise ValidationError({"definition": f'Node "{runtime.node["id"]}" config.{key} rendered empty.'})

@@ -7,6 +7,7 @@ from automation.nodes.base import (
     raise_definition_error,
     validate_optional_string,
 )
+from automation.tools.base import _render_runtime_string
 
 
 SUPPORTED_RESPONSE_STATUSES = frozenset({"succeeded", "failed"})
@@ -27,10 +28,17 @@ def _validate_response(config: dict, node_id: str, outgoing_targets: list[str], 
 
 def _execute_response(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecutionResult:
     if "value_path" in runtime.config:
-        payload = runtime.get_path_value(runtime.context, runtime.config.get("value_path"))
+        payload = runtime.get_path_value(
+            runtime.context,
+            _render_runtime_string(runtime, "value_path", default_mode="static"),
+        )
     else:
-        template = runtime.config.get("template") or runtime.node.get("label") or runtime.node["id"]
-        payload = runtime.render_template(template, runtime.context)
+        template = (
+            _render_runtime_string(runtime, "template", default_mode="expression")
+            or runtime.node.get("label")
+            or runtime.node["id"]
+        )
+        payload = template
 
     output = {
         "node_id": runtime.node["id"],

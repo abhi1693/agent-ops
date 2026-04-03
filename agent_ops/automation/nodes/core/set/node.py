@@ -7,6 +7,7 @@ from automation.nodes.base import (
     raise_definition_error,
     validate_required_string,
 )
+from automation.tools.base import _render_runtime_string
 
 
 def _validate_set(config: dict, node_id: str, outgoing_targets: list[str], node_ids: set[str]) -> None:
@@ -17,8 +18,8 @@ def _validate_set(config: dict, node_id: str, outgoing_targets: list[str], node_
 
 
 def _execute_set(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecutionResult:
-    output_key = runtime.config.get("output_key") or runtime.node["id"]
-    value = runtime.config.get("value")
+    output_key = _render_runtime_string(runtime, "output_key", required=True)
+    value = _render_runtime_string(runtime, "value")
     runtime.set_path_value(runtime.context, output_key, value)
     return WorkflowNodeExecutionResult(
         next_node_id=runtime.next_node_id,

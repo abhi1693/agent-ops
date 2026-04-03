@@ -8,7 +8,11 @@ from django.core.exceptions import ValidationError
 
 
 WorkflowNodeFieldType = Literal["text", "textarea", "select", "node_target"]
+WorkflowNodeFieldUiGroup = Literal["input", "result", "advanced"]
+WorkflowNodeFieldBinding = Literal["literal", "template", "path"]
 SUPPORTED_WORKFLOW_NODE_FIELD_TYPES = frozenset(("text", "textarea", "select", "node_target"))
+SUPPORTED_WORKFLOW_NODE_FIELD_UI_GROUPS = frozenset(("input", "result", "advanced"))
+SUPPORTED_WORKFLOW_NODE_FIELD_BINDINGS = frozenset(("literal", "template", "path"))
 WorkflowNodeValidator = Callable[[dict[str, Any], str, list[str], set[str]], None]
 WorkflowNodeExecutor = Callable[["WorkflowNodeExecutionContext"], "WorkflowNodeExecutionResult"]
 WorkflowNodeWebhookHandler = Callable[
@@ -158,6 +162,8 @@ class WorkflowNodeFieldDefinition:
     options: tuple[WorkflowNodeFieldOption, ...] = ()
     visible_when: dict[str, tuple[str, ...]] = field(default_factory=dict)
     options_by_field: dict[str, dict[str, tuple[WorkflowNodeFieldOption, ...]]] = field(default_factory=dict)
+    ui_group: WorkflowNodeFieldUiGroup | None = None
+    binding: WorkflowNodeFieldBinding | None = None
     placeholder: str | None = None
     help_text: str | None = None
     rows: int | None = None
@@ -201,6 +207,20 @@ class WorkflowNodeFieldDefinition:
         if field_type != "select" and options_by_field:
             raise ValueError('Manifest field key "options_by_field" is only supported for select fields.')
 
+        ui_group = _optional_manifest_string(payload, "uiGroup", "ui_group")
+        if ui_group is not None and ui_group not in SUPPORTED_WORKFLOW_NODE_FIELD_UI_GROUPS:
+            raise ValueError(
+                f'Manifest field key "ui_group" must be one of: '
+                f'{", ".join(sorted(SUPPORTED_WORKFLOW_NODE_FIELD_UI_GROUPS))}.'
+            )
+
+        binding = _optional_manifest_string(payload, "binding")
+        if binding is not None and binding not in SUPPORTED_WORKFLOW_NODE_FIELD_BINDINGS:
+            raise ValueError(
+                f'Manifest field key "binding" must be one of: '
+                f'{", ".join(sorted(SUPPORTED_WORKFLOW_NODE_FIELD_BINDINGS))}.'
+            )
+
         return cls(
             key=_require_manifest_string(payload, "key"),
             label=_require_manifest_string(payload, "label"),
@@ -208,6 +228,8 @@ class WorkflowNodeFieldDefinition:
             options=options,
             visible_when=visible_when,
             options_by_field=options_by_field,
+            ui_group=ui_group,
+            binding=binding,
             placeholder=_optional_manifest_string(payload, "placeholder"),
             help_text=_optional_manifest_string(payload, "helpText", "help_text"),
             rows=rows,
@@ -234,6 +256,10 @@ class WorkflowNodeFieldDefinition:
                 }
                 for config_key, option_map in self.options_by_field.items()
             }
+        if self.ui_group is not None:
+            payload["ui_group"] = self.ui_group
+        if self.binding is not None:
+            payload["binding"] = self.binding
         if self.placeholder is not None:
             payload["placeholder"] = self.placeholder
         if self.help_text is not None:
@@ -413,6 +439,8 @@ def node_text_field(
     key: str,
     label: str,
     *,
+    ui_group: WorkflowNodeFieldUiGroup | None = None,
+    binding: WorkflowNodeFieldBinding | None = None,
     placeholder: str | None = None,
     help_text: str | None = None,
 ) -> WorkflowNodeFieldDefinition:
@@ -420,6 +448,8 @@ def node_text_field(
         key=key,
         label=label,
         type="text",
+        ui_group=ui_group,
+        binding=binding,
         placeholder=placeholder,
         help_text=help_text,
     )
@@ -430,6 +460,8 @@ def node_textarea_field(
     label: str,
     *,
     rows: int,
+    ui_group: WorkflowNodeFieldUiGroup | None = None,
+    binding: WorkflowNodeFieldBinding | None = None,
     placeholder: str | None = None,
     help_text: str | None = None,
 ) -> WorkflowNodeFieldDefinition:
@@ -437,6 +469,8 @@ def node_textarea_field(
         key=key,
         label=label,
         type="textarea",
+        ui_group=ui_group,
+        binding=binding,
         rows=rows,
         placeholder=placeholder,
         help_text=help_text,
@@ -448,6 +482,8 @@ def node_select_field(
     label: str,
     *,
     options: tuple[WorkflowNodeFieldOption, ...],
+    ui_group: WorkflowNodeFieldUiGroup | None = None,
+    binding: WorkflowNodeFieldBinding | None = None,
     help_text: str | None = None,
 ) -> WorkflowNodeFieldDefinition:
     return WorkflowNodeFieldDefinition(
@@ -455,15 +491,24 @@ def node_select_field(
         label=label,
         type="select",
         options=options,
+        ui_group=ui_group,
+        binding=binding,
         help_text=help_text,
     )
 
-
-def node_target_field(key: str, label: str) -> WorkflowNodeFieldDefinition:
+def node_target_field(
+    key: str,
+    label: str,
+    *,
+    ui_group: WorkflowNodeFieldUiGroup | None = None,
+    binding: WorkflowNodeFieldBinding | None = None,
+) -> WorkflowNodeFieldDefinition:
     return WorkflowNodeFieldDefinition(
         key=key,
         label=label,
         type="node_target",
+        ui_group=ui_group,
+        binding=binding,
     )
 
 

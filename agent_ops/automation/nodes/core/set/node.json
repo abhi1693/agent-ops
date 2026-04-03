@@ -25,12 +25,16 @@
         "key": "output_key",
         "label": "Save result as",
         "type": "text",
+        "uiGroup": "result",
+        "binding": "path",
         "placeholder": "tool.output"
       },
       {
         "key": "value",
         "label": "Value",
         "type": "text",
+        "uiGroup": "input",
+        "binding": "literal",
         "placeholder": "static-value",
         "helpText": "Use advanced runtime JSON for structured values."
       }

@@ -176,6 +176,155 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.context_data["llm"]["response"]["text"], "Review T-42")
         self.assertEqual(run.step_count, 3)
 
+    def test_execute_workflow_respects_static_mode_for_agent_prompt_template(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Static agent prompt",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "agent-1",
+                        "kind": "agent",
+                        "type": "agent",
+                        "label": "Draft",
+                        "config": {
+                            "template": "Review {{ trigger.payload.ticket_id }}",
+                            "__input_modes": {
+                                "template": "static",
+                            },
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "model-1",
+                        "kind": "tool",
+                        "type": "tool.openai_chat_model",
+                        "label": "OpenAI chat model",
+                        "config": {
+                            "base_url": "https://api.openai.com/v1",
+                            "model": "gpt-4.1-mini",
+                            "secret_name": "OPENAI_API_KEY",
+                        },
+                        "position": {"x": 320, "y": 240},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "llm.response.text",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                    {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                    {
+                        "id": "edge-3",
+                        "source": "model-1",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
+                ],
+            },
+        )
+        self._bind_secret(
+            workflow=workflow,
+            secret_name="OPENAI_API_KEY",
+        )
+
+        def fake_urlopen(request, timeout=20):
+            self.assertEqual(timeout, 20)
+            body = loads(request.data.decode("utf-8"))
+            self.assertEqual(body["messages"][0]["content"], "Review {{ trigger.payload.ticket_id }}")
+            return _FakeJsonResponse(
+                {
+                    "id": "chatcmpl-002",
+                    "model": "gpt-4.1-mini",
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {
+                                "role": "assistant",
+                                "content": "Static prompt preserved",
+                            },
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16},
+                }
+            )
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai"}, clear=False):
+            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+                run = execute_workflow(
+                    workflow,
+                    input_data={"ticket_id": "T-42"},
+                )
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"], "Static prompt preserved")
+
+    def test_execute_workflow_allows_expression_mode_for_literal_input_fields(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Expression set value",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "n8n-nodes-base.manualTrigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "set-1",
+                        "kind": "tool",
+                        "type": "n8n-nodes-base.set",
+                        "label": "Set draft",
+                        "config": {
+                            "output_key": "draft",
+                            "value": "{{ trigger.payload.ticket_id }}",
+                            "__input_modes": {
+                                "value": "expression",
+                            },
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "draft",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "set-1"},
+                    {"id": "edge-2", "source": "set-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow, input_data={"ticket_id": "T-42"})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.context_data["draft"], "T-42")
+        self.assertEqual(run.output_data["response"], "T-42")
+
     def test_execute_workflow_persists_workflow_version_and_step_runs(self):
         workflow = Workflow.objects.create(
             environment=self.environment,

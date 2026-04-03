@@ -5,6 +5,11 @@ import type {
   WorkflowNodeTemplateField,
 } from './types';
 
+export type WorkflowNodeFieldBinding = 'literal' | 'path' | 'template';
+export type WorkflowNodeFieldInputMode = 'expression' | 'static';
+export type WorkflowNodeFieldUiGroup = 'advanced' | 'input' | 'result';
+export const WORKFLOW_NODE_INPUT_MODES_KEY = '__input_modes';
+
 export function parseJsonScript<T>(scriptId: string, fallback: T): T {
   const script = document.getElementById(scriptId);
   if (!script || !script.textContent) {
@@ -176,4 +181,130 @@ export function getTemplateFieldValue(
   field: WorkflowNodeTemplateField,
 ): string {
   return getConfigString(node.config, field.key, field.type === 'textarea');
+}
+
+function getNodeFieldInputModes(
+  node: WorkflowNode,
+): Record<string, WorkflowNodeFieldInputMode> {
+  const rawModes = node.config?.[WORKFLOW_NODE_INPUT_MODES_KEY];
+  if (!rawModes || typeof rawModes !== 'object' || Array.isArray(rawModes)) {
+    return {};
+  }
+
+  const normalizedModes: Record<string, WorkflowNodeFieldInputMode> = {};
+  Object.entries(rawModes as Record<string, unknown>).forEach(([key, value]) => {
+    if (value === 'expression' || value === 'static') {
+      normalizedModes[key] = value;
+    }
+  });
+  return normalizedModes;
+}
+
+export function getTemplateFieldBinding(
+  field: WorkflowNodeTemplateField,
+): WorkflowNodeFieldBinding {
+  if (field.binding) {
+    return field.binding;
+  }
+
+  const normalizedKey = field.key.trim().toLowerCase();
+  const normalizedLabel = field.label.trim().toLowerCase();
+
+  if (
+    normalizedKey === 'output_key' ||
+    normalizedKey === 'value_path' ||
+    normalizedKey === 'path' ||
+    normalizedLabel.includes('context path') ||
+    normalizedLabel.includes('value path') ||
+    normalizedLabel.includes('save result as')
+  ) {
+    return 'path';
+  }
+
+  if (
+    normalizedKey === 'template' ||
+    normalizedKey === 'query' ||
+    normalizedKey === 'query_json' ||
+    normalizedKey === 'arguments_json' ||
+    normalizedKey === 'command' ||
+    normalizedKey.endsWith('_prompt')
+  ) {
+    return 'template';
+  }
+
+  return 'literal';
+}
+
+export function supportsTemplateFieldInputMode(
+  field: WorkflowNodeTemplateField,
+): boolean {
+  return (
+    (field.type === 'text' || field.type === 'textarea') &&
+    getTemplateFieldBinding(field) !== 'path' &&
+    (field.ui_group === 'input' || field.binding === 'template')
+  );
+}
+
+export function getDefaultTemplateFieldInputMode(
+  field: WorkflowNodeTemplateField,
+): WorkflowNodeFieldInputMode {
+  return getTemplateFieldBinding(field) === 'template' ? 'expression' : 'static';
+}
+
+function looksLikeTemplateExpression(value: string): boolean {
+  return value.includes('{{') || value.includes('{%');
+}
+
+export function inferTemplateFieldInputMode(
+  node: WorkflowNode,
+  field: WorkflowNodeTemplateField,
+): WorkflowNodeFieldInputMode {
+  if (looksLikeTemplateExpression(getTemplateFieldValue(node, field))) {
+    return 'expression';
+  }
+  return getDefaultTemplateFieldInputMode(field);
+}
+
+export function getTemplateFieldInputMode(
+  node: WorkflowNode,
+  field: WorkflowNodeTemplateField,
+): WorkflowNodeFieldInputMode {
+  if (!supportsTemplateFieldInputMode(field)) {
+    return 'static';
+  }
+
+  return (
+    getNodeFieldInputModes(node)[field.key] ??
+    inferTemplateFieldInputMode(node, field)
+  );
+}
+
+export function getTemplateFieldUiGroup(
+  field: WorkflowNodeTemplateField,
+): WorkflowNodeFieldUiGroup {
+  if (field.ui_group) {
+    return field.ui_group;
+  }
+
+  const normalizedKey = field.key.trim().toLowerCase();
+  const normalizedLabel = field.label.trim().toLowerCase();
+  const binding = getTemplateFieldBinding(field);
+
+  if (
+    normalizedKey === 'output_key' ||
+    normalizedLabel.includes('save result as')
+  ) {
+    return 'result';
+  }
+
+  if (
+    binding === 'template' ||
+    normalizedKey === 'value_path' ||
+    normalizedKey === 'path' ||
+    normalizedKey === 'remote_tool_name'
+  ) {
+    return 'input';
+  }
+
+  return 'advanced';
 }

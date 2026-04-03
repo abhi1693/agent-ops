@@ -27,10 +27,16 @@ import {
   escapeHtml,
   formatKindLabel,
   getConfigString,
+  inferTemplateFieldInputMode,
+  getTemplateFieldBinding,
+  getTemplateFieldInputMode,
   getTemplateFieldOptions,
+  getTemplateFieldUiGroup,
   getTemplateFieldValue,
   isTemplateFieldVisible,
   parseJsonScript,
+  supportsTemplateFieldInputMode,
+  WORKFLOW_NODE_INPUT_MODES_KEY,
 } from './workflowDesigner/utils';
 
 type BrowserElements = {
@@ -1347,6 +1353,266 @@ export function initWorkflowDesigner(): void {
     );
   }
 
+  function readExecutionInputData(): Record<string, unknown> {
+    if (!execution) {
+      return {};
+    }
+
+    const rawValue = execution.input.value.trim();
+    if (!rawValue) {
+      return {};
+    }
+
+    try {
+      const parsedValue = JSON.parse(rawValue) as unknown;
+      if (!parsedValue || typeof parsedValue !== 'object' || Array.isArray(parsedValue)) {
+        return {};
+      }
+      return parsedValue as Record<string, unknown>;
+    } catch (error) {
+      console.debug('Skipping execution payload suggestions due to invalid JSON.', error);
+      return {};
+    }
+  }
+
+  function pushUniqueSuggestion(target: string[], seen: Set<string>, value: string | null | undefined): void {
+    const normalizedValue = (value ?? '').trim();
+    if (!normalizedValue || seen.has(normalizedValue)) {
+      return;
+    }
+    seen.add(normalizedValue);
+    target.push(normalizedValue);
+  }
+
+  function collectContextPaths(
+    value: unknown,
+    prefix: string,
+    target: string[],
+    seen: Set<string>,
+    depth = 0,
+  ): void {
+    pushUniqueSuggestion(target, seen, prefix);
+    if (depth >= 3) {
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.slice(0, 3).forEach((entry, index) => {
+        collectContextPaths(entry, `${prefix}.${index}`, target, seen, depth + 1);
+      });
+      return;
+    }
+
+    if (!value || typeof value !== 'object') {
+      return;
+    }
+
+    Object.entries(value as Record<string, unknown>)
+      .slice(0, 10)
+      .forEach(([key, entry]) => {
+        if (!key.trim()) {
+          return;
+        }
+        collectContextPaths(entry, `${prefix}.${key}`, target, seen, depth + 1);
+      });
+  }
+
+  function getUpstreamResultPaths(nodeId: string): string[] {
+    const suggestions: string[] = [];
+    const seenSuggestions = new Set<string>();
+    const queue = [nodeId];
+    const visitedNodeIds = new Set<string>([nodeId]);
+
+    while (queue.length > 0) {
+      const currentNodeId = queue.shift();
+      if (!currentNodeId) {
+        continue;
+      }
+
+      workflowDefinition.edges
+        .filter((edge) => edge.target === currentNodeId)
+        .forEach((edge) => {
+          const sourceNode = getNode(edge.source);
+          if (!sourceNode) {
+            return;
+          }
+
+          pushUniqueSuggestion(
+            suggestions,
+            seenSuggestions,
+            getConfigString(sourceNode.config, 'output_key').trim(),
+          );
+
+          if (!visitedNodeIds.has(sourceNode.id)) {
+            visitedNodeIds.add(sourceNode.id);
+            queue.push(sourceNode.id);
+          }
+        });
+    }
+
+    return suggestions;
+  }
+
+  function getAvailableInputPaths(nodeId: string): string[] {
+    const suggestions: string[] = [];
+    const seenSuggestions = new Set<string>();
+    const payload = readExecutionInputData();
+
+    collectContextPaths(payload, 'trigger.payload', suggestions, seenSuggestions);
+    pushUniqueSuggestion(suggestions, seenSuggestions, 'workflow.scope_label');
+    pushUniqueSuggestion(suggestions, seenSuggestions, 'workflow.name');
+    getUpstreamResultPaths(nodeId).forEach((path) => {
+      pushUniqueSuggestion(suggestions, seenSuggestions, path);
+    });
+
+    return suggestions.slice(0, 12);
+  }
+
+  function renderSettingAssistMarkup(params: {
+    binding?: 'literal' | 'path' | 'template';
+    field: WorkflowNodeTemplateField;
+    label: string;
+    suggestions: string[];
+  }): string {
+    if (params.suggestions.length === 0) {
+      return '';
+    }
+
+    const binding = params.binding ?? getTemplateFieldBinding(params.field);
+    const chips = params.suggestions
+      .map(
+        (suggestion) => `
+          <button
+            type="button"
+            class="workflow-editor-settings-chip"
+            data-node-setting-chip-key="${escapeHtml(params.field.key)}"
+            data-node-setting-chip-value="${escapeHtml(suggestion)}"
+            data-node-setting-chip-binding="${escapeHtml(binding)}"
+            title="${escapeHtml(suggestion)}"
+          >
+            ${escapeHtml(suggestion)}
+          </button>
+        `,
+      )
+      .join('');
+
+    return `
+      <div class="workflow-editor-settings-assist">
+        <div class="workflow-editor-settings-assist-label">${escapeHtml(params.label)}</div>
+        <div class="workflow-editor-settings-chip-list">
+          ${chips}
+        </div>
+      </div>
+    `;
+  }
+
+  function buildTemplateInsertionValue(
+    control: HTMLInputElement | HTMLTextAreaElement,
+    path: string,
+  ): string {
+    const token = `{{ ${path} }}`;
+    const useCurrentSelection = document.activeElement === control;
+    const selectionStart = useCurrentSelection && typeof control.selectionStart === 'number'
+      ? control.selectionStart
+      : control.value.length;
+    const selectionEnd = useCurrentSelection && typeof control.selectionEnd === 'number'
+      ? control.selectionEnd
+      : selectionStart;
+
+    return `${control.value.slice(0, selectionStart)}${token}${control.value.slice(selectionEnd)}`;
+  }
+
+  function getNodeSettingControl(
+    key: string,
+  ): HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null {
+    return (
+      Array.from(
+        canvas.settingsFields.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+          '[data-node-setting-key]',
+        ),
+      ).find((element) => element.dataset.nodeSettingKey === key) ?? null
+    );
+  }
+
+  function getSelectedSettingsField(
+    key: string,
+  ): { field: WorkflowNodeTemplateField; node: WorkflowNode } | null {
+    const settingsNode = getNode(settingsNodeId);
+    const nodeDefinition = getNodeDefinition(settingsNode);
+    if (!settingsNode || !nodeDefinition) {
+      return null;
+    }
+
+    const field = nodeDefinition.fields.find((item) => item.key === key);
+    if (!field) {
+      return null;
+    }
+
+    return { field, node: settingsNode };
+  }
+
+  function updateSelectedNodeFieldMode(
+    key: string,
+    mode: 'expression' | 'static',
+    options?: { rerenderSettings?: boolean },
+  ): void {
+    const fieldSelection = getSelectedSettingsField(key);
+    if (!fieldSelection || !supportsTemplateFieldInputMode(fieldSelection.field)) {
+      return;
+    }
+
+    const { field, node } = fieldSelection;
+    const nextConfig = { ...(node.config ?? {}) };
+    const currentModesValue = nextConfig[WORKFLOW_NODE_INPUT_MODES_KEY];
+    const nextModes =
+      currentModesValue && typeof currentModesValue === 'object' && !Array.isArray(currentModesValue)
+        ? { ...(currentModesValue as Record<string, unknown>) }
+        : {};
+    const defaultMode = inferTemplateFieldInputMode(node, field);
+
+    if (mode === defaultMode) {
+      delete nextModes[key];
+    } else {
+      nextModes[key] = mode;
+    }
+
+    if (Object.keys(nextModes).length > 0) {
+      nextConfig[WORKFLOW_NODE_INPUT_MODES_KEY] = nextModes;
+    } else {
+      delete nextConfig[WORKFLOW_NODE_INPUT_MODES_KEY];
+    }
+
+    node.config = nextConfig;
+    syncDefinitionInput();
+    renderCanvas();
+    if (options?.rerenderSettings) {
+      renderSettingsPanel();
+    }
+  }
+
+  function applyNodeSettingSuggestion(
+    key: string,
+    value: string,
+    binding: string,
+  ): void {
+    const control = getNodeSettingControl(key);
+    if (!control) {
+      return;
+    }
+
+    const fieldSelection = getSelectedSettingsField(key);
+    if (fieldSelection && supportsTemplateFieldInputMode(fieldSelection.field) && binding === 'template') {
+      updateSelectedNodeFieldMode(key, 'expression');
+    }
+
+    const nextValue = binding === 'template' && (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement)
+      ? buildTemplateInsertionValue(control, value)
+      : value;
+
+    control.value = nextValue;
+    updateSelectedNodeField(key, nextValue, { rerenderSettings: true });
+  }
+
   function renderSettingsPanel(): void {
     const settingsNode = getNode(settingsNodeId);
     const nodeDefinition = getNodeDefinition(settingsNode);
@@ -1356,19 +1622,89 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
-    const visibleFields = nodeDefinition.fields.filter((field) => isTemplateFieldVisible(settingsNode, field));
-    const fieldMarkup = visibleFields
-      .map((field) => {
-        const fieldId = `workflow-node-setting-${settingsNode.id}-${field.key}`;
-        const value = getTemplateFieldValue(settingsNode, field);
+    const activeSettingsNode = settingsNode;
+    const activeNodeDefinition = nodeDefinition;
+    const visibleFields = activeNodeDefinition.fields.filter((field) => isTemplateFieldVisible(activeSettingsNode, field));
+    const availableInputPaths = getAvailableInputPaths(activeSettingsNode.id);
+
+    function renderSettingsField(field: WorkflowNodeTemplateField): string {
+        const fieldId = `workflow-node-setting-${activeSettingsNode.id}-${field.key}`;
+        const value = getTemplateFieldValue(activeSettingsNode, field);
+        const fieldBinding = getTemplateFieldBinding(field);
+        const fieldGroup = getTemplateFieldUiGroup(field);
+        const supportsInputMode = supportsTemplateFieldInputMode(field);
+        const fieldInputMode = getTemplateFieldInputMode(activeSettingsNode, field);
+        const labelMarkup = supportsInputMode
+          ? `
+              <div class="workflow-editor-settings-label-row">
+                <label class="form-label" for="${escapeHtml(fieldId)}">${escapeHtml(field.label)}</label>
+                <div class="workflow-editor-settings-mode-toggle" role="group" aria-label="${escapeHtml(`${field.label} mode`)}">
+                  <button
+                    type="button"
+                    class="workflow-editor-settings-mode-button${fieldInputMode === 'static' ? ' is-active' : ''}"
+                    data-node-setting-mode-key="${escapeHtml(field.key)}"
+                    data-node-setting-mode="static"
+                  >
+                    Static
+                  </button>
+                  <button
+                    type="button"
+                    class="workflow-editor-settings-mode-button${fieldInputMode === 'expression' ? ' is-active' : ''}"
+                    data-node-setting-mode-key="${escapeHtml(field.key)}"
+                    data-node-setting-mode="expression"
+                  >
+                    Expression
+                  </button>
+                </div>
+              </div>
+            `
+          : `<label class="form-label" for="${escapeHtml(fieldId)}">${escapeHtml(field.label)}</label>`;
         const helpText = field.help_text
           ? `<div class="workflow-editor-settings-help">${escapeHtml(field.help_text)}</div>`
           : '';
+        const expressionHint = supportsInputMode && fieldInputMode === 'expression'
+          ? `
+              <div class="workflow-editor-settings-expression-hint">
+                Use template syntax like <code>{{ trigger.payload.ticket_id }}</code> or <code>{{ llm.response.text }}</code>.
+              </div>
+            `
+          : '';
+        const fieldPreview = fieldBinding === 'path' && value
+          ? `
+              <div class="workflow-editor-settings-preview">
+                ${escapeHtml(
+                  fieldGroup === 'result'
+                    ? `Writes to context.${value}`
+                    : `Reads from context.${value}`,
+                )}
+              </div>
+            `
+          : '';
+        const assistMarkup = (() => {
+          if (supportsInputMode && fieldInputMode === 'expression') {
+            return renderSettingAssistMarkup({
+              binding: 'template',
+              field,
+              label: 'Insert result or trigger value',
+              suggestions: availableInputPaths,
+            });
+          }
+
+          if (fieldBinding === 'path' && fieldGroup === 'input') {
+            return renderSettingAssistMarkup({
+              field,
+              label: 'Use context path',
+              suggestions: availableInputPaths,
+            });
+          }
+
+          return '';
+        })();
 
         if (field.type === 'textarea') {
           return `
             <div class="workflow-editor-settings-group">
-              <label class="form-label" for="${escapeHtml(fieldId)}">${escapeHtml(field.label)}</label>
+              ${labelMarkup}
               <textarea
                 id="${escapeHtml(fieldId)}"
                 class="form-control workflow-editor-settings-control"
@@ -1377,14 +1713,17 @@ export function initWorkflowDesigner(): void {
                 data-node-setting-type="${escapeHtml(field.type)}"
               >${escapeHtml(value)}</textarea>
               ${helpText}
+              ${expressionHint}
+              ${fieldPreview}
+              ${assistMarkup}
             </div>
           `;
         }
 
         if (field.type === 'select' || field.type === 'node_target') {
           const options = (field.type === 'node_target'
-            ? getNodeTargetOptions(settingsNode, workflowDefinition)
-            : getFieldOptionsWithCurrentValue(settingsNode, field)
+            ? getNodeTargetOptions(activeSettingsNode, workflowDefinition)
+            : getFieldOptionsWithCurrentValue(activeSettingsNode, field)
           )
             .map(
               (option) => `
@@ -1397,7 +1736,7 @@ export function initWorkflowDesigner(): void {
 
           return `
             <div class="workflow-editor-settings-group">
-              <label class="form-label" for="${escapeHtml(fieldId)}">${escapeHtml(field.label)}</label>
+              ${labelMarkup}
               <select
                 id="${escapeHtml(fieldId)}"
                 class="form-select workflow-editor-settings-control"
@@ -1408,13 +1747,14 @@ export function initWorkflowDesigner(): void {
                 ${options}
               </select>
               ${helpText}
+              ${fieldPreview}
             </div>
           `;
         }
 
         return `
           <div class="workflow-editor-settings-group">
-            <label class="form-label" for="${escapeHtml(fieldId)}">${escapeHtml(field.label)}</label>
+            ${labelMarkup}
             <input
               id="${escapeHtml(fieldId)}"
               type="text"
@@ -1425,9 +1765,56 @@ export function initWorkflowDesigner(): void {
               data-node-setting-type="${escapeHtml(field.type)}"
             >
             ${helpText}
+            ${expressionHint}
+            ${fieldPreview}
+            ${assistMarkup}
           </div>
         `;
-      })
+    }
+
+    function renderSettingsSection(params: {
+      description: string;
+      fields: WorkflowNodeTemplateField[];
+      title: string;
+    }): string {
+      if (params.fields.length === 0) {
+        return '';
+      }
+
+      return `
+        <section class="workflow-editor-settings-section">
+          <div class="workflow-editor-settings-section-head">
+            <div class="workflow-editor-settings-section-title">${escapeHtml(params.title)}</div>
+            <div class="workflow-editor-settings-section-description">${escapeHtml(params.description)}</div>
+          </div>
+          <div class="workflow-editor-settings-section-body">
+            ${params.fields.map((field) => renderSettingsField(field)).join('')}
+          </div>
+        </section>
+      `;
+    }
+
+    const inputFields = visibleFields.filter((field) => getTemplateFieldUiGroup(field) === 'input');
+    const resultFields = visibleFields.filter((field) => getTemplateFieldUiGroup(field) === 'result');
+    const advancedFields = visibleFields.filter((field) => getTemplateFieldUiGroup(field) === 'advanced');
+    const fieldMarkup = [
+      renderSettingsSection({
+        title: 'Pass data in',
+        description: 'Choose Static or Expression for each input, then map trigger payload and earlier node outputs.',
+        fields: inputFields,
+      }),
+      renderSettingsSection({
+        title: 'Save result',
+        description: 'Choose where this node should read or write workflow context values.',
+        fields: resultFields,
+      }),
+      renderSettingsSection({
+        title: 'Other settings',
+        description: 'Provider, routing, and runtime controls for this node.',
+        fields: advancedFields,
+      }),
+    ]
+      .filter((sectionMarkup) => sectionMarkup.length > 0)
       .join('');
 
     const description = nodeDefinition.description || nodeDefinition.label;
@@ -1435,16 +1822,24 @@ export function initWorkflowDesigner(): void {
     canvas.settingsTitle.textContent = settingsNode.label || nodeDefinition.label;
     canvas.settingsDescription.textContent = description;
     canvas.settingsFields.innerHTML = `
-      <div class="workflow-editor-settings-group">
-        <label class="form-label" for="workflow-node-label-${escapeHtml(settingsNode.id)}">Node name</label>
-        <input
-          id="workflow-node-label-${escapeHtml(settingsNode.id)}"
-          type="text"
-          class="form-control workflow-editor-settings-control"
-          value="${escapeHtml(settingsNode.label)}"
-          data-node-setting-label
-        >
-      </div>
+      <section class="workflow-editor-settings-section">
+        <div class="workflow-editor-settings-section-head">
+          <div class="workflow-editor-settings-section-title">Identity</div>
+          <div class="workflow-editor-settings-section-description">Rename the node so the graph reads clearly.</div>
+        </div>
+        <div class="workflow-editor-settings-section-body">
+          <div class="workflow-editor-settings-group">
+            <label class="form-label" for="workflow-node-label-${escapeHtml(settingsNode.id)}">Node name</label>
+            <input
+              id="workflow-node-label-${escapeHtml(settingsNode.id)}"
+              type="text"
+              class="form-control workflow-editor-settings-control"
+              value="${escapeHtml(settingsNode.label)}"
+              data-node-setting-label
+            >
+          </div>
+        </div>
+      </section>
       ${fieldMarkup || '<div class="workflow-editor-settings-empty">No editable settings for this node yet.</div>'}
     `;
   }
@@ -2351,6 +2746,33 @@ export function initWorkflowDesigner(): void {
 
   root.addEventListener('click', (event) => {
     const target = event.target as HTMLElement;
+
+    const settingModeButton = target.closest<HTMLElement>('[data-node-setting-mode-key]');
+    if (
+      settingModeButton?.dataset.nodeSettingModeKey &&
+      (settingModeButton.dataset.nodeSettingMode === 'static' || settingModeButton.dataset.nodeSettingMode === 'expression')
+    ) {
+      updateSelectedNodeFieldMode(
+        settingModeButton.dataset.nodeSettingModeKey,
+        settingModeButton.dataset.nodeSettingMode,
+        { rerenderSettings: true },
+      );
+      return;
+    }
+
+    const settingChip = target.closest<HTMLElement>('[data-node-setting-chip-key]');
+    if (
+      settingChip?.dataset.nodeSettingChipKey &&
+      settingChip.dataset.nodeSettingChipValue &&
+      settingChip.dataset.nodeSettingChipBinding
+    ) {
+      applyNodeSettingSuggestion(
+        settingChip.dataset.nodeSettingChipKey,
+        settingChip.dataset.nodeSettingChipValue,
+        settingChip.dataset.nodeSettingChipBinding,
+      );
+      return;
+    }
 
     if (target.closest('[data-workflow-run]')) {
       void executeDesignerRun(workflowRunUrl);

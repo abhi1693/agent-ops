@@ -31,14 +31,14 @@ def _validate_prometheus_query_tool(config: dict, node_id: str) -> None:
 
 
 def _execute_prometheus_query_tool(runtime: WorkflowToolExecutionContext) -> dict:
-    output_key = _render_runtime_string(runtime, "output_key", required=True)
-    base_url = (_render_runtime_external_url(runtime, "base_url", required=True) or "").rstrip("/")
-    query_text = _render_runtime_string(runtime, "query", required=True)
-    query_time = _render_runtime_string(runtime, "time")
+    output_key = _render_runtime_string(runtime, "output_key", required=True, default_mode="static")
+    base_url = (_render_runtime_external_url(runtime, "base_url", required=True, default_mode="static") or "").rstrip("/")
+    query_text = _render_runtime_string(runtime, "query", required=True, default_mode="expression")
+    query_time = _render_runtime_string(runtime, "time", default_mode="expression")
 
     headers = {"Accept": "application/json"}
     secret_meta = None
-    secret_name = _render_runtime_string(runtime, "secret_name")
+    secret_name = _render_runtime_string(runtime, "secret_name", default_mode="static")
     bearer_token = None
     if secret_name:
         bearer_token, secret_meta = _resolve_runtime_secret(
@@ -79,24 +79,45 @@ TOOL_DEFINITION = WorkflowToolDefinition(
     category="Observability",
     config={"output_key": "prometheus.query"},
     fields=(
-        tool_text_field("output_key", "Save result as", placeholder="prometheus.query"),
-        tool_text_field("base_url", "Prometheus base URL", placeholder="https://prometheus.example.com"),
+        tool_text_field(
+            "output_key",
+            "Save result as",
+            ui_group="result",
+            binding="path",
+            placeholder="prometheus.query",
+        ),
+        tool_text_field(
+            "base_url",
+            "Prometheus base URL",
+            ui_group="advanced",
+            placeholder="https://prometheus.example.com",
+        ),
         tool_textarea_field(
             "query",
             "PromQL query",
             rows=4,
+            ui_group="input",
+            binding="template",
             placeholder="sum(rate(http_requests_total[5m]))",
         ),
-        tool_text_field("time", "Query time", placeholder="Optional RFC3339 or unix timestamp"),
+        tool_text_field(
+            "time",
+            "Query time",
+            ui_group="input",
+            binding="template",
+            placeholder="Optional RFC3339 or unix timestamp",
+        ),
         tool_text_field(
             "secret_name",
             "Secret name",
+            ui_group="advanced",
             placeholder="PROMETHEUS_API_TOKEN",
             help_text="Optional. Resolve this secret and send it as a bearer token.",
         ),
         tool_text_field(
             "secret_group_id",
             "Secret group",
+            ui_group="advanced",
             placeholder="Use workflow secret group",
             help_text="Optional. Override the workflow secret group for this node with a scoped secret group ID.",
         ),

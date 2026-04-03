@@ -41,10 +41,10 @@ def _validate_elasticsearch_search_tool(config: dict, node_id: str) -> None:
 
 
 def _execute_elasticsearch_search_tool(runtime: WorkflowToolExecutionContext) -> dict:
-    output_key = _render_runtime_string(runtime, "output_key", required=True)
-    base_url = (_render_runtime_external_url(runtime, "base_url", required=True) or "").rstrip("/")
-    index_name = _render_runtime_string(runtime, "index")
-    query_body = _render_runtime_json(runtime, "query_json", required=True)
+    output_key = _render_runtime_string(runtime, "output_key", required=True, default_mode="static")
+    base_url = (_render_runtime_external_url(runtime, "base_url", required=True, default_mode="static") or "").rstrip("/")
+    index_name = _render_runtime_string(runtime, "index", default_mode="static")
+    query_body = _render_runtime_json(runtime, "query_json", required=True, default_mode="expression")
     if not isinstance(query_body, dict):
         raise ValidationError(
             {"definition": f'Node "{runtime.node["id"]}" config.query_json must render a JSON object.'}
@@ -55,7 +55,7 @@ def _execute_elasticsearch_search_tool(runtime: WorkflowToolExecutionContext) ->
         "Content-Type": "application/json",
     }
     secret_meta = None
-    secret_name = _render_runtime_string(runtime, "secret_name")
+    secret_name = _render_runtime_string(runtime, "secret_name", default_mode="static")
     auth_token = None
     if secret_name:
         auth_token, secret_meta = _resolve_runtime_secret(
@@ -111,21 +111,31 @@ TOOL_DEFINITION = WorkflowToolDefinition(
     category="Observability",
     config={"output_key": "elasticsearch.search", "auth_scheme": "ApiKey"},
     fields=(
-        tool_text_field("output_key", "Save result as", placeholder="elasticsearch.search"),
+        tool_text_field(
+            "output_key",
+            "Save result as",
+            ui_group="result",
+            binding="path",
+            placeholder="elasticsearch.search",
+        ),
         tool_text_field(
             "base_url",
             "Elasticsearch base URL",
+            ui_group="advanced",
             placeholder="https://elasticsearch.example.com",
         ),
         tool_text_field(
             "index",
             "Index",
+            ui_group="input",
+            binding="template",
             placeholder="logs-*",
             help_text="Optional. Leave blank to search all indices reachable at this endpoint.",
         ),
         tool_select_field(
             "auth_scheme",
             "Auth scheme",
+            ui_group="advanced",
             options=(
                 tool_field_option("ApiKey"),
                 tool_field_option("Bearer"),
@@ -134,12 +144,14 @@ TOOL_DEFINITION = WorkflowToolDefinition(
         tool_text_field(
             "secret_name",
             "Secret name",
+            ui_group="advanced",
             placeholder="ELASTICSEARCH_API_KEY",
             help_text="Optional. Resolve this secret and send it in the Authorization header.",
         ),
         tool_text_field(
             "secret_group_id",
             "Secret group",
+            ui_group="advanced",
             placeholder="Use workflow secret group",
             help_text="Optional. Override the workflow secret group for this node with a scoped secret group ID.",
         ),
@@ -147,6 +159,8 @@ TOOL_DEFINITION = WorkflowToolDefinition(
             "query_json",
             "Query JSON",
             rows=8,
+            ui_group="input",
+            binding="template",
             placeholder='{"size": 10, "query": {"match": {"service": "api"}}}',
         ),
     ),

@@ -27,9 +27,9 @@ def _validate_openai_compatible_chat_tool(config: dict, node_id: str) -> None:
 
 
 def _execute_openai_compatible_chat_tool(runtime: WorkflowToolExecutionContext) -> dict:
-    output_key = _render_runtime_string(runtime, "output_key", required=True)
-    system_prompt = _render_runtime_string(runtime, "system_prompt")
-    user_prompt = _render_runtime_string(runtime, "user_prompt", required=True)
+    output_key = _render_runtime_string(runtime, "output_key", required=True, default_mode="static")
+    system_prompt = _render_runtime_string(runtime, "system_prompt", default_mode="expression")
+    user_prompt = _render_runtime_string(runtime, "user_prompt", required=True, default_mode="expression")
 
     messages = []
     if system_prompt:
@@ -60,27 +60,43 @@ TOOL_DEFINITION = WorkflowToolDefinition(
     category="AI",
     config={"output_key": "llm.response"},
     fields=(
-        tool_text_field("output_key", "Save result as", placeholder="llm.response"),
-        tool_text_field("base_url", "API base URL", placeholder="https://api.openai.com/v1"),
-        tool_text_field("model", "Model", placeholder="gpt-4.1-mini"),
+        tool_text_field(
+            "output_key",
+            "Save result as",
+            ui_group="result",
+            binding="path",
+            placeholder="llm.response",
+        ),
+        tool_text_field(
+            "base_url",
+            "API base URL",
+            ui_group="advanced",
+            placeholder="https://api.openai.com/v1",
+        ),
+        tool_text_field("model", "Model", ui_group="advanced", placeholder="gpt-4.1-mini"),
         tool_textarea_field(
             "system_prompt",
             "System prompt",
             rows=4,
+            ui_group="input",
+            binding="template",
             placeholder="You are an incident response assistant.",
         ),
         tool_textarea_field(
             "user_prompt",
             "User prompt",
             rows=6,
+            ui_group="input",
+            binding="template",
             placeholder="Summarize incident {{ trigger.payload.incident_id }} and propose next steps.",
         ),
-        tool_text_field("temperature", "Temperature", placeholder="0.2"),
-        tool_text_field("max_tokens", "Max tokens", placeholder="800"),
+        tool_text_field("temperature", "Temperature", ui_group="advanced", placeholder="0.2"),
+        tool_text_field("max_tokens", "Max tokens", ui_group="advanced", placeholder="800"),
         tool_textarea_field(
             "extra_body_json",
             "Extra body JSON",
             rows=5,
+            ui_group="advanced",
             placeholder='{"response_format": {"type": "json_object"}}',
             help_text="Optional provider-specific fields merged into the request body after prompts and model.",
         ),

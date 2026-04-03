@@ -4,6 +4,7 @@ from automation.nodes.adapters import tool_definition_as_node_implementation
 from automation.tools.base import (
     WorkflowToolDefinition,
     WorkflowToolExecutionContext,
+    _render_runtime_string,
     _tool_result,
     _validate_optional_secret_group_id,
     _validate_required_string,
@@ -18,10 +19,11 @@ def _validate_secret_tool(config: dict, node_id: str) -> None:
 
 
 def _execute_secret_tool(runtime: WorkflowToolExecutionContext) -> dict:
-    output_key = runtime.config.get("output_key") or runtime.node["id"]
+    output_key = _render_runtime_string(runtime, "output_key", required=True)
+    secret_name = _render_runtime_string(runtime, "secret_name", required=True)
     secret = runtime.resolve_scoped_secret(
         runtime.workflow,
-        secret_name=runtime.config["secret_name"],
+        secret_name=secret_name,
         secret_group_id=runtime.config.get("secret_group_id"),
     )
     value = secret.get_value(obj=runtime.workflow)
@@ -47,15 +49,23 @@ TOOL_DEFINITION = WorkflowToolDefinition(
     icon="mdi-key-variant",
     config={"output_key": "credentials.value"},
     fields=(
-        tool_text_field("output_key", "Save result as", placeholder="credentials.openai"),
+        tool_text_field(
+            "output_key",
+            "Save result as",
+            ui_group="result",
+            binding="path",
+            placeholder="credentials.openai",
+        ),
         tool_text_field(
             "secret_name",
             "Secret name",
+            ui_group="input",
             placeholder="OPENAI_API_KEY",
         ),
         tool_text_field(
             "secret_group_id",
             "Secret group",
+            ui_group="advanced",
             placeholder="Use workflow secret group",
             help_text="Optional. Override the workflow secret group for this node with a scoped secret group ID.",
         ),
