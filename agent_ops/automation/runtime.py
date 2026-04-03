@@ -9,6 +9,7 @@ from django.template import Context, Engine
 from django.utils import timezone
 
 from automation.nodes import execute_workflow_node
+from automation.queue import enqueue_workflow_run_job, ensure_workers_for_queue, get_workflow_queue_name
 from automation.auth import resolve_workflow_secret_ref
 from automation.workflow_connections import (
     build_auxiliary_connections_by_target,
@@ -255,61 +256,313 @@ def _build_step_output_snapshot(
     return snapshot
 
 
-def execute_workflow(
+def _initialize_workflow_run(
     workflow,
     *,
-    input_data: dict[str, Any] | None = None,
-    trigger_mode: str = "manual",
-    trigger_metadata: dict[str, Any] | None = None,
-    actor=None,
-    stop_after_node_id: str | None = None,
+    input_data: dict[str, Any] | None,
+    trigger_mode: str,
+    trigger_metadata: dict[str, Any] | None,
+    actor,
+    execution_mode: str,
+    target_node_id: str | None = None,
+    status: str = WorkflowRun.StatusChoices.PENDING,
+    queue_name: str = "",
 ) -> WorkflowRun:
-    input_data = input_data or {}
+    workflow_version = ensure_workflow_version_snapshot(workflow)
+    return WorkflowRun.objects.create(
+        workflow=workflow,
+        workflow_version=workflow_version,
+        trigger_mode=trigger_mode,
+        trigger_metadata=trigger_metadata or {},
+        execution_mode=execution_mode,
+        target_node_id=target_node_id or "",
+        status=status,
+        input_data=input_data or {},
+        requested_by=actor,
+        queue_name=queue_name,
+    )
+
+
+def _load_runtime_definition(run: WorkflowRun) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, list[str]], dict[str, dict[str, list[dict[str, Any]]]]]:
+    definition = normalize_workflow_definition_nodes(run.workflow_version.definition or {})
+    nodes = definition.get("nodes", [])
+    edges = definition.get("edges", [])
+    nodes_by_id = {node["id"]: node for node in nodes}
+    primary_edges, auxiliary_edges = split_workflow_edges(edges)
+    adjacency: dict[str, list[str]] = {node["id"]: [] for node in nodes}
+    for edge in primary_edges:
+        adjacency.setdefault(edge["source"], []).append(edge["target"])
+    auxiliary_connections_by_target = build_auxiliary_connections_by_target(
+        nodes_by_id=nodes_by_id,
+        edges=auxiliary_edges,
+    )
+    return definition, nodes, nodes_by_id, adjacency, auxiliary_connections_by_target
+
+
+def _record_step_failure(
+    *,
+    step_run: WorkflowStepRun,
+    default_next_node_id: str | None,
+    error: ValidationError,
+    secret_paths: set[str],
+    secret_values: list[str],
+) -> None:
+    step_run.status = WorkflowStepRun.StatusChoices.FAILED
+    step_run.error = _flatten_validation_error(error)
+    step_run.output_data = _redact_value(
+        {
+            "result": {},
+            "next_node_id": default_next_node_id,
+            "terminal": False,
+        },
+        secret_paths=secret_paths,
+        secret_values=_sorted_secret_values(secret_values),
+    )
+    step_run.finished_at = timezone.now()
+    step_run.save(
+        update_fields=(
+            "status",
+            "error",
+            "output_data",
+            "finished_at",
+            "last_updated",
+        )
+    )
+
+
+def _record_step_success(
+    *,
+    step_run: WorkflowStepRun,
+    node: dict[str, Any],
+    result: _NodeExecutionResult,
+    step_results: list[dict[str, Any]],
+    secret_paths: set[str],
+    secret_values: list[str],
+) -> None:
+    step_run.status = WorkflowStepRun.StatusChoices.SUCCEEDED
+    step_run.output_data = _redact_value(
+        _build_step_output_snapshot(result=result),
+        secret_paths=secret_paths,
+        secret_values=_sorted_secret_values(secret_values),
+    )
+    step_run.finished_at = timezone.now()
+    step_run.save(
+        update_fields=(
+            "status",
+            "output_data",
+            "finished_at",
+            "last_updated",
+        )
+    )
+    step_results.append(
+        {
+            "node_id": node["id"],
+            "kind": node["kind"],
+            "type": node.get("type"),
+            "label": node.get("label") or node["id"],
+            "result": result.output or {},
+        }
+    )
+
+
+def _build_node_response_payload(node: dict[str, Any], result: _NodeExecutionResult) -> dict[str, Any]:
+    return {
+        "node_id": node["id"],
+        "label": node.get("label") or node["id"],
+        "response": result.response if result.response is not None else result.output or {},
+        "output": result.output or {},
+        "next_node_id": result.next_node_id,
+        "terminal": result.terminal,
+    }
+
+
+def _finalize_workflow_run_success(
+    *,
+    run: WorkflowRun,
+    run_status: str,
+    response_payload: dict[str, Any],
+    context: dict[str, Any],
+    step_results: list[dict[str, Any]],
+    secret_paths: set[str],
+    secret_values: list[str],
+) -> WorkflowRun:
+    run.status = run_status
+    run.error = ""
+    run.output_data = _redact_value(
+        response_payload,
+        secret_paths=secret_paths,
+        secret_values=_sorted_secret_values(secret_values),
+    )
+    run.context_data = _redact_value(
+        context,
+        secret_paths=secret_paths,
+        secret_values=_sorted_secret_values(secret_values),
+    )
+    run.step_results = _redact_value(
+        step_results,
+        secret_paths=secret_paths,
+        secret_values=_sorted_secret_values(secret_values),
+    )
+    run.finished_at = timezone.now()
+    run.save(
+        update_fields=(
+            "status",
+            "error",
+            "output_data",
+            "context_data",
+            "step_results",
+            "finished_at",
+            "last_updated",
+        )
+    )
+    return run
+
+
+def _finalize_workflow_run_failure(
+    *,
+    run: WorkflowRun,
+    error: Exception,
+    context: dict[str, Any],
+    step_results: list[dict[str, Any]],
+    secret_paths: set[str],
+    secret_values: list[str],
+) -> WorkflowRun:
+    message = _flatten_validation_error(error) if isinstance(error, ValidationError) else str(error)
+    run.status = WorkflowRun.StatusChoices.FAILED
+    run.error = message
+    run.context_data = _redact_value(
+        context,
+        secret_paths=secret_paths,
+        secret_values=_sorted_secret_values(secret_values),
+    )
+    run.step_results = _redact_value(
+        step_results,
+        secret_paths=secret_paths,
+        secret_values=_sorted_secret_values(secret_values),
+    )
+    run.finished_at = timezone.now()
+    run.save(
+        update_fields=(
+            "status",
+            "error",
+            "context_data",
+            "step_results",
+            "finished_at",
+            "last_updated",
+        )
+    )
+    return run
+
+
+def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
     secret_paths: set[str] = set()
     secret_values: list[str] = []
     step_results: list[dict[str, Any]] = []
 
     with transaction.atomic():
-        workflow_version = ensure_workflow_version_snapshot(workflow)
-        definition = normalize_workflow_definition_nodes(workflow_version.definition or {})
-        nodes = definition.get("nodes", [])
-        edges = definition.get("edges", [])
-        nodes_by_id = {node["id"]: node for node in nodes}
-        primary_edges, auxiliary_edges = split_workflow_edges(edges)
-        adjacency: dict[str, list[str]] = {node["id"]: [] for node in nodes}
-        for edge in primary_edges:
-            adjacency.setdefault(edge["source"], []).append(edge["target"])
-        auxiliary_connections_by_target = build_auxiliary_connections_by_target(
-            nodes_by_id=nodes_by_id,
-            edges=auxiliary_edges,
-        )
+        if run.workflow_version_id is None:
+            run.workflow_version = ensure_workflow_version_snapshot(run.workflow)
+            run.save(update_fields=("workflow_version", "last_updated"))
 
+        definition, nodes, nodes_by_id, adjacency, auxiliary_connections_by_target = _load_runtime_definition(run)
         context = _build_execution_context(
-            workflow,
-            workflow_version=workflow_version,
-            input_data=input_data,
-            trigger_type=trigger_mode,
-            trigger_metadata=trigger_metadata,
+            run.workflow,
+            workflow_version=run.workflow_version,
+            input_data=run.input_data or {},
+            trigger_type=run.trigger_mode,
+            trigger_metadata=run.trigger_metadata or {},
         )
-        run = WorkflowRun.objects.create(
-            workflow=workflow,
-            workflow_version=workflow_version,
-            trigger_mode=trigger_mode,
-            status=WorkflowRun.StatusChoices.RUNNING,
-            input_data=input_data,
+        run.status = WorkflowRun.StatusChoices.RUNNING
+        run.error = ""
+        run.finished_at = None
+        run.output_data = {}
+        run.context_data = {}
+        run.step_results = []
+        run.save(
+            update_fields=(
+                "status",
+                "error",
+                "finished_at",
+                "output_data",
+                "context_data",
+                "step_results",
+                "last_updated",
+            )
         )
 
         try:
-            validate_workflow_runtime_definition(nodes=nodes, edges=edges)
-            if stop_after_node_id is not None and stop_after_node_id not in nodes_by_id:
-                raise ValidationError({"definition": f'Workflow does not define node "{stop_after_node_id}".'})
+            validate_workflow_runtime_definition(nodes=nodes, edges=definition.get("edges", []))
+            target_node_id = run.target_node_id or None
+            if target_node_id is not None and target_node_id not in nodes_by_id:
+                raise ValidationError({"definition": f'Workflow does not define node "{target_node_id}".'})
+
+            if run.execution_mode == WorkflowRun.ExecutionModeChoices.NODE_PREVIEW:
+                node = nodes_by_id[target_node_id]
+                outgoing_targets = adjacency.get(node["id"], [])
+                default_next_node_id = outgoing_targets[0] if outgoing_targets else None
+                step_run = WorkflowStepRun.objects.create(
+                    run=run,
+                    workflow_version=run.workflow_version,
+                    sequence=1,
+                    node_id=node["id"],
+                    node_kind=node["kind"],
+                    node_type=node.get("type") or "",
+                    label=node.get("label") or node["id"],
+                    status=WorkflowStepRun.StatusChoices.RUNNING,
+                    input_data=_redact_value(
+                        _build_step_input_snapshot(
+                            context=context,
+                            next_node_id=default_next_node_id,
+                        ),
+                        secret_paths=secret_paths,
+                        secret_values=_sorted_secret_values(secret_values),
+                    ),
+                )
+                try:
+                    result = _execute_node(
+                        workflow=run.workflow,
+                        node=node,
+                        next_node_id=default_next_node_id,
+                        connected_nodes_by_port=auxiliary_connections_by_target.get(node["id"], {}),
+                        context=context,
+                        secret_paths=secret_paths,
+                        secret_values=secret_values,
+                    )
+                except ValidationError as exc:
+                    _record_step_failure(
+                        step_run=step_run,
+                        default_next_node_id=default_next_node_id,
+                        error=exc,
+                        secret_paths=secret_paths,
+                        secret_values=secret_values,
+                    )
+                    raise
+
+                _record_step_success(
+                    step_run=step_run,
+                    node=node,
+                    result=result,
+                    step_results=step_results,
+                    secret_paths=secret_paths,
+                    secret_values=secret_values,
+                )
+                return _finalize_workflow_run_success(
+                    run=run,
+                    run_status=result.run_status or WorkflowRun.StatusChoices.SUCCEEDED,
+                    response_payload=_build_node_response_payload(node, result),
+                    context=context,
+                    step_results=step_results,
+                    secret_paths=secret_paths,
+                    secret_values=secret_values,
+                )
+
             trigger_node = next(node for node in nodes if node["kind"] == "trigger")
             current_node_id: str | None = trigger_node["id"]
             max_steps = max(len(nodes) * 4, 1)
             step_count = 0
             response_payload: dict[str, Any] = {}
             run_status = WorkflowRun.StatusChoices.SUCCEEDED
-            reached_stop_node = stop_after_node_id is None
+            reached_stop_node = run.execution_mode != WorkflowRun.ExecutionModeChoices.NODE_PATH
 
             while current_node_id is not None:
                 step_count += 1
@@ -321,7 +574,7 @@ def execute_workflow(
                 default_next_node_id = outgoing_targets[0] if outgoing_targets else None
                 step_run = WorkflowStepRun.objects.create(
                     run=run,
-                    workflow_version=workflow_version,
+                    workflow_version=run.workflow_version,
                     sequence=step_count,
                     node_id=node["id"],
                     node_kind=node["kind"],
@@ -340,7 +593,7 @@ def execute_workflow(
 
                 try:
                     result = _execute_node(
-                        workflow=workflow,
+                        workflow=run.workflow,
                         node=node,
                         next_node_id=default_next_node_id,
                         connected_nodes_by_port=auxiliary_connections_by_target.get(node["id"], {}),
@@ -349,64 +602,27 @@ def execute_workflow(
                         secret_values=secret_values,
                     )
                 except ValidationError as exc:
-                    step_run.status = WorkflowStepRun.StatusChoices.FAILED
-                    step_run.error = _flatten_validation_error(exc)
-                    step_run.output_data = _redact_value(
-                        {
-                            "result": {},
-                            "next_node_id": default_next_node_id,
-                            "terminal": False,
-                        },
+                    _record_step_failure(
+                        step_run=step_run,
+                        default_next_node_id=default_next_node_id,
+                        error=exc,
                         secret_paths=secret_paths,
-                        secret_values=_sorted_secret_values(secret_values),
-                    )
-                    step_run.finished_at = timezone.now()
-                    step_run.save(
-                        update_fields=(
-                            "status",
-                            "error",
-                            "output_data",
-                            "finished_at",
-                            "last_updated",
-                        )
+                        secret_values=secret_values,
                     )
                     raise
 
-                step_run.status = WorkflowStepRun.StatusChoices.SUCCEEDED
-                step_run.output_data = _redact_value(
-                    _build_step_output_snapshot(result=result),
+                _record_step_success(
+                    step_run=step_run,
+                    node=node,
+                    result=result,
+                    step_results=step_results,
                     secret_paths=secret_paths,
-                    secret_values=_sorted_secret_values(secret_values),
-                )
-                step_run.finished_at = timezone.now()
-                step_run.save(
-                    update_fields=(
-                        "status",
-                        "output_data",
-                        "finished_at",
-                        "last_updated",
-                    )
-                )
-                step_results.append(
-                    {
-                        "node_id": node["id"],
-                        "kind": node["kind"],
-                        "type": node.get("type"),
-                        "label": node.get("label") or node["id"],
-                        "result": result.output or {},
-                    }
+                    secret_values=secret_values,
                 )
 
-                if stop_after_node_id is not None and node["id"] == stop_after_node_id:
+                if run.execution_mode == WorkflowRun.ExecutionModeChoices.NODE_PATH and node["id"] == target_node_id:
                     reached_stop_node = True
-                    response_payload = {
-                        "node_id": node["id"],
-                        "label": node.get("label") or node["id"],
-                        "response": result.response if result.response is not None else result.output or {},
-                        "output": result.output or {},
-                        "next_node_id": result.next_node_id,
-                        "terminal": result.terminal,
-                    }
+                    response_payload = _build_node_response_payload(node, result)
                     if result.run_status:
                         run_status = result.run_status
                     break
@@ -421,7 +637,7 @@ def execute_workflow(
 
             if not reached_stop_node:
                 raise ValidationError(
-                    {"definition": f'Workflow execution did not reach node "{stop_after_node_id}".'}
+                    {"definition": f'Workflow execution did not reach node "{target_node_id}".'}
                 )
 
             if not response_payload:
@@ -430,61 +646,77 @@ def execute_workflow(
                     "response": None,
                 }
 
-            run.status = run_status
-            run.output_data = _redact_value(
-                response_payload,
+            return _finalize_workflow_run_success(
+                run=run,
+                run_status=run_status,
+                response_payload=response_payload,
+                context=context,
+                step_results=step_results,
                 secret_paths=secret_paths,
-                secret_values=_sorted_secret_values(secret_values),
+                secret_values=secret_values,
             )
-            run.context_data = _redact_value(
-                context,
+        except Exception as exc:
+            return _finalize_workflow_run_failure(
+                run=run,
+                error=exc,
+                context=context,
+                step_results=step_results,
                 secret_paths=secret_paths,
-                secret_values=_sorted_secret_values(secret_values),
+                secret_values=secret_values,
             )
-            run.step_results = _redact_value(
-                step_results,
-                secret_paths=secret_paths,
-                secret_values=_sorted_secret_values(secret_values),
-            )
-            run.finished_at = timezone.now()
-            run.save(
-                update_fields=(
-                    "status",
-                    "workflow_version",
-                    "output_data",
-                    "context_data",
-                    "step_results",
-                    "finished_at",
-                    "last_updated",
-                )
-            )
-            return run
-        except ValidationError as exc:
-            run.status = WorkflowRun.StatusChoices.FAILED
-            run.error = _flatten_validation_error(exc)
-            run.context_data = _redact_value(
-                context,
-                secret_paths=secret_paths,
-                secret_values=_sorted_secret_values(secret_values),
-            )
-            run.step_results = _redact_value(
-                step_results,
-                secret_paths=secret_paths,
-                secret_values=_sorted_secret_values(secret_values),
-            )
-            run.finished_at = timezone.now()
-            run.save(
-                update_fields=(
-                    "status",
-                    "workflow_version",
-                    "error",
-                    "context_data",
-                    "step_results",
-                    "finished_at",
-                    "last_updated",
-                )
-            )
-            return run
+
+
+def enqueue_workflow(
+    workflow,
+    *,
+    input_data: dict[str, Any] | None = None,
+    trigger_mode: str = "manual",
+    trigger_metadata: dict[str, Any] | None = None,
+    actor=None,
+    execution_mode: str = WorkflowRun.ExecutionModeChoices.WORKFLOW,
+    target_node_id: str | None = None,
+) -> WorkflowRun:
+    queue_name = get_workflow_queue_name(execution_mode)
+    ensure_workers_for_queue(queue_name)
+    with transaction.atomic():
+        run = _initialize_workflow_run(
+            workflow,
+            input_data=input_data,
+            trigger_mode=trigger_mode,
+            trigger_metadata=trigger_metadata,
+            actor=actor,
+            execution_mode=execution_mode,
+            target_node_id=target_node_id,
+            queue_name=queue_name,
+        )
+        enqueue_workflow_run_job(run)
+    return run
+
+
+def execute_workflow(
+    workflow,
+    *,
+    input_data: dict[str, Any] | None = None,
+    trigger_mode: str = "manual",
+    trigger_metadata: dict[str, Any] | None = None,
+    actor=None,
+    stop_after_node_id: str | None = None,
+) -> WorkflowRun:
+    execution_mode = (
+        WorkflowRun.ExecutionModeChoices.NODE_PATH
+        if stop_after_node_id is not None
+        else WorkflowRun.ExecutionModeChoices.WORKFLOW
+    )
+    run = _initialize_workflow_run(
+        workflow,
+        input_data=input_data,
+        trigger_mode=trigger_mode,
+        trigger_metadata=trigger_metadata,
+        actor=actor,
+        execution_mode=execution_mode,
+        target_node_id=stop_after_node_id,
+    )
+    return execute_workflow_run(run)
 
 
 def execute_workflow_node_preview(
@@ -496,189 +728,13 @@ def execute_workflow_node_preview(
     trigger_metadata: dict[str, Any] | None = None,
     actor=None,
 ) -> WorkflowRun:
-    del actor
-    input_data = input_data or {}
-    secret_paths: set[str] = set()
-    secret_values: list[str] = []
-    step_results: list[dict[str, Any]] = []
-
-    with transaction.atomic():
-        workflow_version = ensure_workflow_version_snapshot(workflow)
-        definition = normalize_workflow_definition_nodes(workflow_version.definition or {})
-        nodes = definition.get("nodes", [])
-        edges = definition.get("edges", [])
-        nodes_by_id = {node["id"]: node for node in nodes}
-        primary_edges, auxiliary_edges = split_workflow_edges(edges)
-        adjacency: dict[str, list[str]] = {node["id"]: [] for node in nodes}
-        for edge in primary_edges:
-            adjacency.setdefault(edge["source"], []).append(edge["target"])
-        auxiliary_connections_by_target = build_auxiliary_connections_by_target(
-            nodes_by_id=nodes_by_id,
-            edges=auxiliary_edges,
-        )
-
-        context = _build_execution_context(
-            workflow,
-            workflow_version=workflow_version,
-            input_data=input_data,
-            trigger_type=trigger_mode,
-            trigger_metadata=trigger_metadata,
-        )
-        run = WorkflowRun.objects.create(
-            workflow=workflow,
-            workflow_version=workflow_version,
-            trigger_mode=trigger_mode,
-            status=WorkflowRun.StatusChoices.RUNNING,
-            input_data=input_data,
-        )
-
-        try:
-            validate_workflow_runtime_definition(nodes=nodes, edges=edges)
-            node = nodes_by_id.get(node_id)
-            if node is None:
-                raise ValidationError({"definition": f'Workflow does not define node "{node_id}".'})
-
-            outgoing_targets = adjacency.get(node_id, [])
-            default_next_node_id = outgoing_targets[0] if outgoing_targets else None
-            step_run = WorkflowStepRun.objects.create(
-                run=run,
-                workflow_version=workflow_version,
-                sequence=1,
-                node_id=node["id"],
-                node_kind=node["kind"],
-                node_type=node.get("type") or "",
-                label=node.get("label") or node["id"],
-                status=WorkflowStepRun.StatusChoices.RUNNING,
-                input_data=_redact_value(
-                    _build_step_input_snapshot(
-                        context=context,
-                        next_node_id=default_next_node_id,
-                    ),
-                    secret_paths=secret_paths,
-                    secret_values=_sorted_secret_values(secret_values),
-                ),
-            )
-
-            try:
-                result = _execute_node(
-                    workflow=workflow,
-                    node=node,
-                    next_node_id=default_next_node_id,
-                    connected_nodes_by_port=auxiliary_connections_by_target.get(node["id"], {}),
-                    context=context,
-                    secret_paths=secret_paths,
-                    secret_values=secret_values,
-                )
-            except ValidationError as exc:
-                step_run.status = WorkflowStepRun.StatusChoices.FAILED
-                step_run.error = _flatten_validation_error(exc)
-                step_run.output_data = _redact_value(
-                    {
-                        "result": {},
-                        "next_node_id": default_next_node_id,
-                        "terminal": False,
-                    },
-                    secret_paths=secret_paths,
-                    secret_values=_sorted_secret_values(secret_values),
-                )
-                step_run.finished_at = timezone.now()
-                step_run.save(
-                    update_fields=(
-                        "status",
-                        "error",
-                        "output_data",
-                        "finished_at",
-                        "last_updated",
-                    )
-                )
-                raise
-
-            step_run.status = WorkflowStepRun.StatusChoices.SUCCEEDED
-            step_run.output_data = _redact_value(
-                _build_step_output_snapshot(result=result),
-                secret_paths=secret_paths,
-                secret_values=_sorted_secret_values(secret_values),
-            )
-            step_run.finished_at = timezone.now()
-            step_run.save(
-                update_fields=(
-                    "status",
-                    "output_data",
-                    "finished_at",
-                    "last_updated",
-                )
-            )
-            step_results.append(
-                {
-                    "node_id": node["id"],
-                    "kind": node["kind"],
-                    "type": node.get("type"),
-                    "label": node.get("label") or node["id"],
-                    "result": result.output or {},
-                }
-            )
-
-            response_payload = {
-                "node_id": node["id"],
-                "label": node.get("label") or node["id"],
-                "response": result.response if result.response is not None else result.output or {},
-                "output": result.output or {},
-                "next_node_id": result.next_node_id,
-                "terminal": result.terminal,
-            }
-
-            run.status = result.run_status or WorkflowRun.StatusChoices.SUCCEEDED
-            run.output_data = _redact_value(
-                response_payload,
-                secret_paths=secret_paths,
-                secret_values=_sorted_secret_values(secret_values),
-            )
-            run.context_data = _redact_value(
-                context,
-                secret_paths=secret_paths,
-                secret_values=_sorted_secret_values(secret_values),
-            )
-            run.step_results = _redact_value(
-                step_results,
-                secret_paths=secret_paths,
-                secret_values=_sorted_secret_values(secret_values),
-            )
-            run.finished_at = timezone.now()
-            run.save(
-                update_fields=(
-                    "status",
-                    "workflow_version",
-                    "output_data",
-                    "context_data",
-                    "step_results",
-                    "finished_at",
-                    "last_updated",
-                )
-            )
-            return run
-        except ValidationError as exc:
-            run.status = WorkflowRun.StatusChoices.FAILED
-            run.error = _flatten_validation_error(exc)
-            run.context_data = _redact_value(
-                context,
-                secret_paths=secret_paths,
-                secret_values=_sorted_secret_values(secret_values),
-            )
-            run.step_results = _redact_value(
-                step_results,
-                secret_paths=secret_paths,
-                secret_values=_sorted_secret_values(secret_values),
-            )
-            run.finished_at = timezone.now()
-            run.save(
-                update_fields=(
-                    "status",
-                    "workflow_version",
-                    "error",
-                    "context_data",
-                    "step_results",
-                    "finished_at",
-                    "last_updated",
-                )
-            )
-            return run
+    run = _initialize_workflow_run(
+        workflow,
+        input_data=input_data,
+        trigger_mode=trigger_mode,
+        trigger_metadata=trigger_metadata,
+        actor=actor,
+        execution_mode=WorkflowRun.ExecutionModeChoices.NODE_PREVIEW,
+        target_node_id=node_id,
+    )
+    return execute_workflow_run(run)

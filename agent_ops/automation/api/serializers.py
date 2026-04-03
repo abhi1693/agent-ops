@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from rest_framework.reverse import reverse
 
 from agent_ops.api.fields import SerializedPKRelatedField
 from agent_ops.api.serializers import ValidatedModelSerializer
@@ -315,6 +316,7 @@ class WorkflowRunSerializer(serializers.ModelSerializer):
     organization = NestedOrganizationSerializer(read_only=True)
     workspace = NestedWorkspaceSerializer(read_only=True)
     environment = NestedEnvironmentSerializer(read_only=True)
+    status_url = serializers.SerializerMethodField()
     scope_label = serializers.CharField(read_only=True)
     step_count = serializers.IntegerField(read_only=True)
 
@@ -326,9 +328,15 @@ class WorkflowRunSerializer(serializers.ModelSerializer):
             "organization",
             "workspace",
             "environment",
+            "status_url",
             "scope_label",
             "trigger_mode",
+            "trigger_metadata",
+            "execution_mode",
+            "target_node_id",
             "status",
+            "job_id",
+            "queue_name",
             "input_data",
             "output_data",
             "context_data",
@@ -339,3 +347,9 @@ class WorkflowRunSerializer(serializers.ModelSerializer):
             "last_updated",
             "finished_at",
         )
+
+    def get_status_url(self, obj) -> str | None:
+        request = self.context.get("request")
+        if request is None:
+            return None
+        return reverse("api:automation-api:workflowrun-detail", args=[obj.pk], request=request)

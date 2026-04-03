@@ -54,12 +54,53 @@ if "default" not in DATABASES:
 if "ENGINE" not in DATABASES["default"]:
     DATABASES["default"]["ENGINE"] = "django.db.backends.postgresql"
 
+DEFAULT_REDIS = {
+    "tasks": {
+        "HOST": "localhost",
+        "PORT": 6379,
+        "DB": 0,
+    },
+    "caching": {
+        "HOST": "localhost",
+        "PORT": 6379,
+        "DB": 1,
+    },
+}
+REDIS = getattr(configuration, "REDIS", DEFAULT_REDIS)
+
+
+def _build_redis_connection_config(config: dict) -> dict:
+    connection = {}
+    for key in ("HOST", "PORT", "DB", "USER", "USERNAME", "PASSWORD", "SSL", "URL"):
+        if key in config:
+            connection[key] = config[key]
+    return connection
+
+
+def _build_rq_queues(task_config: dict) -> dict:
+    base_connection = _build_redis_connection_config(task_config)
+    default_timeout = task_config.get("DEFAULT_TIMEOUT", 300)
+    queue_names = task_config.get("QUEUES") or (
+        "high",
+        "default",
+        "low",
+    )
+    return {
+        queue_name: {
+            **base_connection,
+            "DEFAULT_TIMEOUT": default_timeout,
+        }
+        for queue_name in queue_names
+    }
+
+
 INSTALLED_APPS = [
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django_rq",
     "drf_spectacular",
     "django_filters",
     "django_tables2",
@@ -119,6 +160,7 @@ AUTHENTICATION_BACKENDS = getattr(
     ["users.auth_backends.UsernameOrEmailBackend"],
 )
 LOGIN_URL = "login"
+RQ_QUEUES = _build_rq_queues(REDIS.get("tasks", {}))
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (

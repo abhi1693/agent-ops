@@ -9,3 +9,5 @@ djangorestframework<4.0
 django-filter<26
 django-tables2<3
 psycopg<4
+django-rq<4
+rq<3

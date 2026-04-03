@@ -5,11 +5,12 @@ from rest_framework.reverse import reverse
 from rest_framework.routers import APIRootView
 from rest_framework import status
 
+from agent_ops.api.viewsets import ReadOnlyModelViewSet
 from agent_ops.api.permissions import ObjectActionPermission, TokenPermissions
 from agent_ops.api.viewsets import ModelViewSet
 from automation import filtersets
-from automation.models import Secret, SecretGroup, Workflow
-from automation.runtime import execute_workflow
+from automation.models import Secret, SecretGroup, Workflow, WorkflowRun
+from automation.runtime import enqueue_workflow
 from users.restrictions import assert_object_action_allowed, restrict_queryset
 
 from .serializers import (
@@ -32,6 +33,7 @@ class AutomationRootView(APIRootView):
         return Response(
             {
                 "workflows": reverse("api:automation-api:workflow-list", request=request),
+                "workflow-runs": reverse("api:automation-api:workflowrun-list", request=request),
                 "secrets": reverse("api:automation-api:secret-list", request=request),
                 "secret-groups": reverse("api:automation-api:secretgroup-list", request=request),
             }
@@ -82,14 +84,37 @@ class WorkflowViewSet(RestrictedAutomationViewSet):
         assert_object_action_allowed(workflow, request=request, action="change")
         serializer = WorkflowExecuteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        run = execute_workflow(
+        run = enqueue_workflow(
             workflow,
             input_data=serializer.validated_data.get("input_data") or {},
             actor=request.user,
         )
         return Response(
             WorkflowRunSerializer(run, context=self.get_serializer_context()).data,
-            status=status.HTTP_201_CREATED,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class WorkflowRunViewSet(ReadOnlyModelViewSet):
+    serializer_class = WorkflowRunSerializer
+    ordering_fields = ("created", "last_updated", "finished_at", "status")
+    permission_classes = [TokenPermissions, ObjectActionPermission]
+
+    def get_queryset(self):
+        queryset = WorkflowRun.objects.select_related(
+            "workflow",
+            "workflow__organization",
+            "workflow__workspace",
+            "workflow__environment",
+            "organization",
+            "workspace",
+            "environment",
+            "workflow_version",
+        ).order_by("-created")
+        return restrict_queryset(
+            queryset,
+            request=self.request,
+            action=self.get_permission_action(),
         )
 
 

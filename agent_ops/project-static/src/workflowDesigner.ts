@@ -132,6 +132,7 @@ type DesignerRunResponse = {
     label: string;
     type: string;
   };
+  poll_url?: string;
   run: {
     badge_class: string;
     context_json: string | null;
@@ -182,6 +183,11 @@ const AGENT_LANGUAGE_MODEL_NODE_TYPES = new Set<string>([
   'tool.openrouter_chat_model',
   'tool.xai_chat_model',
 ]);
+const TERMINAL_RUN_STATUSES = new Set(['succeeded', 'failed']);
+
+function isTerminalRunStatus(status: string): boolean {
+  return TERMINAL_RUN_STATUSES.has(status);
+}
 
 function isAgentLanguageModelNodeType(nodeType: string | null | undefined): boolean {
   return Boolean(nodeType && AGENT_LANGUAGE_MODEL_NODE_TYPES.has(nodeType));
@@ -1110,7 +1116,28 @@ export function initWorkflowDesigner(): void {
       return;
     }
 
-    const isSuccessful = payload.run.status === 'succeeded';
+    const statusLabelByRunStatus: Record<string, { badgeClass: string; label: string }> = {
+      failed: {
+        badgeClass: 'text-bg-danger',
+        label: 'Failed',
+      },
+      pending: {
+        badgeClass: 'text-bg-secondary',
+        label: 'Queued',
+      },
+      running: {
+        badgeClass: 'text-bg-primary',
+        label: 'Running',
+      },
+      succeeded: {
+        badgeClass: 'text-bg-success',
+        label: 'Completed',
+      },
+    };
+    const statusPresentation = statusLabelByRunStatus[payload.run.status] ?? {
+      badgeClass: 'text-bg-secondary',
+      label: payload.run.status,
+    };
     const modeLabel = payload.mode.startsWith('node')
       ? payload.node?.label ?? 'Node run'
       : 'Workflow run';
@@ -1139,7 +1166,7 @@ export function initWorkflowDesigner(): void {
       execution.resultError.hidden = true;
       execution.resultError.textContent = '';
     }
-    setExecutionStatus(isSuccessful ? 'Completed' : 'Failed', isSuccessful ? 'text-bg-success' : 'text-bg-danger');
+    setExecutionStatus(statusPresentation.label, statusPresentation.badgeClass);
   }
 
   function buildExecutionRequestBody(inputData: Record<string, unknown>): string {
@@ -1151,6 +1178,39 @@ export function initWorkflowDesigner(): void {
 
   function getNodeRunUrl(nodeId: string): string {
     return workflowNodeRunUrlTemplate.replace('__node_id__', encodeURIComponent(nodeId));
+  }
+
+  async function pollDesignerRunStatus(url: string): Promise<DesignerRunResponse> {
+    let lastPayload: DesignerRunResponse | null = null;
+
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, 750));
+      }
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+      });
+      const payload = (await response.json()) as DesignerRunResponse | { detail?: string };
+      if (!response.ok) {
+        throw new Error(payload && 'detail' in payload && payload.detail ? payload.detail : 'Unable to fetch run status.');
+      }
+
+      lastPayload = payload as DesignerRunResponse;
+      renderExecutionResult(lastPayload);
+      if (isTerminalRunStatus(lastPayload.run.status)) {
+        return lastPayload;
+      }
+    }
+
+    if (lastPayload) {
+      return lastPayload;
+    }
+
+    throw new Error('Workflow run polling timed out.');
   }
 
   async function executeDesignerRun(
@@ -1196,7 +1256,11 @@ export function initWorkflowDesigner(): void {
       if (!response.ok) {
         throw new Error(payload && 'detail' in payload && payload.detail ? payload.detail : 'Execution failed.');
       }
-      renderExecutionResult(payload as DesignerRunResponse);
+      const runPayload = payload as DesignerRunResponse;
+      renderExecutionResult(runPayload);
+      if (runPayload.poll_url && !isTerminalRunStatus(runPayload.run.status)) {
+        await pollDesignerRunStatus(runPayload.poll_url);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Execution failed.';
       showExecutionError(message);

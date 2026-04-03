@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import uuid
+
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
@@ -9,6 +12,11 @@ from .workflows import _get_scope_related_object
 
 
 class WorkflowRun(ChangeLoggedModel):
+    class ExecutionModeChoices(models.TextChoices):
+        WORKFLOW = "workflow", "Workflow"
+        NODE_PATH = "node_path", "Node path"
+        NODE_PREVIEW = "node_preview", "Node preview"
+
     class StatusChoices(models.TextChoices):
         PENDING = "pending", "Pending"
         RUNNING = "running", "Running"
@@ -54,6 +62,13 @@ class WorkflowRun(ChangeLoggedModel):
         null=True,
     )
     trigger_mode = models.CharField(max_length=50, default="manual")
+    trigger_metadata = models.JSONField(default=dict, blank=True)
+    execution_mode = models.CharField(
+        max_length=30,
+        choices=ExecutionModeChoices.choices,
+        default=ExecutionModeChoices.WORKFLOW,
+    )
+    target_node_id = models.CharField(max_length=255, blank=True)
     status = models.CharField(
         max_length=20,
         choices=StatusChoices.choices,
@@ -64,6 +79,15 @@ class WorkflowRun(ChangeLoggedModel):
     context_data = models.JSONField(default=dict, blank=True)
     step_results = models.JSONField(default=list, blank=True)
     error = models.TextField(blank=True)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        blank=True,
+        null=True,
+    )
+    job_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    queue_name = models.CharField(max_length=100, blank=True)
     finished_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
@@ -71,6 +95,7 @@ class WorkflowRun(ChangeLoggedModel):
         indexes = (
             models.Index(fields=("workflow", "status")),
             models.Index(fields=("organization", "workspace", "environment")),
+            models.Index(fields=("status", "execution_mode"), name="automation__status_1ea218_idx"),
         )
 
     def __str__(self) -> str:

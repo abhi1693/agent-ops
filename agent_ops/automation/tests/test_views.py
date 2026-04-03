@@ -10,6 +10,7 @@ from django.urls import reverse
 
 from automation.models import Workflow, WorkflowRun
 from automation.models import Secret, SecretGroup
+from automation.runtime import execute_workflow_run
 from tenancy.models import Environment, Organization, Workspace
 from users.models import Membership, ObjectPermission, User
 
@@ -420,24 +421,34 @@ class WorkflowViewTests(TestCase):
             ],
         }
 
-        response = self.client.post(
-            reverse("workflow_designer_run", args=[self.workflow.pk]),
-            data=json.dumps(
-                {
-                    "definition": definition,
-                    "input_data": {"ticket_id": "T-42"},
-                }
-            ),
-            content_type="application/json",
-        )
+        with patch("automation.runtime.ensure_workers_for_queue"), patch(
+            "automation.runtime.enqueue_workflow_run_job",
+            side_effect=lambda run: run,
+        ):
+            response = self.client.post(
+                reverse("workflow_designer_run", args=[self.workflow.pk]),
+                data=json.dumps(
+                    {
+                        "definition": definition,
+                        "input_data": {"ticket_id": "T-42"},
+                    }
+                ),
+                content_type="application/json",
+            )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 202)
         payload = response.json()
         self.workflow.refresh_from_db()
         self.assertEqual(self.workflow.definition["nodes"][1]["label"], "Reply")
         self.assertEqual(payload["mode"], "workflow")
-        self.assertEqual(payload["run"]["status"], "succeeded")
-        self.assertIn("Completed T-42", payload["run"]["output_json"])
+        self.assertEqual(payload["run"]["status"], "pending")
+        run = WorkflowRun.objects.get(pk=payload["run"]["id"])
+        execute_workflow_run(run)
+        status_response = self.client.get(payload["poll_url"])
+        self.assertEqual(status_response.status_code, 200)
+        status_payload = status_response.json()
+        self.assertEqual(status_payload["run"]["status"], "succeeded")
+        self.assertIn("Completed T-42", status_payload["run"]["output_json"])
 
     def test_workflow_designer_node_run_endpoint_runs_primary_path_node(self):
         self.client.force_login(self.staff_user)
@@ -478,24 +489,34 @@ class WorkflowViewTests(TestCase):
             ],
         }
 
-        response = self.client.post(
-            reverse("workflow_designer_node_run", args=[self.workflow.pk, "tool-1"]),
-            data=json.dumps(
-                {
-                    "definition": definition,
-                    "input_data": {"service": "payments"},
-                }
-            ),
-            content_type="application/json",
-        )
+        with patch("automation.runtime.ensure_workers_for_queue"), patch(
+            "automation.runtime.enqueue_workflow_run_job",
+            side_effect=lambda run: run,
+        ):
+            response = self.client.post(
+                reverse("workflow_designer_node_run", args=[self.workflow.pk, "tool-1"]),
+                data=json.dumps(
+                    {
+                        "definition": definition,
+                        "input_data": {"service": "payments"},
+                    }
+                ),
+                content_type="application/json",
+            )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 202)
         payload = response.json()
         self.assertEqual(payload["mode"], "node_path")
         self.assertEqual(payload["node"]["id"], "tool-1")
-        self.assertEqual(payload["run"]["status"], "succeeded")
-        self.assertEqual(payload["run"]["step_count"], 2)
-        self.assertIn("Service payments", payload["run"]["output_json"])
+        self.assertEqual(payload["run"]["status"], "pending")
+        run = WorkflowRun.objects.get(pk=payload["run"]["id"])
+        execute_workflow_run(run)
+        status_response = self.client.get(payload["poll_url"])
+        self.assertEqual(status_response.status_code, 200)
+        status_payload = status_response.json()
+        self.assertEqual(status_payload["run"]["status"], "succeeded")
+        self.assertEqual(status_payload["run"]["step_count"], 2)
+        self.assertIn("Service payments", status_payload["run"]["output_json"])
 
     def test_workflow_designer_node_run_endpoint_runs_auxiliary_node_preview(self):
         self.client.force_login(self.staff_user)
@@ -554,24 +575,34 @@ class WorkflowViewTests(TestCase):
             ],
         }
 
-        response = self.client.post(
-            reverse("workflow_designer_node_run", args=[self.workflow.pk, "model-1"]),
-            data=json.dumps(
-                {
-                    "definition": definition,
-                    "input_data": {"ticket_id": "T-42"},
-                }
-            ),
-            content_type="application/json",
-        )
+        with patch("automation.runtime.ensure_workers_for_queue"), patch(
+            "automation.runtime.enqueue_workflow_run_job",
+            side_effect=lambda run: run,
+        ):
+            response = self.client.post(
+                reverse("workflow_designer_node_run", args=[self.workflow.pk, "model-1"]),
+                data=json.dumps(
+                    {
+                        "definition": definition,
+                        "input_data": {"ticket_id": "T-42"},
+                    }
+                ),
+                content_type="application/json",
+            )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 202)
         payload = response.json()
         self.assertEqual(payload["mode"], "node_preview")
         self.assertEqual(payload["node"]["id"], "model-1")
-        self.assertEqual(payload["run"]["status"], "succeeded")
-        self.assertEqual(payload["run"]["step_count"], 1)
-        self.assertIn("gpt-4.1-mini", payload["run"]["output_json"])
+        self.assertEqual(payload["run"]["status"], "pending")
+        run = WorkflowRun.objects.get(pk=payload["run"]["id"])
+        execute_workflow_run(run)
+        status_response = self.client.get(payload["poll_url"])
+        self.assertEqual(status_response.status_code, 200)
+        status_payload = status_response.json()
+        self.assertEqual(status_payload["run"]["status"], "succeeded")
+        self.assertEqual(status_payload["run"]["step_count"], 1)
+        self.assertIn("gpt-4.1-mini", status_payload["run"]["output_json"])
 
     def test_workflow_detail_post_executes_runtime_and_persists_run(self):
         self.workflow.definition = {
@@ -656,19 +687,21 @@ class WorkflowViewTests(TestCase):
                 }
             )
 
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai"}, clear=False):
-            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
-                response = self.client.post(
-                    reverse("workflow_detail", args=[self.workflow.pk]),
-                    {
-                        "input_data": json.dumps({"ticket_id": "T-42"}),
-                    },
-                )
+        with patch("automation.runtime.ensure_workers_for_queue"), patch(
+            "automation.runtime.enqueue_workflow_run_job",
+            side_effect=lambda run: run,
+        ):
+            response = self.client.post(
+                reverse("workflow_detail", args=[self.workflow.pk]),
+                {
+                    "input_data": json.dumps({"ticket_id": "T-42"}),
+                },
+            )
 
         self.assertRedirects(response, reverse("workflow_detail", args=[self.workflow.pk]))
         run = WorkflowRun.objects.get(workflow=self.workflow)
-        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
-        self.assertEqual(run.output_data["response"], "Completed Review T-42")
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.PENDING)
+        self.assertEqual(run.execution_mode, WorkflowRun.ExecutionModeChoices.WORKFLOW)
 
     def test_home_dashboard_includes_workflow_automation_summary_for_staff(self):
         self.client.force_login(self.staff_user)

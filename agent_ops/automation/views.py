@@ -19,7 +19,7 @@ from automation.forms import SecretForm, SecretGroupForm, WorkflowDesignerForm, 
 from automation.models import Secret, SecretGroup, Workflow, WorkflowRun
 from automation.nodes import prepare_workflow_node_webhook_request
 from automation.primitives import WORKFLOW_NODE_TEMPLATES, normalize_workflow_definition_nodes
-from automation.runtime import execute_workflow, execute_workflow_node_preview
+from automation.runtime import enqueue_workflow, execute_workflow
 from automation.workflow_connections import split_workflow_edges
 from core.generic_views import (
     ObjectChangeLogView,
@@ -284,9 +284,20 @@ def _is_node_primary_reachable(*, definition: dict, node_id: str) -> bool:
 
 
 def _build_designer_run_payload(run: WorkflowRun, *, mode: str, node: dict | None = None) -> dict:
+    poll_url = reverse("workflow_designer_run_status", args=[run.workflow_id, run.pk])
+    if run.status == WorkflowRun.StatusChoices.PENDING:
+        message = "Workflow queued."
+    elif run.status == WorkflowRun.StatusChoices.RUNNING:
+        message = "Workflow running."
+    elif run.status == WorkflowRun.StatusChoices.SUCCEEDED:
+        message = "Workflow executed."
+    else:
+        message = run.error
+
     payload = {
         "mode": mode,
-        "message": "Workflow executed." if run.status == WorkflowRun.StatusChoices.SUCCEEDED else run.error,
+        "message": message,
+        "poll_url": poll_url,
         "run": {
             "id": run.pk,
             "status": run.status,
@@ -427,15 +438,18 @@ class WorkflowDetailView(RestrictedObjectViewMixin, ObjectView):
             context = self.get_context_data(object=self.object, run_form=run_form)
             return self.render_to_response(context)
 
-        run = execute_workflow(
-            self.object,
-            input_data=run_form.cleaned_data.get("input_data") or {},
-            actor=request.user,
-        )
-        if run.status == WorkflowRun.StatusChoices.SUCCEEDED:
-            messages.success(request, "Workflow executed.")
-        else:
-            messages.error(request, f"Workflow execution failed. {run.error}".strip())
+        try:
+            run = enqueue_workflow(
+                self.object,
+                input_data=run_form.cleaned_data.get("input_data") or {},
+                actor=request.user,
+            )
+        except ValidationError as exc:
+            messages.error(request, _flatten_validation_error(exc))
+            context = self.get_context_data(object=self.object, run_form=run_form)
+            return self.render_to_response(context)
+
+        messages.success(request, f"Workflow run #{run.pk} queued.")
         return redirect(self.object.get_absolute_url())
 
 
@@ -522,12 +536,16 @@ class WorkflowDesignerRunView(View):
         except ValidationError as exc:
             return JsonResponse({"detail": _flatten_validation_error(exc)}, status=400)
 
-        run = execute_workflow(
-            workflow,
-            input_data=input_data,
-            actor=request.user,
-        )
-        return JsonResponse(_build_designer_run_payload(run, mode="workflow"))
+        try:
+            run = enqueue_workflow(
+                workflow,
+                input_data=input_data,
+                actor=request.user,
+            )
+        except ValidationError as exc:
+            return JsonResponse({"detail": _flatten_validation_error(exc)}, status=400)
+
+        return JsonResponse(_build_designer_run_payload(run, mode="workflow"), status=202)
 
 
 class WorkflowDesignerNodeRunView(View):
@@ -554,25 +572,67 @@ class WorkflowDesignerNodeRunView(View):
         if node is None:
             return JsonResponse({"detail": f'Workflow does not define node "{kwargs["node_id"]}".'}, status=400)
 
-        if _is_node_primary_reachable(definition=definition, node_id=node["id"]):
-            run = execute_workflow(
-                workflow,
-                input_data=input_data,
-                trigger_mode="manual:node",
-                actor=request.user,
-                stop_after_node_id=node["id"],
-            )
-            mode = "node_path"
-        else:
-            run = execute_workflow_node_preview(
-                workflow,
-                node_id=node["id"],
-                input_data=input_data,
-                actor=request.user,
-            )
-            mode = "node_preview"
+        try:
+            if _is_node_primary_reachable(definition=definition, node_id=node["id"]):
+                run = enqueue_workflow(
+                    workflow,
+                    input_data=input_data,
+                    trigger_mode="manual:node",
+                    actor=request.user,
+                    execution_mode=WorkflowRun.ExecutionModeChoices.NODE_PATH,
+                    target_node_id=node["id"],
+                )
+                mode = "node_path"
+            else:
+                run = enqueue_workflow(
+                    workflow,
+                    input_data=input_data,
+                    trigger_mode="manual:node",
+                    actor=request.user,
+                    execution_mode=WorkflowRun.ExecutionModeChoices.NODE_PREVIEW,
+                    target_node_id=node["id"],
+                )
+                mode = "node_preview"
+        except ValidationError as exc:
+            return JsonResponse({"detail": _flatten_validation_error(exc)}, status=400)
 
-        return JsonResponse(_build_designer_run_payload(run, mode=mode, node=node))
+        return JsonResponse(_build_designer_run_payload(run, mode=mode, node=node), status=202)
+
+
+class WorkflowDesignerRunStatusView(View):
+    http_method_names = ["get"]
+
+    def get(self, request, *args, **kwargs):
+        workflow = (
+            Workflow.objects.select_related("organization", "workspace", "environment")
+            .filter(pk=kwargs["pk"])
+            .first()
+        )
+        if workflow is None:
+            return JsonResponse({"detail": "Workflow not found."}, status=404)
+
+        assert_object_action_allowed(workflow, request=request, action="view")
+        run = (
+            WorkflowRun.objects.select_related("workflow", "workflow_version")
+            .filter(pk=kwargs["run_id"], workflow=workflow)
+            .first()
+        )
+        if run is None:
+            return JsonResponse({"detail": "Workflow run not found."}, status=404)
+
+        node = None
+        if run.target_node_id:
+            definition = normalize_workflow_definition_nodes(run.workflow_version.definition or {})
+            nodes_by_id = {item["id"]: item for item in definition.get("nodes", [])}
+            node = nodes_by_id.get(run.target_node_id)
+
+        return JsonResponse(
+            _build_designer_run_payload(
+                run,
+                mode=run.execution_mode,
+                node=node,
+            )
+        )
 
 
 class WorkflowDeleteView(RestrictedObjectDeleteMixin, ObjectDeleteView):

@@ -6,7 +6,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.urls import reverse
 
-from automation.models import Secret, SecretGroup, Workflow
+from automation.models import Secret, SecretGroup, Workflow, WorkflowRun
+from automation.runtime import execute_workflow_run
 from tenancy.models import Environment, Organization, Workspace
 from users.models import Membership, ObjectPermission, User
 
@@ -150,6 +151,7 @@ class WorkflowAPITests(TestCase):
             response.json(),
             {
                 "workflows": "http://testserver/api/automation/workflows/",
+                "workflow-runs": "http://testserver/api/automation/workflow-runs/",
                 "secrets": "http://testserver/api/automation/secrets/",
                 "secret-groups": "http://testserver/api/automation/secret-groups/",
             },
@@ -328,17 +330,31 @@ class WorkflowAPITests(TestCase):
                 }
             )
 
+        with patch("automation.runtime.ensure_workers_for_queue"), patch(
+            "automation.runtime.enqueue_workflow_run_job",
+            side_effect=lambda run: run,
+        ):
+            response = self.client.post(
+                reverse("api:automation-api:workflow-execute", args=[self.workflow.pk]),
+                {
+                    "input_data": {"ticket_id": "T-42"},
+                },
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 202)
+        payload = response.json()
+        self.assertEqual(payload["status"], "pending")
+        self.assertEqual(payload["execution_mode"], "workflow")
+        self.assertIn("/api/automation/workflow-runs/", payload["status_url"])
+
+        run = WorkflowRun.objects.get(pk=payload["id"])
         with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai"}, clear=False):
             with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
-                response = self.client.post(
-                    reverse("api:automation-api:workflow-execute", args=[self.workflow.pk]),
-                    {
-                        "input_data": {"ticket_id": "T-42"},
-                    },
-                    content_type="application/json",
-                )
+                execute_workflow_run(run)
 
-        self.assertEqual(response.status_code, 201)
-        payload = response.json()
-        self.assertEqual(payload["status"], "succeeded")
-        self.assertEqual(payload["output_data"]["response"], "Completed Review T-42")
+        status_response = self.client.get(payload["status_url"])
+        self.assertEqual(status_response.status_code, 200)
+        status_payload = status_response.json()
+        self.assertEqual(status_payload["status"], "succeeded")
+        self.assertEqual(status_payload["output_data"]["response"], "Completed Review T-42")
