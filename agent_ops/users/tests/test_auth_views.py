@@ -203,6 +203,7 @@ class AuthViewTests(TestCase):
             automation_entries,
             [
                 ("Workflows", "mdi mdi-graph-outline", reverse("workflow_add")),
+                ("Connections", "mdi mdi-connection", reverse("workflowconnection_add")),
                 ("Secrets", "mdi mdi-key-chain-variant", reverse("secret_add")),
                 ("Secret Groups", "mdi mdi-folder-key-network", reverse("secretgroup_add")),
             ],

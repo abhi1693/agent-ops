@@ -2,65 +2,32 @@ from __future__ import annotations
 
 from django.core.exceptions import ValidationError
 
-from automation.nodes import (
-    WORKFLOW_NODE_DEFINITIONS,
-    WORKFLOW_NODE_TEMPLATES as WORKFLOW_REGISTRY_NODE_TEMPLATES,
-    normalize_workflow_node_config,
-    validate_workflow_node,
-)
+from automation.catalog.payloads import build_workflow_catalog_payload
+from automation.catalog.services import get_catalog_node
+from automation.nodes.apps.openai.client import validate_openai_chat_model_config
 from automation.nodes.base import WORKFLOW_NODE_CATALOG_SECTION_ORDER, WORKFLOW_NODE_CATALOG_SECTIONS
-from automation.workflow_connections import (
-    split_workflow_edges,
-    validate_agent_auxiliary_edges,
+from automation.tools.base import (
+    SUPPORTED_WORKFLOW_FIELD_VALUE_MODES,
+    WORKFLOW_INPUT_MODES_CONFIG_KEY,
+    _coerce_csv_strings,
+    _coerce_optional_float,
+    _coerce_positive_int,
+    _validate_optional_json_template,
+    _validate_optional_string,
+    _validate_required_json_template,
+    _validate_required_string,
 )
-from automation.workflow_agents import (
-    AGENT_TOOL_INPUT_PORT,
-    normalize_workflow_agent_config,
-)
+from automation.workflow_agents import AGENT_TOOL_INPUT_PORT, normalize_workflow_agent_config
+from automation.workflow_connections import split_workflow_edges, validate_agent_auxiliary_edges
+
+def _build_template_registry() -> tuple[dict, ...]:
+    return tuple(build_workflow_catalog_payload()["definitions"])
 
 
-WORKFLOW_NODE_KINDS = (
-    {"value": "trigger", "label": "Trigger"},
-    {"value": "agent", "label": "Agent"},
-    {"value": "tool", "label": "Tool"},
-    {"value": "condition", "label": "Condition"},
-    {"value": "response", "label": "Response"},
-)
-
-SUPPORTED_WORKFLOW_NODE_KINDS = frozenset(kind["value"] for kind in WORKFLOW_NODE_KINDS)
-
-WORKFLOW_RUNTIME_EXAMPLES = (
-    {
-        "label": "Trigger",
-        "description": "Workflow entry point. The submitted payload is available as trigger.payload.",
-        "example": '{\n  "secret_header": "X-AgentOps-Webhook-Secret"\n}',
-    },
-    {
-        "label": "Agent",
-        "description": "Coordinate a connected chat model and optional tools, then store the result in context.",
-        "example": '{\n  "template": "Review ticket {{ trigger.payload.ticket_id }}",\n  "system_prompt": "You are a ticket triage assistant.",\n  "output_key": "llm.response"\n}',
-    },
-    {
-        "label": "Tool",
-        "description": "Run a named tool from the workflow tool catalog.",
-        "example": '{\n  "template": "Org: {{ workflow.scope_label }}",\n  "output_key": "summary"\n}',
-    },
-    {
-        "label": "Condition",
-        "description": "Branch to one of two connected targets using a context value.",
-        "example": '{\n  "path": "draft",\n  "operator": "contains",\n  "right_value": "priority",\n  "true_target": "response-priority",\n  "false_target": "response-default"\n}',
-    },
-    {
-        "label": "Response",
-        "description": "Finish the run and persist the output payload.",
-        "example": '{\n  "template": "Completed for {{ draft }}",\n  "status": "succeeded"\n}',
-    },
-)
-
-
+_WORKFLOW_REGISTRY_NODE_TEMPLATES = _build_template_registry()
 _WORKFLOW_NODE_TEMPLATE_REGISTRY = {
     template["type"]: template
-    for template in WORKFLOW_REGISTRY_NODE_TEMPLATES
+    for template in _WORKFLOW_REGISTRY_NODE_TEMPLATES
 }
 
 
@@ -81,12 +48,9 @@ def _build_workflow_group_definitions():
         for section_id, section_definition in WORKFLOW_NODE_CATALOG_SECTIONS.items()
     }
 
-    for node_definition in WORKFLOW_NODE_DEFINITIONS:
-        template = _WORKFLOW_NODE_TEMPLATE_REGISTRY.get(node_definition.type)
-        if template is None:
-            raise KeyError(f'Missing workflow node template for "{node_definition.type}".')
-
-        section_groups[node_definition.catalog_section]["templates"].append(_copy_node_template(template))
+    for template in _WORKFLOW_REGISTRY_NODE_TEMPLATES:
+        section_id = template.get("catalog_section") or "apps"
+        section_groups[section_id]["templates"].append(_copy_node_template(template))
 
     return tuple(
         {
@@ -122,47 +86,64 @@ WORKFLOW_NODE_TEMPLATE_MAP = {
     for template in WORKFLOW_NODE_TEMPLATES
 }
 
-_AGENT_TOOL_FIXED_FIELD_KEYS = frozenset(
-    {
-        "output_key",
-        "base_url",
-        "server_url",
-        "binary_path",
-        "protocol_version",
-        "timeout_seconds",
-        "auth_header_name",
-        "auth_header_template",
-        "headers_json",
-        "auth_scheme",
-        "secret_name",
-        "secret_group_id",
-    }
-)
-_AGENT_TOOL_FIXED_FIELD_SUFFIXES = (
-    "_secret_name",
-    "_secret_provider",
-)
 
-
-def resolve_workflow_node_template_type(
-    *,
-    node_type: str | None = None,
-) -> str | None:
+def resolve_workflow_node_template_type(*, node_type: str | None = None) -> str | None:
     if isinstance(node_type, str) and node_type.strip():
         normalized_type = node_type.strip()
         if normalized_type in WORKFLOW_NODE_TEMPLATE_MAP:
             return normalized_type
-
     return None
 
 
 def get_workflow_node_template(*, node_type: str | None = None):
-    resolved_type = resolve_workflow_node_template_type(
-        node_type=node_type,
-    )
+    resolved_type = resolve_workflow_node_template_type(node_type=node_type)
     if resolved_type is None:
         return None
     return WORKFLOW_NODE_TEMPLATE_MAP.get(resolved_type)
+
+
+def _normalize_input_modes(*, template: dict, config: dict) -> dict:
+    raw_input_modes = config.get(WORKFLOW_INPUT_MODES_CONFIG_KEY)
+    if not isinstance(raw_input_modes, dict):
+        config.pop(WORKFLOW_INPUT_MODES_CONFIG_KEY, None)
+        return config
+
+    allowed_modes_by_field: dict[str, str] = {}
+    for field in template.get("fields") or ():
+        if field.get("type") not in {"text", "textarea"}:
+            continue
+        field_key = field.get("key")
+        if not isinstance(field_key, str) or not field_key:
+            continue
+        binding = field.get("binding")
+        allowed_modes_by_field[field_key] = "expression" if binding == "template" else "static"
+
+    normalized_input_modes: dict[str, str] = {}
+    for field_key, mode in raw_input_modes.items():
+        if not isinstance(field_key, str) or not isinstance(mode, str):
+            continue
+        if mode not in SUPPORTED_WORKFLOW_FIELD_VALUE_MODES:
+            continue
+        default_mode = allowed_modes_by_field.get(field_key)
+        if default_mode is None:
+            continue
+        field_value = config.get(field_key)
+        inferred_mode = (
+            "expression"
+            if default_mode == "static"
+            and isinstance(field_value, str)
+            and ("{{" in field_value or "{%" in field_value)
+            else default_mode
+        )
+        if mode == inferred_mode:
+            continue
+        normalized_input_modes[field_key] = mode
+
+    if normalized_input_modes:
+        config[WORKFLOW_INPUT_MODES_CONFIG_KEY] = normalized_input_modes
+    else:
+        config.pop(WORKFLOW_INPUT_MODES_CONFIG_KEY, None)
+    return config
 
 
 def normalize_workflow_definition_nodes(definition: dict | None) -> dict:
@@ -187,10 +168,7 @@ def normalize_workflow_definition_nodes(definition: dict | None) -> dict:
         if normalized_node.get("kind") == "agent":
             existing_config = normalize_workflow_agent_config(existing_config)
 
-        node_template = get_workflow_node_template(
-            node_type=normalized_node.get("type"),
-        )
-
+        node_template = get_workflow_node_template(node_type=normalized_node.get("type"))
         if node_template is not None:
             normalized_node["type"] = node_template["type"]
             normalized_node["typeVersion"] = 1
@@ -198,11 +176,10 @@ def normalize_workflow_definition_nodes(definition: dict | None) -> dict:
                 **(node_template.get("config") or {}),
                 **existing_config,
             }
-            normalized_config = normalize_workflow_node_config(
-                node_type=node_template["type"],
+            normalized_node["config"] = _normalize_input_modes(
+                template=node_template,
                 config=normalized_config,
             )
-            normalized_node["config"] = normalized_config
 
         normalized_nodes.append(normalized_node)
 
@@ -212,95 +189,6 @@ def normalize_workflow_definition_nodes(definition: dict | None) -> dict:
 
 def _raise_definition_error(message: str) -> None:
     raise ValidationError({"definition": message})
-
-
-def _is_agent_fixed_tool_field(*, node: dict, field_key: str) -> bool:
-    if field_key in _AGENT_TOOL_FIXED_FIELD_KEYS:
-        return True
-    if any(field_key.endswith(suffix) for suffix in _AGENT_TOOL_FIXED_FIELD_SUFFIXES):
-        return True
-    if node.get("type") == "tool.secret" and field_key in {"secret_name", "secret_group_id"}:
-        return True
-    return False
-
-
-def _has_agent_validation_value(value) -> bool:
-    if value is None:
-        return False
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, (list, dict, tuple, set)):
-        return len(value) > 0
-    return True
-
-
-def _build_agent_tool_validation_placeholder(field: dict) -> str:
-    options = field.get("options")
-    if isinstance(options, list) and options:
-        first_option = options[0]
-        if isinstance(first_option, dict) and isinstance(first_option.get("value"), str):
-            return first_option["value"]
-
-    placeholder = field.get("placeholder")
-    if isinstance(placeholder, str) and placeholder.strip():
-        return placeholder.strip()
-
-    if str(field.get("key") or "").endswith("_json"):
-        return "{}"
-    return "agent input"
-
-
-def _build_agent_attached_tool_validation_node(node: dict) -> dict:
-    node_template = get_workflow_node_template(node_type=node.get("type"))
-    if node_template is None:
-        return node
-
-    base_config = {
-        **(node_template.get("config") or {}),
-        **(node.get("config") or {}),
-    }
-    for field in node_template.get("fields") or ():
-        field_key = field.get("key")
-        if not isinstance(field_key, str) or not field_key:
-            continue
-        if _is_agent_fixed_tool_field(node=node, field_key=field_key):
-            continue
-        if _has_agent_validation_value(base_config.get(field_key)):
-            continue
-        base_config[field_key] = _build_agent_tool_validation_placeholder(field)
-
-    return {
-        **node,
-        "config": base_config,
-    }
-
-
-def validate_workflow_runtime_definition(*, nodes: list[dict], edges: list[dict]) -> None:
-    nodes_by_id = {node["id"]: node for node in nodes}
-    primary_edges, auxiliary_edges = split_workflow_edges(edges)
-    adjacency: dict[str, list[str]] = {node_id: [] for node_id in nodes_by_id}
-    for edge in primary_edges:
-        adjacency.setdefault(edge["source"], []).append(edge["target"])
-
-    trigger_nodes = [node for node in nodes if node["kind"] == "trigger"]
-    if len(trigger_nodes) != 1:
-        _raise_definition_error("Workflow runtime requires exactly one trigger node.")
-
-    _validate_runtime_cycle_free(adjacency=adjacency)
-    validate_agent_auxiliary_edges(nodes_by_id=nodes_by_id, edges=auxiliary_edges)
-    attached_agent_tool_node_ids = {
-        edge["source"]
-        for edge in auxiliary_edges
-        if edge.get("targetPort") == AGENT_TOOL_INPUT_PORT
-    }
-
-    for node in nodes:
-        _validate_runtime_node(
-            node=node,
-            node_ids=set(nodes_by_id),
-            outgoing_targets=adjacency.get(node["id"], []),
-            attached_agent_tool_node_ids=attached_agent_tool_node_ids,
-        )
 
 
 def _validate_runtime_cycle_free(*, adjacency: dict[str, list[str]]) -> None:
@@ -323,7 +211,28 @@ def _validate_runtime_cycle_free(*, adjacency: dict[str, list[str]]) -> None:
         visit(node_id)
 
 
-def _validate_runtime_node(
+def _validate_terminal(node_id: str, outgoing_targets: list[str]) -> None:
+    if outgoing_targets:
+        _raise_definition_error(f'Node "{node_id}" is terminal and cannot have outgoing edges.')
+
+
+def _validate_target_exists_and_connected(
+    *,
+    node_id: str,
+    target_name: str,
+    target_id: str,
+    node_ids: set[str],
+    outgoing_targets: list[str],
+) -> None:
+    if target_id not in node_ids:
+        _raise_definition_error(f'Node "{node_id}" {target_name} "{target_id}" does not exist.')
+    if target_id not in outgoing_targets:
+        _raise_definition_error(
+            f'Node "{node_id}" {target_name} "{target_id}" must also be represented by a graph edge.'
+        )
+
+
+def _validate_catalog_runtime_node(
     *,
     node: dict,
     node_ids: set[str],
@@ -331,29 +240,182 @@ def _validate_runtime_node(
     attached_agent_tool_node_ids: set[str],
 ) -> None:
     node_id = node["id"]
-    kind = node["kind"]
-    if kind not in SUPPORTED_WORKFLOW_NODE_KINDS:
-        _raise_definition_error(
-            f'Node "{node_id}" kind "{kind}" is not a supported built-in runtime primitive.'
-        )
+    node_type = node.get("type")
+    node_definition = get_catalog_node(node_type)
+    if node_definition is None:
+        _raise_definition_error(f'Node "{node_id}" type "{node_type}" is not supported.')
 
     config = node.get("config") or {}
     if not isinstance(config, dict):
         _raise_definition_error(f'Node "{node_id}" config must be a JSON object.')
 
-    validation_node = node
-    if node_id in attached_agent_tool_node_ids and kind == "tool":
-        validation_node = _build_agent_attached_tool_validation_node(node)
-
-    node_definition = validate_workflow_node(
-        node=validation_node,
-        outgoing_targets=outgoing_targets,
-        node_ids=node_ids,
-    )
-    if node_definition is not None:
+    if node_type == "core.manual_trigger":
         return
 
-    node_type = node.get("type")
-    if not isinstance(node_type, str) or not node_type.strip():
-        _raise_definition_error(f'Node "{node_id}" must define a supported type.')
-    _raise_definition_error(f'Node "{node_id}" type "{node_type}" is not supported.')
+    if node_type == "core.schedule_trigger":
+        _validate_required_string(config, "cron", node_id=node_id)
+        return
+
+    if node_type == "core.agent":
+        _validate_optional_string(config, "template", node_id=node_id)
+        _validate_optional_string(config, "instructions", node_id=node_id)
+        _validate_optional_string(config, "system_prompt", node_id=node_id)
+        _validate_optional_string(config, "output_key", node_id=node_id)
+        return
+
+    if node_type == "core.set":
+        _validate_required_string(config, "output_key", node_id=node_id)
+        if "value_json" in config:
+            _validate_required_json_template(config, "value_json", node_id=node_id)
+        elif "value" in config:
+            _validate_optional_string(config, "value", node_id=node_id)
+        return
+
+    if node_type == "core.if":
+        _validate_required_string(config, "operator", node_id=node_id)
+        operator = config["operator"]
+        if operator not in {"equals", "not_equals", "contains", "exists", "truthy"}:
+            _raise_definition_error(
+                f'Node "{node_id}" config.operator must be one of: contains, equals, exists, not_equals, truthy.'
+            )
+        _validate_optional_string(config, "path", node_id=node_id)
+        if operator not in {"exists", "truthy"} and "right_value" not in config:
+            _raise_definition_error(f'Node "{node_id}" must define config.right_value for operator "{operator}".')
+        true_target = _validate_required_string(config, "true_target", node_id=node_id)
+        false_target = _validate_required_string(config, "false_target", node_id=node_id)
+        if true_target == false_target:
+            _raise_definition_error(f'Node "{node_id}" true_target and false_target must be different.')
+        _validate_target_exists_and_connected(
+            node_id=node_id,
+            target_name="true_target",
+            target_id=true_target,
+            node_ids=node_ids,
+            outgoing_targets=outgoing_targets,
+        )
+        _validate_target_exists_and_connected(
+            node_id=node_id,
+            target_name="false_target",
+            target_id=false_target,
+            node_ids=node_ids,
+            outgoing_targets=outgoing_targets,
+        )
+        return
+
+    if node_type == "core.switch":
+        _validate_required_string(config, "path", node_id=node_id)
+        _validate_required_string(config, "case_1_value", node_id=node_id)
+        case_1_target = _validate_required_string(config, "case_1_target", node_id=node_id)
+        _validate_required_string(config, "case_2_value", node_id=node_id)
+        case_2_target = _validate_required_string(config, "case_2_target", node_id=node_id)
+        fallback_target = _validate_required_string(config, "fallback_target", node_id=node_id)
+        target_ids = [case_1_target, case_2_target, fallback_target]
+        if len(set(target_ids)) != len(target_ids):
+            _raise_definition_error(f'Node "{node_id}" switch targets must be different.')
+        for target_name, target_id in (
+            ("case_1_target", case_1_target),
+            ("case_2_target", case_2_target),
+            ("fallback_target", fallback_target),
+        ):
+            _validate_target_exists_and_connected(
+                node_id=node_id,
+                target_name=target_name,
+                target_id=target_id,
+                node_ids=node_ids,
+                outgoing_targets=outgoing_targets,
+            )
+        return
+
+    if node_type == "core.response":
+        _validate_terminal(node_id, outgoing_targets)
+        _validate_optional_string(config, "template", node_id=node_id)
+        _validate_optional_string(config, "value_path", node_id=node_id)
+        status = config.get("status", "succeeded")
+        if status not in {"succeeded", "failed"}:
+            _raise_definition_error(f'Node "{node_id}" config.status must be one of: failed, succeeded.')
+        return
+
+    if node_type == "core.stop_and_error":
+        _validate_terminal(node_id, outgoing_targets)
+        _validate_required_string(config, "message", node_id=node_id)
+        return
+
+    if node_type == "openai.model.chat":
+        validate_openai_chat_model_config(config, node_id)
+        return
+
+    if node_type == "prometheus.action.query":
+        _validate_required_string(config, "query", node_id=node_id)
+        _validate_optional_string(config, "connection_id", node_id=node_id)
+        _validate_optional_string(config, "time", node_id=node_id)
+        _validate_optional_string(config, "output_key", node_id=node_id)
+        instant = config.get("instant")
+        if instant not in (None, ""):
+            normalized = str(instant).strip().lower()
+            if normalized not in {"true", "false"}:
+                _raise_definition_error(f'Node "{node_id}" config.instant must be true or false.')
+        return
+
+    if node_type == "elasticsearch.action.search":
+        _validate_required_string(config, "index", node_id=node_id)
+        _validate_required_json_template(config, "query_json", node_id=node_id)
+        _validate_optional_string(config, "connection_id", node_id=node_id)
+        _validate_optional_string(config, "auth_scheme", node_id=node_id)
+        _validate_optional_string(config, "output_key", node_id=node_id)
+        if config.get("size") not in (None, ""):
+            _coerce_positive_int(config.get("size"), field_name="size", node_id=node_id, default=1)
+        return
+
+    if node_type == "github.trigger.webhook":
+        _validate_required_string(config, "owner", node_id=node_id)
+        _validate_required_string(config, "repository", node_id=node_id)
+        _validate_required_string(config, "connection_id", node_id=node_id)
+        _coerce_csv_strings(config.get("events"), field_name="events", node_id=node_id, default=[])
+        return
+
+    if node_id in attached_agent_tool_node_ids and node_definition.kind in {"action", "model"}:
+        # Agent-attached catalog tools may omit optional prompt values; only schema/runtime validity matters.
+        return
+
+    # Fall back to schema-level checks for any future catalog node that is added before a dedicated validator.
+    for parameter in node_definition.parameter_schema:
+        value = config.get(parameter.key)
+        if parameter.required and value in (None, "", [], {}):
+            _raise_definition_error(f'Node "{node_id}" must define config.{parameter.key}.')
+        if parameter.value_type in {"string", "text", "node_ref"} and value not in (None, ""):
+            _validate_required_string(config, parameter.key, node_id=node_id)
+        elif parameter.value_type == "json" and value not in (None, ""):
+            _validate_required_json_template(config, parameter.key, node_id=node_id)
+        elif parameter.value_type == "string[]" and value not in (None, ""):
+            _coerce_csv_strings(value, field_name=parameter.key, node_id=node_id, default=[])
+        elif parameter.value_type == "number" and value not in (None, ""):
+            _coerce_optional_float(value, field_name=parameter.key, node_id=node_id)
+        elif parameter.value_type == "integer" and value not in (None, ""):
+            _coerce_positive_int(value, field_name=parameter.key, node_id=node_id, default=1)
+
+
+def validate_workflow_runtime_definition(*, nodes: list[dict], edges: list[dict]) -> None:
+    nodes_by_id = {node["id"]: node for node in nodes}
+    primary_edges, auxiliary_edges = split_workflow_edges(edges)
+    adjacency: dict[str, list[str]] = {node_id: [] for node_id in nodes_by_id}
+    for edge in primary_edges:
+        adjacency.setdefault(edge["source"], []).append(edge["target"])
+
+    trigger_nodes = [node for node in nodes if node["kind"] == "trigger"]
+    if len(trigger_nodes) != 1:
+        _raise_definition_error("Workflow runtime requires exactly one trigger node.")
+
+    _validate_runtime_cycle_free(adjacency=adjacency)
+    validate_agent_auxiliary_edges(nodes_by_id=nodes_by_id, edges=auxiliary_edges)
+    attached_agent_tool_node_ids = {
+        edge["source"]
+        for edge in auxiliary_edges
+        if edge.get("targetPort") == AGENT_TOOL_INPUT_PORT
+    }
+
+    for node in nodes:
+        _validate_catalog_runtime_node(
+            node=node,
+            node_ids=set(nodes_by_id),
+            outgoing_targets=adjacency.get(node["id"], []),
+            attached_agent_tool_node_ids=attached_agent_tool_node_ids,
+        )

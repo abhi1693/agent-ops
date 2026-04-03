@@ -61,7 +61,8 @@ _AGENT_TOOL_FIXED_FIELD_SUFFIXES = (
     "_secret_name",
     "_secret_provider",
 )
-_AGENT_SECRET_TOOL_TYPE = "tool.secret"
+_AGENT_SECRET_TOOL_TYPE = "utilities.action.secret"
+_AGENT_MCP_TOOL_TYPE = "mcp.action.tool"
 _CONNECTED_AGENT_RESULT_API_TYPE = "openai_compatible"
 
 
@@ -150,12 +151,21 @@ def _serialize_tool_response_content(payload: dict[str, Any]) -> str:
 
 
 def _get_tool_node_definition(node_type: Any):
+    # Agent-attached tools still resolve through the internal Python-backed
+    # node registry even though end-user workflow execution is catalog-native.
     from automation.nodes.registry import get_workflow_node_definition
 
     definition = get_workflow_node_definition(node_type)
     if definition is None or definition.kind != "tool":
         return None
     return definition
+
+
+def _resolve_internal_tool_node_type(node_type: Any) -> Any:
+    definition = _get_tool_node_definition(node_type)
+    if definition is not None:
+        return definition.type
+    return node_type
 
 
 def _build_agent_tool_base_config(tool_node: dict[str, Any]) -> dict[str, Any]:
@@ -169,11 +179,12 @@ def _build_agent_tool_base_config(tool_node: dict[str, Any]) -> dict[str, Any]:
 
 
 def _is_agent_fixed_tool_field(*, tool_node: dict[str, Any], field_key: str) -> bool:
+    canonical_tool_type = _resolve_internal_tool_node_type(tool_node.get("type"))
     if field_key in _AGENT_TOOL_FIXED_FIELD_KEYS:
         return True
     if any(field_key.endswith(suffix) for suffix in _AGENT_TOOL_FIXED_FIELD_SUFFIXES):
         return True
-    if tool_node.get("type") == _AGENT_SECRET_TOOL_TYPE and field_key in {"secret_name", "secret_group_id"}:
+    if canonical_tool_type == _AGENT_SECRET_TOOL_TYPE and field_key in {"secret_name", "secret_group_id"}:
         return True
     return False
 
@@ -337,7 +348,7 @@ def _build_agent_tool_bindings(
     used_tool_names: set[str] = set()
 
     for tool_node in connected_tool_nodes:
-        if tool_node.get("type") == "tool.mcp_server":
+        if _resolve_internal_tool_node_type(tool_node.get("type")) == _AGENT_MCP_TOOL_TYPE:
             descriptor = build_mcp_server_tool_descriptor(
                 runtime,
                 node=tool_node,
@@ -579,12 +590,12 @@ NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     executor=_execute_agent,
 )
 NODE_DEFINITION = WorkflowNodeDefinition(
-    type="agent",
+    type="core.agent",
     kind="agent",
     display_name="Agent",
     description="Coordinate a connected chat model and optional tools, then store the result in workflow context.",
     icon="mdi-robot-outline",
-    app_description="Core workflow nodes, runtime primitives, and n8n-style built-in blocks available in the designer.",
+    app_description="Core workflow nodes and runtime primitives available in the designer.",
     app_icon="mdi-toy-brick-outline",
     catalog_section="flow",
     config={"output_key": "llm.response"},

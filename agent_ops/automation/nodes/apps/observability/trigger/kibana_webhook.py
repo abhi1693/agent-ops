@@ -63,6 +63,6 @@ TRIGGER_DEFINITION = WorkflowTriggerDefinition(
 NODE_IMPLEMENTATION = trigger_definition_as_node_implementation(TRIGGER_DEFINITION)
 NODE_DEFINITION = trigger_definition_as_node_definition(
     TRIGGER_DEFINITION,
-    node_type="trigger.kibana_webhook",
+    node_type="kibana.trigger.webhook",
     details="Kibana webhook trigger for observability rule ingestion.",
 )

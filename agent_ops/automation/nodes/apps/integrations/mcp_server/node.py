@@ -818,6 +818,6 @@ TOOL_DEFINITION = WorkflowToolDefinition(
 NODE_IMPLEMENTATION = tool_definition_as_node_implementation(TOOL_DEFINITION)
 NODE_DEFINITION = tool_definition_as_node_definition(
     TOOL_DEFINITION,
-    node_type="tool.mcp_server",
+    node_type="mcp.action.tool",
     details="Connect to remote servers and external runtime capabilities.",
 )

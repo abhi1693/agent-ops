@@ -5,6 +5,7 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 
+from automation.catalog.connections import resolve_workflow_connection
 from automation.tools.base import (
     WorkflowToolExecutionContext,
     _coerce_optional_float,
@@ -47,9 +48,10 @@ class _RuntimeConfigView:
 
 
 def validate_openai_chat_model_config(config: dict[str, Any], node_id: str) -> None:
-    _validate_required_external_url(config, "base_url", node_id=node_id)
     _validate_required_string(config, "model", node_id=node_id)
-    _validate_required_string(config, "secret_name", node_id=node_id)
+    if config.get("connection_id") in (None, ""):
+        _validate_required_external_url(config, "base_url", node_id=node_id)
+        _validate_required_string(config, "secret_name", node_id=node_id)
     if config.get("custom_model") not in (None, ""):
         _validate_optional_string(config, "custom_model", node_id=node_id)
     _validate_optional_json_template(config, "extra_body_json", node_id=node_id)
@@ -83,17 +85,46 @@ def resolve_openai_chat_model_config(
     config: dict[str, Any],
 ) -> OpenAICompatibleRequestConfig:
     runtime_view = _build_runtime_view(runtime, node=node, config=config)
-    base_url = (
-        _render_runtime_external_url(runtime_view, "base_url", required=True, default_mode="static") or ""
-    ).rstrip("/")
-    secret_name = _render_runtime_string(runtime_view, "secret_name", default_mode="static")
-    if not secret_name:
-        raise ValidationError({"definition": f'Node "{node["id"]}" must define config.secret_name.'})
-    api_key, secret_meta = _resolve_runtime_secret(
-        runtime_view,
-        secret_name=secret_name,
-        secret_group_id=runtime_view.config.get("secret_group_id"),
-    )
+    connection_id = _render_runtime_string(runtime_view, "connection_id", default_mode="static")
+    if connection_id:
+        resolved_connection = resolve_workflow_connection(
+            runtime_view,
+            connection_id=connection_id,
+            expected_connection_type="openai.api",
+        )
+        base_url = (
+            str(
+                runtime_view.config.get("base_url")
+                or resolved_connection.connection.auth_config.get("base_url")
+                or resolved_connection.connection.metadata.get("base_url")
+                or "https://api.openai.com/v1"
+            )
+            .strip()
+            .rstrip("/")
+        )
+        api_key = resolved_connection.secret_value
+        secret_meta = resolved_connection.secret_meta
+        if not api_key:
+            raise ValidationError(
+                {
+                    "definition": (
+                        f'Connection "{resolved_connection.connection.name}" must provide a credential secret '
+                        "for OpenAI requests."
+                    )
+                }
+            )
+    else:
+        base_url = (
+            _render_runtime_external_url(runtime_view, "base_url", required=True, default_mode="static") or ""
+        ).rstrip("/")
+        secret_name = _render_runtime_string(runtime_view, "secret_name", default_mode="static")
+        if not secret_name:
+            raise ValidationError({"definition": f'Node "{node["id"]}" must define config.secret_name.'})
+        api_key, secret_meta = _resolve_runtime_secret(
+            runtime_view,
+            secret_name=secret_name,
+            secret_group_id=runtime_view.config.get("secret_group_id"),
+        )
     custom_model = _render_runtime_string(runtime_view, "custom_model", default_mode="static")
     model = custom_model or _render_runtime_string(runtime_view, "model", required=True, default_mode="static")
     temperature = _coerce_optional_float(

@@ -9,7 +9,7 @@ from automation.nodes.apps.openai.chat_model.helpers import (
 NODE_IMPLEMENTATION = build_openai_compatible_chat_model_implementation(api_type="groq")
 NODE_DEFINITION = build_openai_compatible_chat_model_definition(
     api_type="groq",
-    node_type="tool.groq_chat_model",
+    node_type="groq.model.chat",
     details=(
         "Attach a Groq model provider to an agent node with curated low-latency "
         "presets and an optional custom model override."

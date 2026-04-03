@@ -110,6 +110,6 @@ TRIGGER_DEFINITION = WorkflowTriggerDefinition(
 NODE_IMPLEMENTATION = trigger_definition_as_node_implementation(TRIGGER_DEFINITION)
 NODE_DEFINITION = trigger_definition_as_node_definition(
     TRIGGER_DEFINITION,
-    node_type="trigger.github_webhook",
+    node_type="github.trigger.webhook",
     details="GitHub trigger node for repository and workflow webhook events.",
 )

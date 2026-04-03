@@ -1,6 +1,6 @@
 import django_tables2 as tables
 
-from automation.models import Secret, SecretGroup, Workflow
+from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection
 from core.tables import AgentOpsTable, RowActionsColumn
 
 
@@ -77,6 +77,45 @@ class WorkflowTable(AgentOpsTable):
             "actions",
         )
         default_columns = fields
+
+    def render_organization(self, value):
+        return value or "-"
+
+    def render_workspace(self, value):
+        return value or "-"
+
+    def render_environment(self, value):
+        return value or "-"
+
+
+class WorkflowConnectionTable(AgentOpsTable):
+    name = tables.Column(linkify=True)
+    integration_id = tables.Column(verbose_name="Integration")
+    connection_type = tables.Column(verbose_name="Connection Type")
+    credential_secret = tables.Column(linkify=True, verbose_name="Credential Secret")
+    organization = tables.Column(linkify=True)
+    workspace = tables.Column(linkify=True)
+    environment = tables.Column(linkify=True)
+    enabled = tables.Column()
+    actions = RowActionsColumn(actions=("edit", "delete"))
+
+    class Meta(AgentOpsTable.Meta):
+        model = WorkflowConnection
+        fields = (
+            "name",
+            "integration_id",
+            "connection_type",
+            "credential_secret",
+            "organization",
+            "workspace",
+            "environment",
+            "enabled",
+            "actions",
+        )
+        default_columns = fields
+
+    def render_credential_secret(self, value):
+        return value or "-"
 
     def render_organization(self, value):
         return value or "-"

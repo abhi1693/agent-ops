@@ -11,13 +11,14 @@ import {
 import { buildNodeRegistry, getAvailablePaletteSections } from './workflowDesigner/registry/nodeRegistry';
 import { normalizeWorkflowDefinition, serializeWorkflowDefinition } from './workflowDesigner/schema/workflowSchema';
 import type {
-  WorkflowNodeCatalogSection,
+  WorkflowCatalogPayload,
+  WorkflowConnection,
   WorkflowDefinition,
+  WorkflowNodeCatalogSection,
   WorkflowNode,
   WorkflowNodeDefinition,
   WorkflowNodeTemplateField,
   WorkflowNodeTemplateOption,
-  WorkflowNodeTemplate,
   WorkflowPaletteSection,
   WorkflowPersistedDefinition,
 } from './workflowDesigner/types';
@@ -178,13 +179,7 @@ const NODE_CONTEXT_MENU_MARGIN = 12;
 const NODE_CONTEXT_MENU_OFFSET_X = 10;
 const NODE_CONTEXT_MENU_OFFSET_Y = 6;
 const AGENT_LANGUAGE_MODEL_NODE_TYPES = new Set<string>([
-  'tool.deepseek_chat_model',
-  'tool.fireworks_chat_model',
-  'tool.groq_chat_model',
-  'tool.mistral_chat_model',
-  'tool.openai_chat_model',
-  'tool.openrouter_chat_model',
-  'tool.xai_chat_model',
+  'openai.model.chat',
 ]);
 const TERMINAL_RUN_STATUSES = new Set(['succeeded', 'failed']);
 
@@ -1096,8 +1091,11 @@ export function initWorkflowDesigner(): void {
   });
   const persistedDefinition = parsePersistedDefinition(canvas.definitionInput) ?? fallbackDefinition;
   const workflowDefinition = normalizeWorkflowDefinition(persistedDefinition);
-  const nodeTemplates = parseJsonScript<WorkflowNodeTemplate[]>('workflow-node-templates-data', []);
-  const nodeRegistry = buildNodeRegistry(nodeTemplates);
+  const workflowCatalog = parseJsonScript<WorkflowCatalogPayload>('workflow-catalog-data', {
+    definitions: [],
+  });
+  const workflowConnections = parseJsonScript<WorkflowConnection[]>('workflow-connections-data', []);
+  const nodeRegistry = buildNodeRegistry(workflowCatalog.definitions, workflowConnections);
 
   let isBrowserOpen = workflowDefinition.nodes.length === 0;
   let searchQuery = '';

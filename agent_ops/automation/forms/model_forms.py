@@ -1,6 +1,12 @@
 from django import forms
 
+from automation.catalog.loader import get_workflow_catalog
+from automation.catalog.services import (
+    WORKFLOW_DESIGNER_CATALOG_ONLY_MESSAGE,
+    workflow_definition_supports_catalog_designer,
+)
 from automation.models import Secret, SecretGroup, Workflow
+from automation.models import WorkflowConnection
 from automation.primitives import normalize_workflow_definition_nodes
 from automation.secrets import iter_secrets_providers
 from core.form_widgets import apply_standard_widget_classes
@@ -12,6 +18,20 @@ def _provider_choices(current_value=None):
     choices = sorted(
         (slug, provider.name or slug)
         for slug, provider in iter_secrets_providers()
+    )
+    if current_value and all(slug != current_value for slug, _label in choices):
+        choices.append((current_value, current_value))
+    return choices
+
+
+def _connection_type_choices(current_value=None):
+    choices = sorted(
+        (
+            connection_type.id,
+            f"{app.label} · {connection_type.label}",
+        )
+        for app in get_workflow_catalog()["integration_apps"].values()
+        for connection_type in app.connection_types
     )
     if current_value and all(slug != current_value for slug, _label in choices):
         choices.append((current_value, current_value))
@@ -190,7 +210,10 @@ class WorkflowDesignerForm(forms.ModelForm):
 
     def clean_definition(self):
         definition = self.cleaned_data["definition"]
-        return normalize_workflow_definition_nodes(definition)
+        normalized_definition = normalize_workflow_definition_nodes(definition)
+        if not workflow_definition_supports_catalog_designer(normalized_definition):
+            raise forms.ValidationError(WORKFLOW_DESIGNER_CATALOG_ONLY_MESSAGE)
+        return normalized_definition
 
 
 class WorkflowRunForm(forms.Form):
@@ -204,4 +227,78 @@ class WorkflowRunForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["input_data"].widget.attrs["rows"] = 8
+        apply_standard_widget_classes(self)
+
+
+class WorkflowConnectionForm(forms.ModelForm):
+    fieldsets = (
+        {
+            "title": "Workflow Connection",
+            "fields": (
+                "organization",
+                "workspace",
+                "environment",
+                "name",
+                "description",
+                "connection_type",
+                "credential_secret",
+                "enabled",
+            ),
+        },
+        {
+            "title": "Configuration",
+            "description": "Store provider-specific connection settings and metadata as JSON objects.",
+            "fields": ("auth_config", "metadata"),
+        },
+    )
+    organization = forms.ModelChoiceField(queryset=Organization.objects.none(), required=False)
+    workspace = forms.ModelChoiceField(queryset=Workspace.objects.none(), required=False)
+    environment = forms.ModelChoiceField(queryset=Environment.objects.none(), required=False)
+    credential_secret = forms.ModelChoiceField(queryset=Secret.objects.none(), required=False)
+    connection_type = forms.ChoiceField(choices=())
+    auth_config = forms.JSONField(required=False, initial=dict, widget=forms.Textarea)
+    metadata = forms.JSONField(required=False, initial=dict, widget=forms.Textarea)
+
+    class Meta:
+        model = WorkflowConnection
+        fields = (
+            "organization",
+            "workspace",
+            "environment",
+            "name",
+            "description",
+            "connection_type",
+            "credential_secret",
+            "enabled",
+            "auth_config",
+            "metadata",
+        )
+
+    def __init__(self, *args, request=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        _configure_scope_fields(self, request)
+        self.fields["connection_type"].choices = _connection_type_choices(self.instance.connection_type or None)
+        self.fields["credential_secret"].queryset = Secret.objects.select_related(
+            "secret_group__organization",
+            "secret_group__workspace",
+            "secret_group__environment",
+        ).order_by(
+            "secret_group__organization__name",
+            "secret_group__workspace__name",
+            "secret_group__environment__name",
+            "secret_group__name",
+            "name",
+        )
+        if request is not None:
+            self.fields["credential_secret"].queryset = restrict_queryset(
+                self.fields["credential_secret"].queryset,
+                request=request,
+                action="view",
+            )
+            if not self.instance.pk:
+                initial_environment = request.GET.get("environment")
+                if initial_environment and initial_environment.isdigit():
+                    self.fields["environment"].initial = int(initial_environment)
+        self.fields["auth_config"].widget.attrs["rows"] = 6
+        self.fields["metadata"].widget.attrs["rows"] = 6
         apply_standard_widget_classes(self)

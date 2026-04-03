@@ -61,7 +61,7 @@ TOOL_DEFINITION = WorkflowToolDefinition(
 NODE_IMPLEMENTATION = tool_definition_as_node_implementation(TOOL_DEFINITION)
 NODE_DEFINITION = tool_definition_as_node_definition(
     TOOL_DEFINITION,
-    node_type="tool.template",
+    node_type="utilities.action.template",
     details="AgentOps helper node that renders a template and saves the result.",
     catalog_section="data",
 )

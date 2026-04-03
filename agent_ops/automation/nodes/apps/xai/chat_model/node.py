@@ -9,7 +9,7 @@ from automation.nodes.apps.openai.chat_model.helpers import (
 NODE_IMPLEMENTATION = build_openai_compatible_chat_model_implementation(api_type="xai")
 NODE_DEFINITION = build_openai_compatible_chat_model_definition(
     api_type="xai",
-    node_type="tool.xai_chat_model",
+    node_type="xai.model.chat",
     details=(
         "Attach an xAI model provider to an agent node with curated Grok presets "
         "and an optional custom model override."

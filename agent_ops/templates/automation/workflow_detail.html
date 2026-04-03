@@ -186,18 +186,24 @@
   </section>
 
   <section class="card">
-    <div class="card-header">
-      <h3 class="card-title mb-0">Connections</h3>
+    <div class="card-header d-flex align-items-center justify-content-between gap-2">
+      <h3 class="card-title mb-0">Available connections</h3>
+      <div class="btn-list">
+        <a href="{{ workflow_connection_list_url }}" class="btn btn-outline-secondary btn-sm">Manage</a>
+        {% if can_edit %}
+          <a href="{{ workflow_connection_add_url }}" class="btn btn-primary btn-sm">Add</a>
+        {% endif %}
+      </div>
     </div>
     <div class="card-body">
-      {% if workflow_edges %}
+      {% if workflow_connections %}
         <ol class="object-list">
-          {% for edge in workflow_edges %}
-            <li>{{ edge.source }} → {{ edge.target }}</li>
+          {% for connection in workflow_connections %}
+            <li>{{ connection.name }} · {{ connection.connection_type }}</li>
           {% endfor %}
         </ol>
       {% else %}
-        <div class="empty-state">No edges configured yet.</div>
+        <div class="empty-state">No scoped connections available for this workflow.</div>
       {% endif %}
     </div>
   </section>

@@ -3,7 +3,8 @@ from rest_framework.reverse import reverse
 
 from agent_ops.api.fields import SerializedPKRelatedField
 from agent_ops.api.serializers import ValidatedModelSerializer
-from automation.models import Secret, SecretGroup, Workflow, WorkflowRun
+from automation.catalog.services import get_catalog_connection_type
+from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowRun
 from tenancy.api.serializers import NestedOrganizationSerializer, NestedWorkspaceSerializer
 from tenancy.models import Environment, Organization, Workspace
 from users.restrictions import restrict_queryset
@@ -26,6 +27,12 @@ class NestedSecretGroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = SecretGroup
         fields = ("id", "name", "description", "organization", "workspace", "environment")
+
+
+class NestedSecretSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Secret
+        fields = ("id", "name", "provider", "enabled")
 
 
 class SecretSerializer(ValidatedModelSerializer):
@@ -308,6 +315,122 @@ class WorkflowSerializer(ValidatedModelSerializer):
 
 class WorkflowExecuteSerializer(serializers.Serializer):
     input_data = serializers.JSONField(required=False, default=dict)
+
+
+class WorkflowConnectionSerializer(ValidatedModelSerializer):
+    organization = SerializedPKRelatedField(
+        serializer=NestedOrganizationSerializer,
+        queryset=Organization.objects.order_by("name"),
+        required=False,
+        allow_null=True,
+    )
+    workspace = SerializedPKRelatedField(
+        serializer=NestedWorkspaceSerializer,
+        queryset=Workspace.objects.select_related("organization").order_by("organization__name", "name"),
+        required=False,
+        allow_null=True,
+    )
+    environment = SerializedPKRelatedField(
+        serializer=NestedEnvironmentSerializer,
+        queryset=Environment.objects.select_related("organization", "workspace").order_by(
+            "organization__name",
+            "workspace__name",
+            "name",
+        ),
+        required=False,
+        allow_null=True,
+    )
+    credential_secret = SerializedPKRelatedField(
+        serializer=NestedSecretSerializer,
+        queryset=Secret.objects.select_related("secret_group__organization", "secret_group__workspace", "secret_group__environment").order_by(
+            "secret_group__organization__name",
+            "secret_group__workspace__name",
+            "secret_group__environment__name",
+            "secret_group__name",
+            "name",
+        ),
+        required=False,
+        allow_null=True,
+    )
+    scope_label = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = WorkflowConnection
+        fields = (
+            "id",
+            "name",
+            "description",
+            "integration_id",
+            "connection_type",
+            "organization",
+            "workspace",
+            "environment",
+            "credential_secret",
+            "enabled",
+            "auth_config",
+            "metadata",
+            "scope_label",
+        )
+        read_only_fields = ("id", "scope_label")
+        brief_fields = (
+            "id",
+            "name",
+            "integration_id",
+            "connection_type",
+            "organization",
+            "workspace",
+            "environment",
+            "enabled",
+            "scope_label",
+        )
+        extra_kwargs = {
+            "integration_id": {"read_only": True},
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is None:
+            return
+        self.fields["organization"].queryset = restrict_queryset(
+            Organization.objects.order_by("name"),
+            request=request,
+            action="view",
+        )
+
+    def validate(self, data):
+        attrs = data.copy()
+        connection_type = attrs.get("connection_type") or getattr(self.instance, "connection_type", None)
+        if connection_type and not attrs.get("integration_id"):
+            connection_definition = get_catalog_connection_type(connection_type)
+            if connection_definition is not None:
+                attrs["integration_id"] = connection_definition.integration_id
+        return super().validate(attrs)
+        self.fields["workspace"].queryset = restrict_queryset(
+            Workspace.objects.select_related("organization").order_by("organization__name", "name"),
+            request=request,
+            action="view",
+        )
+        self.fields["environment"].queryset = restrict_queryset(
+            Environment.objects.select_related("organization", "workspace").order_by(
+                "organization__name",
+                "workspace__name",
+                "name",
+            ),
+            request=request,
+            action="view",
+        )
+        self.fields["credential_secret"].queryset = restrict_queryset(
+            Secret.objects.select_related("secret_group__organization", "secret_group__workspace", "secret_group__environment").order_by(
+                "secret_group__organization__name",
+                "secret_group__workspace__name",
+                "secret_group__environment__name",
+                "secret_group__name",
+                "name",
+            ),
+            request=request,
+            action="view",
+        )
 
 
 class WorkflowRunSerializer(serializers.ModelSerializer):

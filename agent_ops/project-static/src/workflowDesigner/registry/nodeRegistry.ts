@@ -1,11 +1,12 @@
 import { getNodeCategoryForKind } from './categories';
 import type {
+  WorkflowConnection,
   WorkflowNodeCatalogSection,
   WorkflowDefinition,
   WorkflowNode,
   WorkflowNodeDefinition,
-  WorkflowNodeTemplate,
   WorkflowPaletteSection,
+  WorkflowNodeTemplateField,
 } from '../types';
 
 export type WorkflowNodeRegistry = {
@@ -23,13 +24,7 @@ type WorkflowPaletteSectionAccumulator = {
 };
 
 const CHAT_MODEL_NODE_TYPES = new Set<string>([
-  'tool.deepseek_chat_model',
-  'tool.fireworks_chat_model',
-  'tool.groq_chat_model',
-  'tool.mistral_chat_model',
-  'tool.openai_chat_model',
-  'tool.openrouter_chat_model',
-  'tool.xai_chat_model',
+  'openai.model.chat',
 ]);
 const WORKFLOW_CATALOG_SECTION_ORDER: WorkflowNodeCatalogSection[] = [
   'triggers',
@@ -67,27 +62,70 @@ const WORKFLOW_CATALOG_SECTION_META: Record<
   },
 };
 
-function createNodeDefinition(template: WorkflowNodeTemplate): WorkflowNodeDefinition {
+function buildConnectionField(
+  definition: WorkflowNodeDefinition,
+  connections: WorkflowConnection[],
+): WorkflowNodeTemplateField | null {
+  if (!definition.connection_type) {
+    return null;
+  }
+
+  const options = connections
+    .filter(
+      (connection) =>
+        connection.enabled && connection.connection_type === definition.connection_type,
+    )
+    .map((connection) => ({
+      label: connection.label,
+      value: String(connection.id),
+    }));
+
   return {
-    app_description: template.app_description,
-    app_icon: template.app_icon,
-    app_id: template.app_id,
-    app_label: template.app_label,
-    catalog_section: template.catalog_section,
-    category: getNodeCategoryForKind(template.kind),
-    config: template.config,
-    description: template.description,
-    fields: template.fields,
-    icon: template.icon,
-    kind: template.kind,
-    label: template.label,
-    type: template.type,
-    typeVersion: template.typeVersion ?? 1,
+    help_text:
+      options.length > 0
+        ? 'Select a reusable connection for this node.'
+        : 'No reusable connections are available for this app and scope yet.',
+    key: 'connection_id',
+    label: 'Connection',
+    options: [
+      {
+        label: options.length > 0 ? 'Select a connection' : 'No connections available',
+        value: '',
+      },
+      ...options,
+    ],
+    type: 'select',
+  };
+}
+
+function enhanceDefinition(
+  definition: WorkflowNodeDefinition,
+  connections: WorkflowConnection[],
+): WorkflowNodeDefinition {
+  const fields = [...definition.fields];
+  if (!fields.some((field) => field.key === 'connection_id')) {
+    const connectionField = buildConnectionField(definition, connections);
+    if (connectionField) {
+      fields.unshift(connectionField);
+    }
+  }
+
+  const config = { ...(definition.config ?? {}) };
+  if (definition.connection_type && !Object.prototype.hasOwnProperty.call(config, 'connection_id')) {
+    config.connection_id = '';
+  }
+
+  return {
+    ...definition,
+    category: definition.category || getNodeCategoryForKind(definition.kind),
+    config,
+    fields,
+    typeVersion: definition.typeVersion ?? 1,
   };
 }
 
 function isChatModelDefinition(definition: WorkflowNodeDefinition): boolean {
-  return CHAT_MODEL_NODE_TYPES.has(definition.type);
+  return Boolean(definition.is_model) || CHAT_MODEL_NODE_TYPES.has(definition.type);
 }
 
 function normalizeCatalogSection(definition: WorkflowNodeDefinition): WorkflowNodeCatalogSection {
@@ -99,7 +137,7 @@ function normalizeCatalogSection(definition: WorkflowNodeDefinition): WorkflowNo
     return 'triggers';
   }
 
-  if (definition.type === 'n8n-nodes-base.set' || definition.type === 'tool.template' || definition.type === 'tool.secret') {
+  if (definition.type === 'core.set') {
     return 'data';
   }
 
@@ -110,8 +148,11 @@ function normalizeCatalogSection(definition: WorkflowNodeDefinition): WorkflowNo
   return 'apps';
 }
 
-export function buildNodeRegistry(nodeTemplates: WorkflowNodeTemplate[]): WorkflowNodeRegistry {
-  const definitions = nodeTemplates.map(createNodeDefinition);
+export function buildNodeRegistry(
+  catalogDefinitions: WorkflowNodeDefinition[],
+  connections: WorkflowConnection[],
+): WorkflowNodeRegistry {
+  const definitions = catalogDefinitions.map((definition) => enhanceDefinition(definition, connections));
   const definitionMap = new Map(definitions.map((definition) => [definition.type, definition]));
   const sectionsById = new Map<WorkflowNodeCatalogSection, WorkflowPaletteSectionAccumulator>(
     WORKFLOW_CATALOG_SECTION_ORDER.map((sectionId) => [

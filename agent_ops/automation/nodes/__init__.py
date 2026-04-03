@@ -1,3 +1,9 @@
+"""Internal exports for Python-backed node definitions.
+
+These helpers support agent tool execution and definition-level tests. New
+workflow authoring/runtime code should use the catalog-native primitives layer.
+"""
+
 from .registry import (
     WORKFLOW_NODE_DEFINITIONS,
     WORKFLOW_NODE_TEMPLATES,

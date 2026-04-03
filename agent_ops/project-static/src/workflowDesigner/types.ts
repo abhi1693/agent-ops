@@ -36,6 +36,20 @@ export type WorkflowNodeTemplate = {
   typeVersion?: number;
 };
 
+export type WorkflowCatalogPayload = {
+  definitions: WorkflowNodeDefinition[];
+};
+
+export type WorkflowConnection = {
+  connection_type: string;
+  enabled: boolean;
+  id: number;
+  integration_id: string;
+  label: string;
+  name: string;
+  scope_label?: string;
+};
+
 export type WorkflowNodeKind = 'trigger' | 'agent' | 'tool' | 'condition' | 'response';
 
 export type WorkflowNodeCategoryId =
@@ -55,14 +69,18 @@ export type WorkflowNodeDefinition = {
   app_icon?: string;
   app_id?: string;
   app_label?: string;
+  capabilities?: string[];
   catalog_section?: WorkflowNodeCatalogSection;
   category: WorkflowNodeCategoryId;
   config?: Record<string, unknown>;
+  connection_type?: string | null;
   description: string;
   fields: WorkflowNodeTemplateField[];
   icon?: string;
+  is_model?: boolean;
   kind: WorkflowNodeKind | string;
   label: string;
+  tags?: string[];
   type: string;
   typeVersion: number;
 };

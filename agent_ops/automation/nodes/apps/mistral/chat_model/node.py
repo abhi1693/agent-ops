@@ -9,7 +9,7 @@ from automation.nodes.apps.openai.chat_model.helpers import (
 NODE_IMPLEMENTATION = build_openai_compatible_chat_model_implementation(api_type="mistral")
 NODE_DEFINITION = build_openai_compatible_chat_model_definition(
     api_type="mistral",
-    node_type="tool.mistral_chat_model",
+    node_type="mistral.model.chat",
     details=(
         "Attach a Mistral model provider to an agent node with curated flagship, "
         "coding, and efficient presets plus an optional custom override."

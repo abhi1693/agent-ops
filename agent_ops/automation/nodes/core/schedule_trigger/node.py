@@ -69,13 +69,10 @@ NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     executor=_execute_schedule_trigger,
 )
 NODE_DEFINITION = WorkflowNodeDefinition(
-    type="n8n-nodes-base.scheduleTrigger",
+    type="core.schedule_trigger",
     kind="trigger",
     display_name="Schedule Trigger",
-    description=(
-        "Trigger the workflow on a basic interval or cron schedule, following "
-        "n8n's schedule trigger pattern."
-    ),
+    description="Trigger the workflow on a basic interval or cron schedule.",
     icon="mdi-clock-outline",
     catalog_section="triggers",
     config={

@@ -19,38 +19,38 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
     def setUp(self):
         self.request_factory = RequestFactory()
 
-    def test_python_backed_node_registry_is_unified(self):
+    def test_internal_python_backed_node_registry_is_unified(self):
         self.assertEqual(
             [definition.type for definition in WORKFLOW_NODE_DEFINITIONS],
             [
-                "n8n-nodes-base.manualTrigger",
-                "n8n-nodes-base.scheduleTrigger",
-                "agent",
-                "n8n-nodes-base.set",
-                "n8n-nodes-base.if",
-                "n8n-nodes-base.switch",
-                "response",
-                "n8n-nodes-base.stopAndError",
-                "tool.template",
-                "tool.secret",
-                "trigger.github_webhook",
-                "trigger.alertmanager_webhook",
-                "trigger.kibana_webhook",
-                "tool.prometheus_query",
-                "tool.elasticsearch_search",
-                "tool.openai_chat_model",
-                "tool.deepseek_chat_model",
-                "tool.fireworks_chat_model",
-                "tool.groq_chat_model",
-                "tool.mistral_chat_model",
-                "tool.openrouter_chat_model",
-                "tool.xai_chat_model",
-                "tool.kubectl",
-                "tool.mcp_server",
+                "core.manual_trigger",
+                "core.schedule_trigger",
+                "core.agent",
+                "core.set",
+                "core.if",
+                "core.switch",
+                "core.response",
+                "core.stop_and_error",
+                "utilities.action.template",
+                "utilities.action.secret",
+                "github.trigger.webhook",
+                "alertmanager.trigger.webhook",
+                "kibana.trigger.webhook",
+                "prometheus.action.query",
+                "elasticsearch.action.search",
+                "openai.model.chat",
+                "deepseek.model.chat",
+                "fireworks.model.chat",
+                "groq.model.chat",
+                "mistral.model.chat",
+                "openrouter.model.chat",
+                "xai.model.chat",
+                "infrastructure.action.kubectl",
+                "mcp.action.tool",
             ],
         )
 
-    def test_node_registry_exposes_python_backed_templates(self):
+    def test_internal_node_registry_exposes_python_backed_templates(self):
         templates_by_type = {
             template["type"]: template
             for template in WORKFLOW_NODE_TEMPLATES
@@ -59,46 +59,50 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
         self.assertEqual(
             set(templates_by_type),
             {
-                "n8n-nodes-base.manualTrigger",
-                "n8n-nodes-base.scheduleTrigger",
-                "agent",
-                "n8n-nodes-base.set",
-                "n8n-nodes-base.if",
-                "n8n-nodes-base.switch",
-                "response",
-                "n8n-nodes-base.stopAndError",
-                "tool.template",
-                "tool.secret",
-                "trigger.github_webhook",
-                "trigger.alertmanager_webhook",
-                "trigger.kibana_webhook",
-                "tool.openai_chat_model",
-                "tool.deepseek_chat_model",
-                "tool.fireworks_chat_model",
-                "tool.groq_chat_model",
-                "tool.mistral_chat_model",
-                "tool.openrouter_chat_model",
-                "tool.xai_chat_model",
-                "tool.prometheus_query",
-                "tool.elasticsearch_search",
-                "tool.kubectl",
-                "tool.mcp_server",
+                "core.manual_trigger",
+                "core.schedule_trigger",
+                "core.agent",
+                "core.set",
+                "core.if",
+                "core.switch",
+                "core.response",
+                "core.stop_and_error",
+                "utilities.action.template",
+                "utilities.action.secret",
+                "github.trigger.webhook",
+                "alertmanager.trigger.webhook",
+                "kibana.trigger.webhook",
+                "openai.model.chat",
+                "deepseek.model.chat",
+                "fireworks.model.chat",
+                "groq.model.chat",
+                "mistral.model.chat",
+                "openrouter.model.chat",
+                "xai.model.chat",
+                "prometheus.action.query",
+                "elasticsearch.action.search",
+                "infrastructure.action.kubectl",
+                "mcp.action.tool",
             },
         )
         self.assertEqual(
-            get_workflow_node_template(node_type="n8n-nodes-base.if")["type"],
-            "n8n-nodes-base.if",
+            get_workflow_node_template(node_type="core.if")["type"],
+            "core.if",
         )
         self.assertEqual(
-            get_workflow_node_template(node_type="trigger.github_webhook")["type"],
-            "trigger.github_webhook",
+            get_workflow_node_template(node_type="github.trigger.webhook")["type"],
+            "github.trigger.webhook",
         )
-        self.assertEqual(get_workflow_node_definition("agent").type, "agent")
-        self.assertEqual(get_workflow_node_definition("response").type, "response")
+        self.assertEqual(get_workflow_node_definition("core.agent").type, "core.agent")
+        self.assertEqual(get_workflow_node_definition("core.response").type, "core.response")
+        self.assertEqual(
+            get_workflow_node_template(node_type="openai.model.chat")["type"],
+            "openai.model.chat",
+        )
         self.assertIsNone(get_workflow_node_definition("condition"))
         self.assertIsNone(get_workflow_node_template(node_type="tool.openai_compatible_chat"))
 
-        set_template = templates_by_type["n8n-nodes-base.set"]
+        set_template = templates_by_type["core.set"]
         self.assertEqual(set_template["label"], "Set")
         self.assertEqual(set_template["catalog_section"], "data")
         self.assertEqual(set_template["config"]["output_key"], "tool.output")
@@ -106,7 +110,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
         self.assertEqual(set_template["fields"][0]["ui_group"], "result")
         self.assertEqual(set_template["fields"][0]["binding"], "path")
 
-        chat_model_template = templates_by_type["tool.openai_chat_model"]
+        chat_model_template = templates_by_type["openai.model.chat"]
         self.assertEqual(chat_model_template["label"], "OpenAI")
         self.assertEqual(chat_model_template["catalog_section"], "apps")
         self.assertEqual(chat_model_template["config"]["custom_model"], "")
@@ -114,11 +118,11 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
         self.assertEqual(chat_model_template["fields"][1]["type"], "select")
         self.assertEqual(chat_model_template["fields"][2]["key"], "custom_model")
 
-        deepseek_template = templates_by_type["tool.deepseek_chat_model"]
+        deepseek_template = templates_by_type["deepseek.model.chat"]
         self.assertEqual(deepseek_template["label"], "DeepSeek")
         self.assertEqual(deepseek_template["config"]["model"], "deepseek-chat")
 
-        groq_template = templates_by_type["tool.groq_chat_model"]
+        groq_template = templates_by_type["groq.model.chat"]
         self.assertEqual(groq_template["label"], "Groq")
         self.assertEqual(groq_template["config"]["base_url"], "https://api.groq.com/openai/v1")
 
@@ -190,7 +194,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
         tool_node = {
             "id": "tool-1",
             "kind": "tool",
-            "type": "tool.template",
+            "type": "utilities.action.template",
             "label": "Render template",
             "config": {
                 "tool_name": "template",
@@ -201,10 +205,9 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
         trigger_node = {
             "id": "trigger-1",
             "kind": "trigger",
-            "type": "trigger.github_webhook",
+            "type": "github.trigger.webhook",
             "label": "GitHub",
             "config": {
-                "type": "github_webhook",
                 "secret_name": "GITHUB_WEBHOOK_SECRET",
             },
         }
@@ -217,7 +220,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
 
         self.assertEqual(
             validate_workflow_node(node=tool_node, outgoing_targets=["done"], node_ids={"tool-1", "done"}).type,
-            "tool.template",
+            "utilities.action.template",
         )
         self.assertEqual(
             validate_workflow_node(
@@ -225,7 +228,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
                 outgoing_targets=["tool-1"],
                 node_ids={"trigger-1", "tool-1"},
             ).type,
-            "trigger.github_webhook",
+            "github.trigger.webhook",
         )
 
         template_engine = Engine(debug=False)
@@ -269,7 +272,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
         self.assertEqual(tool_result.output["value"], "Hello Ada")
         self.assertEqual(context["draft"], "Hello Ada")
         self.assertEqual(trigger_result.output["payload"], {"name": "Ada"})
-        self.assertEqual(trigger_result.output["trigger_type"], "github_webhook")
+        self.assertEqual(trigger_result.output["trigger_type"], "github.trigger.webhook")
         self.assertEqual(trigger_result.output["trigger_meta"], {"source": "github"})
 
     def test_registry_webhook_helper_uses_node_webhook_handler(self):
@@ -277,7 +280,7 @@ class WorkflowNodeRegistryTests(SimpleTestCase):
         trigger_node = {
             "id": "trigger-1",
             "kind": "trigger",
-            "type": "n8n-nodes-base.manualTrigger",
+            "type": "core.manual_trigger",
             "label": "Manual",
             "config": {},
         }

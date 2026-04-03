@@ -1,0 +1,125 @@
+{% extends "generic/object.html" %}
+
+{% block control-buttons %}
+  {% if can_edit %}
+    <a href="{% url 'workflowconnection_edit' object.pk %}" class="btn btn-outline-secondary">
+      <i class="mdi mdi-pencil"></i>
+      <span class="ms-1">Edit</span>
+    </a>
+  {% endif %}
+  {% if can_delete %}
+    <a href="{% url 'workflowconnection_delete' object.pk %}" class="btn btn-outline-danger">
+      <i class="mdi mdi-trash-can-outline"></i>
+      <span class="ms-1">Delete</span>
+    </a>
+  {% endif %}
+{% endblock %}
+
+{% block main %}
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title mb-0">Summary</h3>
+    </div>
+    <div class="card-body stack-sm">
+      <div class="object-data-grid">
+        <div class="stat-card">
+          <div class="text-secondary stat-label">Status</div>
+          <div class="stat-value fs-2">
+            {% if object.enabled %}Enabled{% else %}Disabled{% endif %}
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="text-secondary stat-label">Integration</div>
+          <div class="stat-value">{{ object.integration_id }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="text-secondary stat-label">Type</div>
+          <div class="stat-value">{{ object.connection_type }}</div>
+        </div>
+      </div>
+
+      {% if object.description %}
+        <div>
+          <div class="text-secondary mb-1">Description</div>
+          <p class="mb-0">{{ object.description }}</p>
+        </div>
+      {% endif %}
+
+      {% if connection_definition %}
+        <div>
+          <div class="text-secondary mb-1">Catalog definition</div>
+          <p class="mb-0">{{ connection_definition.label }} · {{ connection_definition.auth_kind }}</p>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title mb-0">Connection Data</h3>
+    </div>
+    <div class="card-body stack-sm">
+      {% if auth_config_json %}
+        <div>
+          <div class="text-secondary mb-1">Auth config</div>
+          <pre class="workflow-json-preview">{{ auth_config_json }}</pre>
+        </div>
+      {% endif %}
+      {% if metadata_json %}
+        <div>
+          <div class="text-secondary mb-1">Metadata</div>
+          <pre class="workflow-json-preview">{{ metadata_json }}</pre>
+        </div>
+      {% endif %}
+      {% if not auth_config_json and not metadata_json %}
+        <div class="empty-state">No connection data stored.</div>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}
+
+{% block side %}
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title mb-0">Scope</h3>
+    </div>
+    <div class="card-body">
+      <dl class="object-data-list">
+        <div>
+          <dt>Organization</dt>
+          <dd>{{ object.organization|default:"-" }}</dd>
+        </div>
+        <div>
+          <dt>Workspace</dt>
+          <dd>{{ object.workspace|default:"-" }}</dd>
+        </div>
+        <div>
+          <dt>Environment</dt>
+          <dd>{{ object.environment|default:"-" }}</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3 class="card-title mb-0">Credential</h3>
+    </div>
+    <div class="card-body">
+      {% if object.credential_secret %}
+        <dl class="object-data-list">
+          <div>
+            <dt>Secret</dt>
+            <dd><a href="{{ object.credential_secret.get_absolute_url }}">{{ object.credential_secret.name }}</a></dd>
+          </div>
+          <div>
+            <dt>Provider</dt>
+            <dd>{{ object.credential_secret.get_provider_display }}</dd>
+          </div>
+        </dl>
+      {% else %}
+        <div class="empty-state">No credential secret attached.</div>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

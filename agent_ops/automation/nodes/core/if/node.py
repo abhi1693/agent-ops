@@ -72,7 +72,7 @@ NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     executor=_execute_if,
 )
 NODE_DEFINITION = WorkflowNodeDefinition(
-    type="n8n-nodes-base.if",
+    type="core.if",
     kind="condition",
     display_name="If",
     description="Branch to one of two connected targets using a simple conditional check.",

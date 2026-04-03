@@ -1,5 +1,6 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
+from rest_framework.viewsets import ViewSet
 from rest_framework.response import Response
 from rest_framework.reverse import reverse
 from rest_framework.routers import APIRootView
@@ -9,13 +10,15 @@ from agent_ops.api.viewsets import ReadOnlyModelViewSet
 from agent_ops.api.permissions import ObjectActionPermission, TokenPermissions
 from agent_ops.api.viewsets import ModelViewSet
 from automation import filtersets
-from automation.models import Secret, SecretGroup, Workflow, WorkflowRun
+from automation.catalog.payloads import build_workflow_catalog_payload
+from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowRun
 from automation.runtime import enqueue_workflow
 from users.restrictions import assert_object_action_allowed, restrict_queryset
 
 from .serializers import (
     SecretGroupSerializer,
     SecretSerializer,
+    WorkflowConnectionSerializer,
     WorkflowExecuteSerializer,
     WorkflowRunSerializer,
     WorkflowSerializer,
@@ -34,6 +37,8 @@ class AutomationRootView(APIRootView):
             {
                 "workflows": reverse("api:automation-api:workflow-list", request=request),
                 "workflow-runs": reverse("api:automation-api:workflowrun-list", request=request),
+                "workflow-connections": reverse("api:automation-api:workflowconnection-list", request=request),
+                "workflow-catalog": reverse("api:automation-api:workflowcatalog-list", request=request),
                 "secrets": reverse("api:automation-api:secret-list", request=request),
                 "secret-groups": reverse("api:automation-api:secretgroup-list", request=request),
             }
@@ -116,6 +121,41 @@ class WorkflowRunViewSet(ReadOnlyModelViewSet):
             request=self.request,
             action=self.get_permission_action(),
         )
+
+
+class WorkflowConnectionViewSet(RestrictedAutomationViewSet):
+    serializer_class = WorkflowConnectionSerializer
+    filterset_class = filtersets.WorkflowConnectionFilterSet
+    ordering_fields = ("name", "integration_id", "connection_type", "enabled", "created", "last_updated")
+    permission_classes = [TokenPermissions, ObjectActionPermission]
+
+    def get_queryset(self):
+        queryset = WorkflowConnection.objects.select_related(
+            "organization",
+            "workspace",
+            "environment",
+            "credential_secret",
+            "credential_secret__secret_group",
+        ).order_by(
+            "organization__name",
+            "workspace__name",
+            "environment__name",
+            "integration_id",
+            "name",
+        )
+        return restrict_queryset(
+            queryset,
+            request=self.request,
+            action=self.get_permission_action(),
+        )
+
+
+class WorkflowCatalogViewSet(ViewSet):
+    permission_classes = [TokenPermissions]
+
+    @extend_schema(responses=dict)
+    def list(self, request):
+        return Response(build_workflow_catalog_payload())
 
 
 class SecretViewSet(RestrictedAutomationViewSet):

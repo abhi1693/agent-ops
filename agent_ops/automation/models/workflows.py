@@ -4,8 +4,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.urls import reverse
 
+from automation.catalog.services import get_catalog_node
 from automation.primitives import (
-    get_workflow_node_template,
     normalize_workflow_definition_nodes,
     validate_workflow_runtime_definition,
 )
@@ -126,22 +126,21 @@ def _validate_workflow_nodes(nodes):
         if not isinstance(node_type, str) or not node_type.strip():
             raise ValidationError({"definition": f'Node "{node_id}" must define a non-empty string type.'})
 
-        resolved_template = get_workflow_node_template(
-            node_type=node_type,
-        )
-        if resolved_template is None:
+        catalog_definition = get_catalog_node(node_type)
+        if catalog_definition is None:
             raise ValidationError(
                 {
                     "definition": (
-                        f'Node "{node_id}" type "{node_type}" is not a supported node type.'
+                        f'Node "{node_id}" type "{node_type}" is not a supported v2 catalog node type.'
                     )
                 }
             )
-        if resolved_template["kind"] != kind:
+        expected_kind = _persisted_kind_for_catalog_node(catalog_definition)
+        if expected_kind != kind:
             raise ValidationError(
                 {
                     "definition": (
-                        f'Node "{node_id}" type "{resolved_template["type"]}" does not match kind "{kind}".'
+                        f'Node "{node_id}" type "{catalog_definition.id}" does not match kind "{kind}".'
                     )
                 }
             )
@@ -162,6 +161,18 @@ def _validate_workflow_nodes(nodes):
         node_ids.add(node_id)
 
     return node_ids
+
+
+def _persisted_kind_for_catalog_node(node_definition) -> str:
+    if node_definition.mode == "trigger" or node_definition.kind == "trigger":
+        return "trigger"
+    if node_definition.kind == "agent":
+        return "agent"
+    if node_definition.kind == "output":
+        return "response"
+    if node_definition.kind == "control":
+        return "condition"
+    return "tool"
 
 
 def _validate_workflow_edges(edges, *, node_ids):

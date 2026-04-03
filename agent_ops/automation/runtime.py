@@ -8,7 +8,9 @@ from django.db import transaction
 from django.template import Context, Engine
 from django.utils import timezone
 
-from automation.nodes import execute_workflow_node
+from automation.catalog.runtime import execute_catalog_runtime_node
+from automation.catalog.services import get_catalog_node
+from automation.nodes.base import WorkflowNodeExecutionContext
 from automation.queue import (
     enqueue_workflow_run_job,
     ensure_workers_for_queue,
@@ -208,31 +210,36 @@ def _execute_node(
     secret_paths: set[str],
     secret_values: list[str],
 ) -> _NodeExecutionResult:
-    node_output = execute_workflow_node(
-        workflow=workflow,
-        node=node,
-        next_node_id=next_node_id,
-        connected_nodes_by_port=connected_nodes_by_port,
-        context=context,
-        secret_paths=secret_paths,
-        secret_values=secret_values,
-        render_template=_render_template,
-        get_path_value=_get_path_value,
-        set_path_value=_set_path_value,
-        resolve_scoped_secret=_resolve_scoped_secret,
-        evaluate_condition=_evaluate_condition,
-    )
-    if node_output is not None:
-        return _NodeExecutionResult(
-            next_node_id=node_output.next_node_id,
-            output=node_output.output,
-            response=node_output.response,
-            run_status=node_output.run_status,
-            terminal=node_output.terminal,
-        )
-
     node_type = node.get("type")
-    raise ValidationError({"definition": f'Unsupported node type "{node_type}".'})
+    catalog_definition = get_catalog_node(node_type) if isinstance(node_type, str) else None
+    if catalog_definition is None:
+        raise ValidationError({"definition": f'Unsupported node type "{node_type}".'})
+    catalog_node_output = execute_catalog_runtime_node(
+        WorkflowNodeExecutionContext(
+            workflow=workflow,
+            node=node,
+            config=node.get("config") or {},
+            next_node_id=next_node_id,
+            connected_nodes_by_port=connected_nodes_by_port,
+            context=context,
+            secret_paths=secret_paths,
+            secret_values=secret_values,
+            render_template=_render_template,
+            get_path_value=_get_path_value,
+            set_path_value=_set_path_value,
+            resolve_scoped_secret=_resolve_scoped_secret,
+            evaluate_condition=_evaluate_condition,
+        )
+    )
+    if catalog_node_output is None:
+        raise ValidationError({"definition": f'Catalog node type "{node_type}" has no native runtime executor.'})
+    return _NodeExecutionResult(
+        next_node_id=catalog_node_output.next_node_id,
+        output=catalog_node_output.output,
+        response=catalog_node_output.response,
+        run_status=catalog_node_output.run_status,
+        terminal=catalog_node_output.terminal,
+    )
 
 
 def _sorted_secret_values(secret_values: list[str]) -> list[str]:

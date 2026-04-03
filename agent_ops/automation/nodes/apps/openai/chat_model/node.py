@@ -9,7 +9,7 @@ from automation.nodes.apps.openai.chat_model.helpers import (
 NODE_IMPLEMENTATION = build_openai_compatible_chat_model_implementation(api_type="openai")
 NODE_DEFINITION = build_openai_compatible_chat_model_definition(
     api_type="openai",
-    node_type="tool.openai_chat_model",
+    node_type="openai.model.chat",
     details=(
         "Attach an OpenAI model provider to an agent node with curated GPT presets "
         "and an optional custom model override."

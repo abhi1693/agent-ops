@@ -9,7 +9,7 @@ from automation.nodes.apps.openai.chat_model.helpers import (
 NODE_IMPLEMENTATION = build_openai_compatible_chat_model_implementation(api_type="deepseek")
 NODE_DEFINITION = build_openai_compatible_chat_model_definition(
     api_type="deepseek",
-    node_type="tool.deepseek_chat_model",
+    node_type="deepseek.model.chat",
     details=(
         "Attach a DeepSeek model provider to an agent node with curated chat and "
         "reasoning presets plus an optional custom model override."

@@ -80,7 +80,7 @@ TOOL_DEFINITION = WorkflowToolDefinition(
 NODE_IMPLEMENTATION = tool_definition_as_node_implementation(TOOL_DEFINITION)
 NODE_DEFINITION = tool_definition_as_node_definition(
     TOOL_DEFINITION,
-    node_type="tool.secret",
+    node_type="utilities.action.secret",
     details="Resolve a scoped secret and store the redacted value path in context.",
     catalog_section="data",
 )

@@ -9,13 +9,7 @@ AGENT_LANGUAGE_MODEL_INPUT_PORT = "ai_languageModel"
 AGENT_TOOL_INPUT_PORT = "ai_tool"
 AGENT_LANGUAGE_MODEL_NODE_TYPES = frozenset(
     {
-        "tool.deepseek_chat_model",
-        "tool.fireworks_chat_model",
-        "tool.groq_chat_model",
-        "tool.mistral_chat_model",
-        "tool.openai_chat_model",
-        "tool.openrouter_chat_model",
-        "tool.xai_chat_model",
+        "openai.model.chat",
     }
 )
 SUPPORTED_AGENT_AUXILIARY_PORTS = frozenset(
@@ -64,6 +58,25 @@ def normalize_workflow_agent_config(
     config: dict[str, Any] | None,
 ) -> dict[str, Any]:
     normalized = dict(config or {})
+    prompt_template = normalized.get("template")
+    legacy_instructions = normalized.get("instructions")
+    if (
+        (not isinstance(prompt_template, str) or not prompt_template.strip())
+        and isinstance(legacy_instructions, str)
+        and legacy_instructions.strip()
+    ):
+        normalized["template"] = legacy_instructions.strip()
+
+    raw_input_modes = normalized.get(WORKFLOW_INPUT_MODES_CONFIG_KEY)
+    if isinstance(raw_input_modes, dict):
+        next_input_modes = dict(raw_input_modes)
+        if (
+            "template" not in next_input_modes
+            and isinstance(next_input_modes.get("instructions"), str)
+        ):
+            next_input_modes["template"] = next_input_modes["instructions"]
+        normalized[WORKFLOW_INPUT_MODES_CONFIG_KEY] = next_input_modes
+
     if normalized.get("output_key") in ("", None):
         normalized["output_key"] = DEFAULT_AGENT_OUTPUT_KEY
 
@@ -73,14 +86,20 @@ def normalize_workflow_agent_config(
 def build_workflow_agent_tool_config(*, node: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     normalized = normalize_workflow_agent_config(config)
     prompt_template = normalized.get("template")
+    if not isinstance(prompt_template, str) or not prompt_template.strip():
+        prompt_template = normalized.get("instructions")
     if isinstance(prompt_template, str) and prompt_template.strip():
         rendered_prompt_template = prompt_template.strip()
     else:
         rendered_prompt_template = (node.get("label") or node["id"]).strip()
     input_modes = normalized.get(WORKFLOW_INPUT_MODES_CONFIG_KEY)
     next_input_modes = dict(input_modes) if isinstance(input_modes, dict) else None
-    if next_input_modes and isinstance(next_input_modes.get("template"), str):
-        next_input_modes["user_prompt"] = next_input_modes["template"]
+    if next_input_modes:
+        template_mode = next_input_modes.get("template")
+        if not isinstance(template_mode, str):
+            template_mode = next_input_modes.get("instructions")
+        if isinstance(template_mode, str):
+            next_input_modes["user_prompt"] = template_mode
     return {
         **normalized,
         "user_prompt": rendered_prompt_template,

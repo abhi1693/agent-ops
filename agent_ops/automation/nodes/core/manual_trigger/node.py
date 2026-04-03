@@ -31,12 +31,12 @@ NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     executor=_execute_manual_trigger,
 )
 NODE_DEFINITION = WorkflowNodeDefinition(
-    type="n8n-nodes-base.manualTrigger",
+    type="core.manual_trigger",
     kind="trigger",
     display_name="Manual Trigger",
-    description="Start a workflow manually from the UI or API, following n8n's starter trigger pattern.",
+    description="Start a workflow manually from the UI or API.",
     icon="mdi-play-circle-outline",
-    app_description="Core workflow nodes, runtime primitives, and n8n-style built-in blocks available in the designer.",
+    app_description="Core workflow nodes and runtime primitives available in the designer.",
     app_icon="mdi-toy-brick-outline",
     catalog_section="triggers",
     validator=NODE_IMPLEMENTATION.validator,

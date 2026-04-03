@@ -5,10 +5,11 @@ import os
 from unittest.mock import patch
 
 from django.contrib.contenttypes.models import ContentType
+from django.contrib.messages import get_messages
 from django.test import TestCase
 from django.urls import reverse
 
-from automation.models import Workflow, WorkflowRun, WorkflowStepRun, WorkflowVersion
+from automation.models import Workflow, WorkflowConnection, WorkflowRun, WorkflowStepRun, WorkflowVersion
 from automation.models import Secret, SecretGroup
 from automation.runtime import execute_workflow_run
 from tenancy.models import Environment, Organization, Workspace
@@ -43,15 +44,18 @@ def _definition(label):
             {
                 "id": "trigger-1",
                 "kind": "trigger",
-                "type": "n8n-nodes-base.manualTrigger",
+                "type": "core.manual_trigger",
                 "label": label,
                 "position": {"x": 48, "y": 56},
             },
             {
-                "id": "agent-1",
-                "kind": "agent",
-                "type": "agent",
-                "label": "Triage agent",
+                "id": "response-1",
+                "kind": "response",
+                "type": "core.response",
+                "label": "Return result",
+                "config": {
+                    "template": "Completed {{ trigger.payload.ticket_id }}",
+                },
                 "position": {"x": 336, "y": 56},
             },
         ],
@@ -59,7 +63,45 @@ def _definition(label):
             {
                 "id": "edge-1",
                 "source": "trigger-1",
-                "target": "agent-1",
+                "target": "response-1",
+            }
+        ],
+    }
+
+
+def _unsupported_definition(label):
+    return {
+        "nodes": [
+            {
+                "id": "trigger-1",
+                "kind": "trigger",
+                "type": "n8n-nodes-base.manualTrigger",
+                "label": label,
+                "position": {"x": 48, "y": 56},
+            },
+            {
+                "id": "set-1",
+                "kind": "tool",
+                "type": "n8n-nodes-base.set",
+                "label": "Unsupported set",
+                "config": {
+                    "values": {
+                        "string": [
+                            {
+                                "name": "result",
+                                "value": "unsupported",
+                            }
+                        ]
+                    }
+                },
+                "position": {"x": 336, "y": 56},
+            },
+        ],
+        "edges": [
+            {
+                "id": "edge-1",
+                "source": "trigger-1",
+                "target": "set-1",
             }
         ],
     }
@@ -228,98 +270,157 @@ class WorkflowViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'id="workflow-definition-data"')
-        self.assertContains(response, 'id="workflow-node-templates-data"')
+        self.assertContains(response, 'id="workflow-catalog-data"')
+        self.assertContains(response, 'id="workflow-connections-data"')
         self.assertContains(response, "data-workflow-board")
         self.assertContains(response, "Add node")
         self.assertContains(response, '"catalog_section": "triggers"')
         self.assertContains(response, '"catalog_section": "flow"')
         self.assertContains(response, '"catalog_section": "data"')
         self.assertContains(response, '"catalog_section": "apps"')
-        self.assertContains(response, '"app_label": "Built-ins"')
-        self.assertContains(response, '"app_label": "AgentOps utilities"')
+        self.assertContains(response, '"app_label": "Core"')
         self.assertContains(response, '"app_label": "GitHub"')
-        self.assertContains(response, '"app_label": "Observability"')
-        self.assertContains(response, '"type": "n8n-nodes-base.manualTrigger"')
-        self.assertContains(response, '"type": "n8n-nodes-base.scheduleTrigger"')
-        self.assertContains(response, '"type": "agent"')
-        self.assertContains(response, '"type": "n8n-nodes-base.set"')
-        self.assertContains(response, '"type": "n8n-nodes-base.if"')
-        self.assertContains(response, '"type": "n8n-nodes-base.switch"')
-        self.assertContains(response, '"type": "response"')
-        self.assertContains(response, '"type": "n8n-nodes-base.stopAndError"')
-        self.assertContains(response, '"type": "trigger.github_webhook"')
-        self.assertContains(response, '"type": "trigger.alertmanager_webhook"')
-        self.assertContains(response, '"type": "trigger.kibana_webhook"')
-        self.assertContains(response, '"type": "tool.prometheus_query"')
-        self.assertContains(response, '"type": "tool.elasticsearch_search"')
-        self.assertContains(response, '"type": "tool.template"')
+        self.assertContains(response, '"app_label": "Prometheus"')
+        self.assertContains(response, '"app_label": "Elasticsearch"')
+        self.assertContains(response, '"app_label": "OpenAI"')
+        self.assertContains(response, '"type": "core.manual_trigger"')
+        self.assertContains(response, '"type": "core.schedule_trigger"')
+        self.assertContains(response, '"type": "core.agent"')
+        self.assertContains(response, '"type": "core.set"')
+        self.assertContains(response, '"type": "core.if"')
+        self.assertContains(response, '"type": "core.switch"')
+        self.assertContains(response, '"type": "core.response"')
+        self.assertContains(response, '"type": "core.stop_and_error"')
+        self.assertContains(response, '"type": "github.trigger.webhook"')
+        self.assertContains(response, '"type": "prometheus.action.query"')
+        self.assertContains(response, '"type": "elasticsearch.action.search"')
+        self.assertContains(response, '"type": "openai.model.chat"')
         self.assertContains(response, '"label": "New task"')
-        self.assertContains(response, '"label": "Triage agent"')
+        self.assertContains(response, '"label": "Return result"')
         self.assertContains(response, 'data-workflow-run')
         self.assertContains(response, 'data-workflow-execution-status')
         self.assertContains(response, reverse("workflow_designer_run", args=[self.workflow.pk]))
         self.assertContains(response, reverse("workflow_designer_node_run", args=[self.workflow.pk, "__node_id__"]))
 
-    def test_workflow_designer_renders_scoped_secret_group_options_for_nodes(self):
-        SecretGroup.objects.create(
+    def test_workflow_designer_redirects_unsupported_workflow_to_detail(self):
+        self.workflow.definition = _unsupported_definition("Unsupported task")
+        self.workflow.save(update_fields=("definition",))
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("workflow_designer", args=[self.workflow.pk]))
+
+        self.assertRedirects(response, self.workflow.get_absolute_url())
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertTrue(
+            any("only supports v2 catalog nodes" in message for message in messages),
+            messages,
+        )
+
+    def test_workflow_designer_renders_scoped_connections(self):
+        WorkflowConnection.objects.create(
             environment=self.environment,
-            name="Shared node auth",
+            name="Primary OpenAI",
+            integration_id="openai",
+            connection_type="openai.api",
+        )
+        WorkflowConnection.objects.create(
+            environment=self.other_environment,
+            name="Other scope",
+            integration_id="openai",
+            connection_type="openai.api",
         )
         self.client.force_login(self.staff_user)
 
         response = self.client.get(reverse("workflow_designer", args=[self.workflow.pk]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, "Auth secret group")
-        self.assertContains(response, "No secret group")
-        self.assertContains(response, "Shared node auth")
+        self.assertEqual(
+            response.context["workflow_connections"],
+            [
+                {
+                    "connection_type": "openai.api",
+                    "enabled": True,
+                    "id": response.context["workflow_connections"][0]["id"],
+                    "integration_id": "openai",
+                    "label": "Primary OpenAI (Acme / Operations / production)",
+                    "name": "Primary OpenAI",
+                    "scope_label": "Acme / Operations / production",
+                }
+            ],
+        )
+        catalog_definition = next(
+            item
+            for item in response.context["workflow_catalog"]["definitions"]
+            if item["type"] == "openai.model.chat"
+        )
+        self.assertEqual(catalog_definition["connection_type"], "openai.api")
+        self.assertEqual(catalog_definition["app_label"], "OpenAI")
 
-    def test_workflow_designer_hydrates_secret_name_select_from_secret_groups(self):
-        workflow_group = self._create_secret_group(name="Workflow auth")
-        elastic_group = self._create_secret_group(name="Elastic")
-        self.workflow.secret_group = workflow_group
-        self.workflow.save(update_fields=("secret_group",))
-        self._bind_secret(
+    def test_workflow_connection_list_is_scoped_for_members(self):
+        WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="OpenAI primary",
+            integration_id="openai",
+            connection_type="openai.api",
+        )
+        WorkflowConnection.objects.create(
+            environment=self.other_environment,
+            name="Other scope",
+            integration_id="openai",
+            connection_type="openai.api",
+        )
+        self.client.force_login(self.standard_user)
+
+        response = self.client.get(reverse("workflowconnection_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "OpenAI primary")
+        self.assertNotContains(response, "Other scope")
+
+    def test_workflow_connection_add_creates_connection_with_derived_scope(self):
+        secret = self._bind_secret(
             workflow=self.workflow,
-            secret_group=workflow_group,
             secret_name="OPENAI_API_KEY",
         )
-        self._bind_secret(
-            workflow=self.workflow,
-            secret_group=elastic_group,
-            secret_name="api-key",
-        )
-        self.workflow.secret_group = workflow_group
-        self.workflow.save(update_fields=("secret_group",))
         self.client.force_login(self.staff_user)
 
-        response = self.client.get(reverse("workflow_designer", args=[self.workflow.pk]))
+        response = self.client.post(
+            reverse("workflowconnection_add"),
+            {
+                "environment": self.environment.pk,
+                "name": "Primary OpenAI",
+                "description": "Main model connection",
+                "connection_type": "openai.api",
+                "credential_secret": secret.pk,
+                "enabled": "on",
+                "auth_config": json.dumps({"base_url": "https://api.openai.com/v1"}),
+                "metadata": json.dumps({"owner": "automation"}),
+            },
+        )
+
+        connection = WorkflowConnection.objects.get(name="Primary OpenAI")
+        self.assertRedirects(response, connection.get_absolute_url())
+        self.assertEqual(connection.environment_id, self.environment.pk)
+        self.assertEqual(connection.workspace_id, self.workspace.pk)
+        self.assertEqual(connection.organization_id, self.organization.pk)
+        self.assertEqual(connection.integration_id, "openai")
+        self.assertEqual(connection.credential_secret_id, secret.pk)
+
+    def test_workflow_detail_renders_scoped_connections_card(self):
+        connection = WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="Primary OpenAI",
+            integration_id="openai",
+            connection_type="openai.api",
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("workflow_detail", args=[self.workflow.pk]))
 
         self.assertEqual(response.status_code, 200)
-        template = next(
-            item
-            for item in response.context["workflow_node_templates"]
-            if item["type"] == "tool.elasticsearch_search"
-        )
-        fields_by_key = {field["key"]: field for field in template["fields"]}
-        field_keys = [field["key"] for field in template["fields"]]
-
-        self.assertLess(field_keys.index("secret_group_id"), field_keys.index("secret_name"))
-        self.assertEqual(fields_by_key["secret_group_id"]["type"], "select")
-        self.assertEqual(fields_by_key["secret_group_id"]["options"][0], {"value": "", "label": "Use workflow secret group"})
-        self.assertIn(
-            {"value": str(elastic_group.pk), "label": f"{elastic_group.name} ({elastic_group.scope_label})"},
-            fields_by_key["secret_group_id"]["options"],
-        )
-        self.assertEqual(fields_by_key["secret_name"]["type"], "select")
-        self.assertEqual(
-            fields_by_key["secret_name"]["options"],
-            [{"value": "OPENAI_API_KEY", "label": "OPENAI_API_KEY"}],
-        )
-        self.assertEqual(
-            fields_by_key["secret_name"]["options_by_field"]["secret_group_id"][str(elastic_group.pk)],
-            [{"value": "api-key", "label": "api-key"}],
-        )
+        self.assertContains(response, "Available connections")
+        self.assertContains(response, connection.name)
+        self.assertContains(response, reverse("workflowconnection_list"))
 
     def test_workflow_designer_updates_definition(self):
         self.client.force_login(self.staff_user)
@@ -329,14 +430,14 @@ class WorkflowViewTests(TestCase):
                     "id": "trigger-1",
                     "kind": "trigger",
                     "label": "New task",
-                    "type": "n8n-nodes-base.manualTrigger",
+                    "type": "core.manual_trigger",
                     "position": {"x": 32, "y": 40},
                 },
                 {
                     "id": "agent-1",
                     "kind": "agent",
                     "label": "Planner",
-                    "type": "agent",
+                    "type": "core.agent",
                     "config": {
                         "template": "Plan work for {{ trigger.payload.ticket_id }}",
                         "output_key": "plan",
@@ -347,7 +448,7 @@ class WorkflowViewTests(TestCase):
                     "id": "model-1",
                     "kind": "tool",
                     "label": "OpenAI chat model",
-                    "type": "tool.openai_chat_model",
+                    "type": "openai.model.chat",
                     "config": {
                         "base_url": "https://api.openai.com/v1",
                         "model": "gpt-4.1-mini",
@@ -359,7 +460,7 @@ class WorkflowViewTests(TestCase):
                     "id": "response-1",
                     "kind": "response",
                     "label": "Return plan",
-                    "type": "response",
+                    "type": "core.response",
                     "config": {
                         "template": "Planned {{ plan }}",
                         "status": "succeeded",
@@ -391,11 +492,24 @@ class WorkflowViewTests(TestCase):
         self.workflow.refresh_from_db()
         self.assertEqual(self.workflow.node_count, 4)
         self.assertEqual(self.workflow.edge_count, 3)
-        self.assertEqual(self.workflow.definition["nodes"][0]["type"], "n8n-nodes-base.manualTrigger")
-        self.assertEqual(self.workflow.definition["nodes"][1]["type"], "agent")
+        self.assertEqual(self.workflow.definition["nodes"][0]["type"], "core.manual_trigger")
+        self.assertEqual(self.workflow.definition["nodes"][1]["type"], "core.agent")
         self.assertEqual(self.workflow.definition["nodes"][1]["label"], "Planner")
-        self.assertEqual(self.workflow.definition["nodes"][2]["type"], "tool.openai_chat_model")
-        self.assertEqual(self.workflow.definition["nodes"][3]["type"], "response")
+        self.assertEqual(self.workflow.definition["nodes"][2]["type"], "openai.model.chat")
+        self.assertEqual(self.workflow.definition["nodes"][3]["type"], "core.response")
+
+    def test_workflow_designer_rejects_unsupported_definition_submission(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("workflow_designer", args=[self.workflow.pk]),
+            {
+                "definition": json.dumps(_unsupported_definition("Unsupported task")),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "only supports v2 catalog nodes")
 
     def test_workflow_designer_run_endpoint_saves_definition_and_executes_workflow(self):
         self.client.force_login(self.staff_user)
@@ -404,14 +518,14 @@ class WorkflowViewTests(TestCase):
                 {
                     "id": "trigger-1",
                     "kind": "trigger",
-                    "type": "n8n-nodes-base.manualTrigger",
+                    "type": "core.manual_trigger",
                     "label": "Manual",
                     "position": {"x": 32, "y": 40},
                 },
                 {
                     "id": "response-1",
                     "kind": "response",
-                    "type": "response",
+                    "type": "core.response",
                     "label": "Reply",
                     "config": {
                         "template": "Completed {{ trigger.payload.ticket_id }}",
@@ -453,6 +567,23 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(status_payload["run"]["status"], "succeeded")
         self.assertIn("Completed T-42", status_payload["run"]["output_json"])
 
+    def test_workflow_designer_run_endpoint_rejects_unsupported_definition(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("workflow_designer_run", args=[self.workflow.pk]),
+            data=json.dumps(
+                {
+                    "definition": _unsupported_definition("Unsupported task"),
+                    "input_data": {"ticket_id": "T-42"},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("only supports v2 catalog nodes", response.json()["detail"])
+
     def test_workflow_delete_shows_blocked_message_when_run_history_exists(self):
         version = WorkflowVersion.objects.create(
             workflow=self.workflow,
@@ -491,7 +622,7 @@ class WorkflowViewTests(TestCase):
             sequence=1,
             node_id="trigger-1",
             node_kind="trigger",
-            node_type="n8n-nodes-base.manualTrigger",
+            node_type="core.manual_trigger",
             label="Manual Trigger",
         )
         self.client.force_login(self.staff_user)
@@ -514,25 +645,25 @@ class WorkflowViewTests(TestCase):
                 {
                     "id": "trigger-1",
                     "kind": "trigger",
-                    "type": "n8n-nodes-base.manualTrigger",
+                    "type": "core.manual_trigger",
                     "label": "Manual",
                     "position": {"x": 32, "y": 40},
                 },
                 {
                     "id": "tool-1",
                     "kind": "tool",
-                    "type": "tool.template",
-                    "label": "Render",
+                    "type": "core.set",
+                    "label": "Set value",
                     "config": {
                         "output_key": "tool.output",
-                        "template": "Service {{ trigger.payload.service }}",
+                        "value": "Service {{ trigger.payload.service }}",
                     },
                     "position": {"x": 320, "y": 40},
                 },
                 {
                     "id": "response-1",
                     "kind": "response",
-                    "type": "response",
+                    "type": "core.response",
                     "label": "Done",
                     "config": {
                         "template": "{{ tool.output }}",
@@ -577,19 +708,23 @@ class WorkflowViewTests(TestCase):
 
     def test_workflow_designer_node_run_endpoint_runs_auxiliary_node_preview(self):
         self.client.force_login(self.staff_user)
+        self._bind_secret(
+            workflow=self.workflow,
+            secret_name="OPENAI_API_KEY",
+        )
         definition = {
             "nodes": [
                 {
                     "id": "trigger-1",
                     "kind": "trigger",
-                    "type": "n8n-nodes-base.manualTrigger",
+                    "type": "core.manual_trigger",
                     "label": "Manual",
                     "position": {"x": 32, "y": 40},
                 },
                 {
                     "id": "agent-1",
                     "kind": "agent",
-                    "type": "agent",
+                    "type": "core.agent",
                     "label": "Draft",
                     "config": {
                         "template": "Review {{ trigger.payload.ticket_id }}",
@@ -599,7 +734,7 @@ class WorkflowViewTests(TestCase):
                 {
                     "id": "model-1",
                     "kind": "tool",
-                    "type": "tool.openai_chat_model",
+                    "type": "openai.model.chat",
                     "label": "OpenAI chat model",
                     "config": {
                         "base_url": "https://api.openai.com/v1",
@@ -611,7 +746,7 @@ class WorkflowViewTests(TestCase):
                 {
                     "id": "response-1",
                     "kind": "response",
-                    "type": "response",
+                    "type": "core.response",
                     "label": "Done",
                     "config": {
                         "template": "Completed",
@@ -653,7 +788,8 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(payload["node"]["id"], "model-1")
         self.assertEqual(payload["run"]["status"], "pending")
         run = WorkflowRun.objects.get(pk=payload["run"]["id"])
-        execute_workflow_run(run)
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai"}, clear=False):
+            execute_workflow_run(run)
         status_response = self.client.get(payload["poll_url"])
         self.assertEqual(status_response.status_code, 200)
         status_payload = status_response.json()
@@ -667,14 +803,14 @@ class WorkflowViewTests(TestCase):
                 {
                     "id": "trigger-1",
                     "kind": "trigger",
-                    "type": "n8n-nodes-base.manualTrigger",
+                    "type": "core.manual_trigger",
                     "label": "Manual",
                     "position": {"x": 32, "y": 40},
                 },
                 {
                     "id": "agent-1",
                     "kind": "agent",
-                    "type": "agent",
+                    "type": "core.agent",
                     "label": "Draft",
                     "config": {
                         "template": "Review {{ trigger.payload.ticket_id }}",
@@ -684,7 +820,7 @@ class WorkflowViewTests(TestCase):
                 {
                     "id": "model-1",
                     "kind": "tool",
-                    "type": "tool.openai_chat_model",
+                    "type": "openai.model.chat",
                     "label": "OpenAI chat model",
                     "config": {
                         "base_url": "https://api.openai.com/v1",
@@ -696,7 +832,7 @@ class WorkflowViewTests(TestCase):
                 {
                     "id": "response-1",
                     "kind": "response",
-                    "type": "response",
+                    "type": "core.response",
                     "label": "Done",
                     "config": {
                         "template": "Completed {{ llm.response.text }}",
@@ -783,108 +919,6 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(automation_items["Workflows"]["count"], 1)
         self.assertContains(response, "Workflows")
 
-    def test_workflow_webhook_trigger_accepts_alertmanager_payload(self):
-        workflow = Workflow.objects.create(
-            environment=self.environment,
-            name="Alertmanager webhook",
-            definition={
-                "nodes": [
-                    {
-                        "id": "trigger-1",
-                        "kind": "trigger",
-                        "type": "trigger.alertmanager_webhook",
-                        "label": "Alertmanager",
-                        "config": {
-                            "secret_name": "ALERTMANAGER_WEBHOOK_SECRET",
-                        },
-                        "position": {"x": 32, "y": 40},
-                    },
-                    {
-                        "id": "response-1",
-                        "kind": "response",
-                        "type": "response",
-                        "label": "Done",
-                        "config": {
-                            "template": "{{ trigger.meta.source }}:{{ trigger.payload.receiver }}",
-                        },
-                        "position": {"x": 320, "y": 40},
-                    },
-                ],
-                "edges": [
-                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
-                ],
-            },
-        )
-        self._bind_secret(
-            workflow=workflow,
-            secret_name="ALERTMANAGER_WEBHOOK_SECRET",
-        )
-
-        with patch.dict(os.environ, {"ALERTMANAGER_WEBHOOK_SECRET": "alert-secret"}, clear=False):
-            response = self.client.post(
-                reverse("workflow_webhook_trigger", args=[workflow.pk]),
-                data=json.dumps({"receiver": "platform-pager"}),
-                content_type="application/json",
-                HTTP_X_AGENTOPS_WEBHOOK_SECRET="alert-secret",
-            )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(payload["status"], "succeeded")
-        self.assertEqual(payload["output_data"]["response"], "alertmanager_webhook:platform-pager")
-        run = WorkflowRun.objects.get(pk=payload["run_id"])
-        self.assertEqual(run.trigger_mode, "alertmanager_webhook")
-
-    def test_workflow_webhook_trigger_accepts_kibana_payload(self):
-        workflow = Workflow.objects.create(
-            environment=self.environment,
-            name="Kibana webhook",
-            definition={
-                "nodes": [
-                    {
-                        "id": "trigger-1",
-                        "kind": "trigger",
-                        "type": "trigger.kibana_webhook",
-                        "label": "Kibana",
-                        "config": {
-                            "secret_name": "KIBANA_WEBHOOK_SECRET",
-                        },
-                        "position": {"x": 32, "y": 40},
-                    },
-                    {
-                        "id": "response-1",
-                        "kind": "response",
-                        "type": "response",
-                        "label": "Done",
-                        "config": {
-                            "template": "{{ trigger.meta.source }}:{{ trigger.payload.rule.name }}",
-                        },
-                        "position": {"x": 320, "y": 40},
-                    },
-                ],
-                "edges": [
-                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
-                ],
-            },
-        )
-        self._bind_secret(
-            workflow=workflow,
-            secret_name="KIBANA_WEBHOOK_SECRET",
-        )
-
-        with patch.dict(os.environ, {"KIBANA_WEBHOOK_SECRET": "kibana-secret"}, clear=False):
-            response = self.client.post(
-                reverse("workflow_webhook_trigger", args=[workflow.pk]),
-                data=json.dumps({"rule": {"name": "CPU high"}}),
-                content_type="application/json",
-                HTTP_X_AGENTOPS_WEBHOOK_SECRET="kibana-secret",
-            )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(payload["status"], "succeeded")
-        self.assertEqual(payload["output_data"]["response"], "kibana_webhook:CPU high")
-
     def test_workflow_webhook_trigger_accepts_github_payload_with_valid_signature(self):
         workflow = Workflow.objects.create(
             environment=self.environment,
@@ -894,18 +928,20 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
-                        "type": "trigger.github_webhook",
+                        "type": "github.trigger.webhook",
                         "label": "GitHub",
                         "config": {
-                            "secret_name": "GITHUB_WEBHOOK_SECRET",
-                            "events": "push",
+                            "connection_id": "",
+                            "owner": "acme",
+                            "repository": "platform",
+                            "events": ["push"],
                         },
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "response-1",
                         "kind": "response",
-                        "type": "response",
+                        "type": "core.response",
                         "label": "Done",
                         "config": {
                             "template": "{{ trigger.meta.event }}:{{ trigger.payload.repository.full_name }}",
@@ -918,10 +954,91 @@ class WorkflowViewTests(TestCase):
                 ],
             },
         )
-        self._bind_secret(
+        secret = self._bind_secret(
             workflow=workflow,
             secret_name="GITHUB_WEBHOOK_SECRET",
         )
+        connection = WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="Primary GitHub",
+            integration_id="github",
+            connection_type="github.oauth2",
+            credential_secret=secret,
+        )
+        workflow.definition["nodes"][0]["config"]["connection_id"] = str(connection.pk)
+        workflow.save(update_fields=("definition",))
+        body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
+
+        with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "github-secret"}, clear=False):
+            signature = "sha256=" + hmac.new(
+                b"github-secret",
+                body,
+                hashlib.sha256,
+            ).hexdigest()
+            response = self.client.post(
+                reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                data=body,
+                content_type="application/json",
+                HTTP_X_HUB_SIGNATURE_256=signature,
+                HTTP_X_GITHUB_EVENT="push",
+                HTTP_X_GITHUB_DELIVERY="delivery-1",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "succeeded")
+        self.assertEqual(payload["output_data"]["response"], "push:acme/platform")
+        run = WorkflowRun.objects.get(pk=payload["run_id"])
+        self.assertEqual(run.context_data["trigger"]["meta"]["event"], "push")
+
+    def test_workflow_webhook_trigger_accepts_v2_github_payload_with_valid_signature(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="GitHub webhook v2",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "github.trigger.webhook",
+                        "label": "GitHub",
+                        "config": {
+                            "connection_id": "",
+                            "owner": "acme",
+                            "repository": "platform",
+                            "events": ["push"],
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.meta.event }}:{{ trigger.payload.repository.full_name }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+        )
+        secret = self._bind_secret(
+            workflow=workflow,
+            secret_name="GITHUB_WEBHOOK_SECRET",
+        )
+        connection = WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="Primary GitHub",
+            integration_id="github",
+            connection_type="github.oauth2",
+            credential_secret=secret,
+        )
+        workflow.definition["nodes"][0]["config"]["connection_id"] = str(connection.pk)
+        workflow.save(update_fields=("definition",))
         body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
 
         with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "github-secret"}, clear=False):
@@ -955,18 +1072,20 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
-                        "type": "trigger.github_webhook",
+                        "type": "github.trigger.webhook",
                         "label": "GitHub",
                         "config": {
-                            "secret_name": "GITHUB_WEBHOOK_SECRET",
-                            "events": "push",
+                            "connection_id": "",
+                            "owner": "acme",
+                            "repository": "platform",
+                            "events": ["push"],
                         },
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "response-1",
                         "kind": "response",
-                        "type": "response",
+                        "type": "core.response",
                         "label": "Done",
                         "config": {
                             "template": "{{ trigger.meta.event }}:{{ trigger.payload.repository.full_name }}",
@@ -987,6 +1106,15 @@ class WorkflowViewTests(TestCase):
         )
         workflow.secret_group = secret.secret_group
         workflow.save(update_fields=("secret_group",))
+        connection = WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="Primary GitHub",
+            integration_id="github",
+            connection_type="github.oauth2",
+            credential_secret=secret,
+        )
+        workflow.definition["nodes"][0]["config"]["connection_id"] = str(connection.pk)
+        workflow.save(update_fields=("definition",))
         body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
 
         with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "github-secret"}, clear=False):
@@ -1017,17 +1145,20 @@ class WorkflowViewTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
-                        "type": "trigger.github_webhook",
+                        "type": "github.trigger.webhook",
                         "label": "GitHub",
                         "config": {
-                            "secret_name": "GITHUB_WEBHOOK_SECRET",
+                            "connection_id": "",
+                            "owner": "acme",
+                            "repository": "platform",
+                            "events": ["push"],
                         },
                         "position": {"x": 32, "y": 40},
                     },
                     {
                         "id": "response-1",
                         "kind": "response",
-                        "type": "response",
+                        "type": "core.response",
                         "label": "Done",
                         "position": {"x": 320, "y": 40},
                     },
@@ -1037,10 +1168,19 @@ class WorkflowViewTests(TestCase):
                 ],
             },
         )
-        self._bind_secret(
+        secret = self._bind_secret(
             workflow=workflow,
             secret_name="GITHUB_WEBHOOK_SECRET",
         )
+        connection = WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="Primary GitHub",
+            integration_id="github",
+            connection_type="github.oauth2",
+            credential_secret=secret,
+        )
+        workflow.definition["nodes"][0]["config"]["connection_id"] = str(connection.pk)
+        workflow.save(update_fields=("definition",))
 
         with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "github-secret"}, clear=False):
             response = self.client.post(

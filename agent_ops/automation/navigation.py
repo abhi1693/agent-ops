@@ -1,13 +1,14 @@
-from automation.models import Secret, SecretGroup, Workflow
+from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection
 from core.navigation import Menu, MenuGroup, MenuItem
 from users.restrictions import has_model_action_permission
 
 
 def get_navigation_menus(request):
     workflow_allowed = has_model_action_permission(Workflow, request=request, action="view")
+    workflow_connection_allowed = has_model_action_permission(WorkflowConnection, request=request, action="view")
     secret_allowed = has_model_action_permission(Secret, request=request, action="view")
     secret_group_allowed = has_model_action_permission(SecretGroup, request=request, action="view")
-    if not workflow_allowed and not secret_allowed and not secret_group_allowed:
+    if not workflow_allowed and not workflow_connection_allowed and not secret_allowed and not secret_group_allowed:
         return ()
 
     workflow_items = []
@@ -25,6 +26,27 @@ def get_navigation_menus(request):
                     "workflow_detail",
                     "workflow_edit",
                     "workflow_designer",
+                ),
+                auth_required=True,
+            )
+        )
+    if workflow_connection_allowed:
+        workflow_items.append(
+            MenuItem(
+                link="workflowconnection_list",
+                link_text="Connections",
+                icon_class="mdi mdi-connection",
+                add_link=(
+                    "workflowconnection_add"
+                    if has_model_action_permission(WorkflowConnection, request=request, action="add")
+                    else None
+                ),
+                add_button_label="Add connection",
+                active_links=(
+                    "workflowconnection_list",
+                    "workflowconnection_add",
+                    "workflowconnection_detail",
+                    "workflowconnection_edit",
                 ),
                 auth_required=True,
             )

@@ -74,7 +74,7 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
         )
 
     def test_tool_node_template_still_serializes_plain_json_field_payloads(self):
-        elasticsearch_tool = get_workflow_node_template(node_type="tool.elasticsearch_search")
+        elasticsearch_tool = get_workflow_node_template(node_type="elasticsearch.action.search")
 
         auth_scheme_field = next(
             field
@@ -107,7 +107,7 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
         ).serialize())
 
     def test_mcp_server_tool_node_template_serializes_expected_fields(self):
-        mcp_tool = get_workflow_node_template(node_type="tool.mcp_server")
+        mcp_tool = get_workflow_node_template(node_type="mcp.action.tool")
 
         remote_tool_name_field = next(
             field
@@ -134,9 +134,9 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
         )
 
     def test_chat_model_tool_templates_serialize_expected_fields(self):
-        chat_model_tool = get_workflow_node_template(node_type="tool.openai_chat_model")
-        deepseek_chat_model_tool = get_workflow_node_template(node_type="tool.deepseek_chat_model")
-        groq_chat_model_tool = get_workflow_node_template(node_type="tool.groq_chat_model")
+        chat_model_tool = get_workflow_node_template(node_type="openai.model.chat")
+        deepseek_chat_model_tool = get_workflow_node_template(node_type="deepseek.model.chat")
+        groq_chat_model_tool = get_workflow_node_template(node_type="groq.model.chat")
 
         self.assertEqual(chat_model_tool["label"], "OpenAI")
         self.assertEqual(chat_model_tool["config"]["custom_model"], "")
@@ -158,7 +158,7 @@ class WorkflowToolFieldDefinitionTests(SimpleTestCase):
                 node={
                     "id": "tool-1",
                     "kind": "tool",
-                    "type": "tool.openai_chat_model",
+                    "type": "openai.model.chat",
                     "config": {
                         "model": "gpt-4.1-mini",
                     },

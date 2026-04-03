@@ -50,7 +50,7 @@ WorkflowNodeWebhookHandler = Callable[
 ]
 
 _DEFAULT_WORKFLOW_NODE_APP_DESCRIPTION = (
-    "n8n-style built-in nodes packaged as first-class workflow node types."
+    "Internal workflow node definitions used by the automation runtime and agent tool execution."
 )
 
 
@@ -73,7 +73,7 @@ def resolve_workflow_node_catalog_section(
     if kind == "trigger":
         return "triggers"
 
-    if node_type in {"n8n-nodes-base.set", "tool.template", "tool.secret"}:
+    if node_type in {"core.set", "utilities.action.template", "utilities.action.secret"}:
         return "data"
 
     if kind in {"agent", "condition", "response"}:

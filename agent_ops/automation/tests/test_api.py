@@ -6,7 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.urls import reverse
 
-from automation.models import Secret, SecretGroup, Workflow, WorkflowRun
+from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowRun
 from automation.runtime import execute_workflow_run
 from tenancy.models import Environment, Organization, Workspace
 from users.models import Membership, ObjectPermission, User
@@ -42,27 +42,28 @@ def _definition(label):
             {
                 "id": "trigger-1",
                 "kind": "trigger",
-                "type": "n8n-nodes-base.manualTrigger",
+                "type": "core.manual_trigger",
                 "label": label,
                 "position": {"x": 48, "y": 56},
             },
             {
                 "id": "agent-1",
                 "kind": "agent",
-                "type": "agent",
+                "type": "core.agent",
                 "label": "Triage agent",
                 "config": {
                     "template": "Triage {{ trigger.payload.ticket_id|default:'manual' }}",
-                    "secret_name": "OPENAI_API_KEY",
                 },
                 "position": {"x": 336, "y": 56},
             },
             {
                 "id": "model-1",
                 "kind": "tool",
-                "type": "tool.openai_chat_model",
+                "type": "openai.model.chat",
                 "label": "OpenAI chat model",
                 "config": {
+                    "base_url": "https://api.openai.com/v1",
+                    "model": "gpt-4.1-mini",
                     "secret_name": "OPENAI_API_KEY",
                 },
                 "position": {"x": 336, "y": 224},
@@ -152,10 +153,81 @@ class WorkflowAPITests(TestCase):
             {
                 "workflows": "http://testserver/api/automation/workflows/",
                 "workflow-runs": "http://testserver/api/automation/workflow-runs/",
+                "workflow-connections": "http://testserver/api/automation/workflow-connections/",
+                "workflow-catalog": "http://testserver/api/automation/workflow-catalog/",
                 "secrets": "http://testserver/api/automation/secrets/",
                 "secret-groups": "http://testserver/api/automation/secret-groups/",
             },
         )
+
+    def test_workflow_catalog_endpoint_lists_v2_definitions(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("api:automation-api:workflowcatalog-list"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        node_types = {item["type"] for item in payload["definitions"]}
+        self.assertIn("core.manual_trigger", node_types)
+        self.assertIn("github.trigger.webhook", node_types)
+        self.assertIn("openai.model.chat", node_types)
+
+    def test_workflow_connections_endpoint_is_scope_filtered(self):
+        WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="OpenAI primary",
+            integration_id="openai",
+            connection_type="openai.api",
+        )
+        WorkflowConnection.objects.create(
+            environment=self.other_environment,
+            name="Other scope",
+            integration_id="openai",
+            connection_type="openai.api",
+        )
+        self.client.force_login(self.standard_user)
+
+        response = self.client.get(reverse("api:automation-api:workflowconnection-list"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["results"][0]["name"], "OpenAI primary")
+
+    def test_workflow_connection_create_derives_scope_from_environment(self):
+        secret_group = SecretGroup.objects.create(
+            environment=self.environment,
+            name="Connection secrets",
+        )
+        secret = Secret.objects.create(
+            secret_group=secret_group,
+            provider="environment-variable",
+            name="OPENAI_API_KEY",
+            parameters={"variable": "OPENAI_API_KEY"},
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("api:automation-api:workflowconnection-list"),
+            {
+                "environment": self.environment.pk,
+                "name": "Primary OpenAI",
+                "description": "Main model connection",
+                "connection_type": "openai.api",
+                "credential_secret": secret.pk,
+                "enabled": True,
+                "auth_config": {"base_url": "https://api.openai.com/v1"},
+                "metadata": {"owner": "automation"},
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertEqual(payload["environment"]["id"], self.environment.pk)
+        self.assertEqual(payload["workspace"]["id"], self.workspace.pk)
+        self.assertEqual(payload["organization"]["id"], self.organization.pk)
+        self.assertEqual(payload["integration_id"], "openai")
 
     def test_workflow_create_derives_scope_from_environment(self):
         self.client.force_login(self.staff_user)
@@ -243,25 +315,24 @@ class WorkflowAPITests(TestCase):
                 {
                     "id": "trigger-1",
                     "kind": "trigger",
-                    "type": "n8n-nodes-base.manualTrigger",
+                    "type": "core.manual_trigger",
                     "label": "Manual",
                     "position": {"x": 32, "y": 40},
                 },
                 {
                     "id": "agent-1",
                     "kind": "agent",
-                    "type": "agent",
+                    "type": "core.agent",
                     "label": "Draft",
                     "config": {
                         "template": "Review {{ trigger.payload.ticket_id }}",
-                        "secret_name": "OPENAI_API_KEY",
                     },
                     "position": {"x": 320, "y": 40},
                 },
                 {
                     "id": "response-1",
                     "kind": "response",
-                    "type": "response",
+                    "type": "core.response",
                     "label": "Done",
                     "config": {
                         "template": "Completed {{ llm.response.text }}",
@@ -271,9 +342,11 @@ class WorkflowAPITests(TestCase):
                 {
                     "id": "model-1",
                     "kind": "tool",
-                    "type": "tool.openai_chat_model",
+                    "type": "openai.model.chat",
                     "label": "OpenAI chat model",
                     "config": {
+                        "base_url": "https://api.openai.com/v1",
+                        "model": "gpt-4.1-mini",
                         "secret_name": "OPENAI_API_KEY",
                     },
                     "position": {"x": 320, "y": 240},

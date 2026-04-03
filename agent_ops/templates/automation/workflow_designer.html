@@ -6,7 +6,8 @@
 
 {% block content %}
   {{ workflow_definition|json_script:"workflow-definition-data" }}
-  {{ workflow_node_templates|json_script:"workflow-node-templates-data" }}
+  {{ workflow_catalog|json_script:"workflow-catalog-data" }}
+  {{ workflow_connections|json_script:"workflow-connections-data" }}
 
   <form
     action=""

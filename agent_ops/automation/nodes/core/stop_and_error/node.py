@@ -68,10 +68,10 @@ NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     executor=_execute_stop_and_error,
 )
 NODE_DEFINITION = WorkflowNodeDefinition(
-    type="n8n-nodes-base.stopAndError",
+    type="core.stop_and_error",
     kind="response",
     display_name="Stop and Error",
-    description="End the workflow with a failed status, modeled after n8n's Stop and Error node.",
+    description="End the workflow with a failed status.",
     icon="mdi-alert-octagon-outline",
     catalog_section="flow",
     config={"error_type": "errorMessage"},

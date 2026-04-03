@@ -88,7 +88,7 @@ def validate_agent_auxiliary_edges(
                 {"definition": f'Edge "{edge_id}" targetPort "{target_port}" is not supported.'}
             )
 
-        if target_node.get("kind") != "agent" or target_node.get("type") != "agent":
+        if target_node.get("kind") != "agent":
             raise ValidationError(
                 {
                     "definition": (
@@ -136,7 +136,7 @@ def validate_agent_auxiliary_edges(
                 )
 
     for node_id, node in nodes_by_id.items():
-        if node.get("kind") != "agent" or node.get("type") != "agent":
+        if node.get("kind") != "agent":
             continue
         if len(connections_by_target.get(node_id, {}).get(AGENT_LANGUAGE_MODEL_INPUT_PORT, [])) < 1:
             raise ValidationError(

@@ -67,13 +67,10 @@ NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     executor=_execute_switch,
 )
 NODE_DEFINITION = WorkflowNodeDefinition(
-    type="n8n-nodes-base.switch",
+    type="core.switch",
     kind="condition",
     display_name="Switch",
-    description=(
-        "Route to one of multiple targets using simple value matching, modeled "
-        "after n8n's Switch node."
-    ),
+    description="Route to one of multiple targets using simple value matching.",
     icon="mdi-call-split",
     catalog_section="flow",
     fields=(

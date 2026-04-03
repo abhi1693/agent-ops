@@ -39,10 +39,10 @@ NODE_IMPLEMENTATION = WorkflowNodeImplementation(
     executor=_execute_set,
 )
 NODE_DEFINITION = WorkflowNodeDefinition(
-    type="n8n-nodes-base.set",
+    type="core.set",
     kind="tool",
     display_name="Set",
-    description="Write a static value into workflow context, following n8n's Set node pattern.",
+    description="Write a static value into workflow context.",
     icon="mdi-form-textbox",
     catalog_section="data",
     config={"output_key": "tool.output"},

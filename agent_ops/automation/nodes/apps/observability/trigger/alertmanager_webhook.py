@@ -63,6 +63,6 @@ TRIGGER_DEFINITION = WorkflowTriggerDefinition(
 NODE_IMPLEMENTATION = trigger_definition_as_node_implementation(TRIGGER_DEFINITION)
 NODE_DEFINITION = trigger_definition_as_node_definition(
     TRIGGER_DEFINITION,
-    node_type="trigger.alertmanager_webhook",
+    node_type="alertmanager.trigger.webhook",
     details="Alertmanager webhook trigger for observability alert ingestion.",
 )

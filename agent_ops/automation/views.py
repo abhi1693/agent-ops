@@ -3,24 +3,32 @@ import json
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Count, Prefetch
+from django.db.models import Count, Prefetch, Q
 from django.http import JsonResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
 from automation import filtersets, tables
-from automation.auth import (
-    list_workflow_secret_group_options,
-    list_workflow_secret_name_options_by_group,
+from automation.catalog.services import (
+    WORKFLOW_DESIGNER_CATALOG_ONLY_MESSAGE,
+    get_catalog_connection_type,
+    workflow_definition_supports_catalog_designer,
 )
-from automation.forms import SecretForm, SecretGroupForm, WorkflowDesignerForm, WorkflowForm, WorkflowRunForm
-from automation.models import Secret, SecretGroup, Workflow, WorkflowRun, WorkflowStepRun, WorkflowVersion
-from automation.nodes.base import WORKFLOW_NODE_CATALOG_SECTION_ORDER, WORKFLOW_NODE_CATALOG_SECTIONS
-from automation.nodes import prepare_workflow_node_webhook_request
-from automation.primitives import WORKFLOW_NODE_TEMPLATES, normalize_workflow_definition_nodes
+from automation.catalog.payloads import build_workflow_catalog_payload
+from automation.catalog.webhooks import prepare_catalog_webhook_request
+from automation.forms import (
+    SecretForm,
+    SecretGroupForm,
+    WorkflowConnectionForm,
+    WorkflowDesignerForm,
+    WorkflowForm,
+    WorkflowRunForm,
+)
+from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowRun, WorkflowStepRun, WorkflowVersion
+from automation.primitives import normalize_workflow_definition_nodes
 from automation.runtime import enqueue_workflow, execute_workflow
 from automation.workflow_connections import split_workflow_edges
 from core.generic_views import (
@@ -340,77 +348,50 @@ def _build_designer_run_payload(run: WorkflowRun, *, mode: str, node: dict | Non
     return payload
 
 
-def _group_workflow_node_templates_by_section(*, node_templates):
-    grouped_templates = {
-        section_id: {
-            **section_definition,
-            "templates": [],
-        }
-        for section_id, section_definition in WORKFLOW_NODE_CATALOG_SECTIONS.items()
-    }
+def _get_workflow_connection_queryset(workflow):
+    base_queryset = WorkflowConnection.objects.select_related(
+        "organization",
+        "workspace",
+        "environment",
+        "credential_secret",
+    ).filter(organization=workflow.organization, enabled=True)
 
-    for template in node_templates:
-        section_id = template.get("catalog_section") or "apps"
-        grouped_templates.setdefault(
-            section_id,
-            {
-                "id": section_id,
-                "label": section_id.title(),
-                "description": "",
-                "icon": "mdi-vector-square",
-                "templates": [],
-            },
-        )["templates"].append(template)
+    if workflow.environment_id:
+        return base_queryset.filter(
+            Q(environment=workflow.environment)
+            | Q(environment__isnull=True, workspace=workflow.workspace)
+            | Q(environment__isnull=True, workspace__isnull=True, organization=workflow.organization)
+        ).order_by("integration_id", "name")
 
+    if workflow.workspace_id:
+        return base_queryset.filter(
+            Q(workspace=workflow.workspace, environment__isnull=True)
+            | Q(workspace__isnull=True, environment__isnull=True, organization=workflow.organization)
+        ).order_by("integration_id", "name")
+
+    return base_queryset.filter(
+        workspace__isnull=True,
+        environment__isnull=True,
+    ).order_by("integration_id", "name")
+
+
+def _serialize_workflow_connections_for_designer(workflow) -> list[dict]:
     return [
-        grouped_templates[section_id]
-        for section_id in WORKFLOW_NODE_CATALOG_SECTION_ORDER
-        if grouped_templates.get(section_id, {}).get("templates")
+        {
+            "connection_type": connection.connection_type,
+            "enabled": connection.enabled,
+            "id": connection.pk,
+            "integration_id": connection.integration_id,
+            "label": (
+                f"{connection.name} ({connection.scope_label})"
+                if connection.scope_label
+                else connection.name
+            ),
+            "name": connection.name,
+            "scope_label": connection.scope_label,
+        }
+        for connection in _get_workflow_connection_queryset(workflow)
     ]
-
-
-def _hydrate_workflow_node_templates_for_workflow(workflow) -> list[dict]:
-    secret_group_options = list_workflow_secret_group_options(workflow)
-    secret_name_options_by_group = list_workflow_secret_name_options_by_group(workflow)
-    hydrated_templates: list[dict] = []
-
-    for template in WORKFLOW_NODE_TEMPLATES:
-        hydrated_template = dict(template)
-        hydrated_fields = []
-        for field in template.get("fields", []):
-            hydrated_field = dict(field)
-            if hydrated_field.get("key") == "secret_group_id":
-                hydrated_field["type"] = "select"
-                hydrated_field["options"] = list(secret_group_options)
-            elif hydrated_field.get("key") == "secret_name":
-                hydrated_field["type"] = "select"
-                hydrated_field["options"] = list(secret_name_options_by_group.get("", []))
-                hydrated_field["options_by_field"] = {
-                    "secret_group_id": {
-                        group_key: list(group_options)
-                        for group_key, group_options in secret_name_options_by_group.items()
-                    }
-                }
-            hydrated_fields.append(hydrated_field)
-        secret_name_index = next(
-            (index for index, field in enumerate(hydrated_fields) if field.get("key") == "secret_name"),
-            None,
-        )
-        secret_group_index = next(
-            (index for index, field in enumerate(hydrated_fields) if field.get("key") == "secret_group_id"),
-            None,
-        )
-        if (
-            secret_name_index is not None
-            and secret_group_index is not None
-            and secret_group_index > secret_name_index
-        ):
-            secret_group_field = hydrated_fields.pop(secret_group_index)
-            hydrated_fields.insert(secret_name_index, secret_group_field)
-        hydrated_template["fields"] = hydrated_fields
-        hydrated_templates.append(hydrated_template)
-
-    return hydrated_templates
 
 
 class WorkflowListView(RestrictedObjectListMixin, ObjectListView):
@@ -428,6 +409,89 @@ class WorkflowListView(RestrictedObjectListMixin, ObjectListView):
         )
 
 
+class WorkflowConnectionListView(RestrictedObjectListMixin, ObjectListView):
+    queryset = WorkflowConnection.objects.select_related(
+        "organization",
+        "workspace",
+        "environment",
+        "credential_secret",
+        "credential_secret__secret_group",
+    )
+    table = tables.WorkflowConnectionTable
+    filterset = filtersets.WorkflowConnectionFilterSet
+    template_name = "automation/workflowconnection_list.html"
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related(
+                "organization",
+                "workspace",
+                "environment",
+                "credential_secret",
+                "credential_secret__secret_group",
+            )
+            .order_by("organization__name", "workspace__name", "environment__name", "integration_id", "name")
+        )
+
+
+class WorkflowConnectionDetailView(RestrictedObjectViewMixin, ObjectView):
+    model = WorkflowConnection
+    template_name = "automation/workflowconnection_detail.html"
+
+    def get_queryset(self):
+        return super().get_queryset().select_related(
+            "organization",
+            "workspace",
+            "environment",
+            "credential_secret",
+            "credential_secret__secret_group",
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        connection_definition = get_catalog_connection_type(self.object.connection_type)
+        context["connection_definition"] = connection_definition
+        context["auth_config_json"] = _pretty_json(self.object.auth_config)
+        context["metadata_json"] = _pretty_json(self.object.metadata)
+        return context
+
+
+class WorkflowConnectionChangelogView(RestrictedObjectChangeLogMixin, ObjectChangeLogView):
+    model = WorkflowConnection
+    queryset = WorkflowConnection.objects.select_related(
+        "organization",
+        "workspace",
+        "environment",
+        "credential_secret",
+        "credential_secret__secret_group",
+    ).order_by(
+        "organization__name",
+        "workspace__name",
+        "environment__name",
+        "integration_id",
+        "name",
+    )
+
+
+class WorkflowConnectionCreateView(RestrictedObjectEditMixin, ObjectEditView):
+    model = WorkflowConnection
+    form_class = WorkflowConnectionForm
+    success_message = "Workflow connection created."
+
+
+class WorkflowConnectionUpdateView(RestrictedObjectEditMixin, ObjectEditView):
+    model = WorkflowConnection
+    form_class = WorkflowConnectionForm
+    success_message = "Workflow connection updated."
+
+
+class WorkflowConnectionDeleteView(RestrictedObjectDeleteMixin, ObjectDeleteView):
+    model = WorkflowConnection
+    success_message = "Workflow connection deleted."
+
+
 class WorkflowDetailView(RestrictedObjectViewMixin, ObjectView):
     model = Workflow
     template_name = "automation/workflow_detail.html"
@@ -441,11 +505,20 @@ class WorkflowDetailView(RestrictedObjectViewMixin, ObjectView):
         normalized_definition = normalize_workflow_definition_nodes(self.object.definition)
         recent_runs = list(self.object.runs.order_by("-created")[:5])
         context["show_side_panel"] = True
-        context["can_design"] = context["can_edit"]
+        context["can_design"] = context["can_edit"] and workflow_definition_supports_catalog_designer(
+            normalized_definition
+        )
         context["can_execute"] = context["can_edit"]
         context["workflow_nodes"] = normalized_definition.get("nodes", [])
         context["workflow_edges"] = normalized_definition.get("edges", [])
         context["workflow_designer_url"] = reverse("workflow_designer", args=[self.object.pk])
+        context["workflow_connections"] = _serialize_workflow_connections_for_designer(self.object)
+        context["workflow_connection_list_url"] = reverse("workflowconnection_list")
+        context["workflow_connection_add_url"] = (
+            f'{reverse("workflowconnection_add")}?environment={self.object.environment_id}'
+            if self.object.environment_id
+            else reverse("workflowconnection_add")
+        )
         context["run_form"] = run_form
         context["latest_run"] = _build_run_display(recent_runs[0]) if recent_runs else None
         context["recent_runs"] = [_build_run_display(run) for run in recent_runs]
@@ -514,20 +587,25 @@ class WorkflowDesignerView(RestrictedObjectEditMixin, ObjectEditView):
         workflow = obj or self.object
         return reverse("workflow_designer", args=[workflow.pk])
 
+    def get(self, request, *args, **kwargs):
+        normalized_definition = normalize_workflow_definition_nodes(self.object.definition)
+        if not workflow_definition_supports_catalog_designer(normalized_definition):
+            messages.error(request, WORKFLOW_DESIGNER_CATALOG_ONLY_MESSAGE)
+            return redirect(self.object.get_absolute_url())
+        form = self.get_form()
+        return render(request, self.template_name, self.get_context_data(request, form))
+
     def get_context_data(self, request, form):
         context = super().get_context_data(request, form)
         normalized_definition = normalize_workflow_definition_nodes(self.object.definition)
-        hydrated_templates = _hydrate_workflow_node_templates_for_workflow(self.object)
         context.update(
             {
                 "can_execute": True,
                 "run_form": WorkflowRunForm(initial={"input_data": {}}),
                 "workflow_definition": normalized_definition,
+                "workflow_catalog": build_workflow_catalog_payload(),
+                "workflow_connections": _serialize_workflow_connections_for_designer(self.object),
                 "workflow_nodes": normalized_definition.get("nodes", []),
-                "workflow_node_templates": hydrated_templates,
-                "workflow_node_template_groups": _group_workflow_node_templates_by_section(
-                    node_templates=hydrated_templates,
-                ),
                 "workflow_list_url": reverse("workflow_list"),
                 "workflow_detail_url": self.object.get_absolute_url(),
                 "workflow_edit_url": reverse("workflow_edit", args=[self.object.pk]),
@@ -700,7 +778,7 @@ class WorkflowWebhookTriggerView(View):
             return JsonResponse({"detail": "Workflow has no trigger node."}, status=400)
 
         try:
-            trigger_mode, input_data, trigger_metadata = prepare_workflow_node_webhook_request(
+            trigger_mode, input_data, trigger_metadata = prepare_catalog_webhook_request(
                 workflow=workflow,
                 node=trigger_node,
                 request=request,

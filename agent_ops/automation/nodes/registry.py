@@ -1,3 +1,11 @@
+"""Internal Python-backed node registry.
+
+This module backs agent-attached tool execution, webhook adapters, and
+definition-level tests. The supported workflow authoring/runtime surface is
+catalog-native and lives under ``automation.primitives`` plus the catalog
+runtime helpers.
+"""
+
 from __future__ import annotations
 
 import importlib
@@ -162,12 +170,8 @@ def prepare_workflow_node_webhook_request(*, workflow, node: dict, request) -> t
             {node["id"]},
         )
 
-    trigger_mode = node_definition.type
-    if node_definition.type.startswith("trigger."):
-        trigger_mode = node_definition.type.removeprefix("trigger.")
-
     return (
-        trigger_mode,
+        node_definition.type,
         *node_definition.webhook_handler(
             WorkflowNodeWebhookContext(
                 workflow=workflow,

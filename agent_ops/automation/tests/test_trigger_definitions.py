@@ -38,7 +38,7 @@ class WorkflowTriggerFieldDefinitionTests(SimpleTestCase):
             )
 
     def test_trigger_node_template_still_serializes_plain_json_field_payloads(self):
-        github_trigger = get_workflow_node_template(node_type="trigger.github_webhook")
+        github_trigger = get_workflow_node_template(node_type="github.trigger.webhook")
 
         events_field = next(
             field

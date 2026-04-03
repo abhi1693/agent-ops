@@ -734,6 +734,6 @@ TOOL_DEFINITION = WorkflowToolDefinition(
 NODE_IMPLEMENTATION = tool_definition_as_node_implementation(TOOL_DEFINITION)
 NODE_DEFINITION = tool_definition_as_node_definition(
     TOOL_DEFINITION,
-    node_type="tool.kubectl",
+    node_type="infrastructure.action.kubectl",
     details="Operate infrastructure workflows against the local app host environment.",
 )
