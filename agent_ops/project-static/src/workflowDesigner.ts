@@ -40,6 +40,7 @@ import {
   type DragState,
   type PanState,
 } from './workflowDesigner/interactions/pointerController';
+import { registerWorkflowDesignerUiBindings } from './workflowDesigner/interactions/uiBindings';
 import {
   renderBrowserState,
   getDefaultBrowserView,
@@ -1426,212 +1427,6 @@ export function initWorkflowDesigner(): void {
     renderEdges();
   }
 
-  root.addEventListener('click', (event) => {
-    const target = event.target as HTMLElement;
-
-    const settingModeButton = target.closest<HTMLElement>('[data-node-setting-mode-key]');
-    if (
-      settingModeButton?.dataset.nodeSettingModeKey &&
-      (settingModeButton.dataset.nodeSettingMode === 'static' || settingModeButton.dataset.nodeSettingMode === 'expression')
-    ) {
-      updateSelectedNodeFieldMode(
-        settingModeButton.dataset.nodeSettingModeKey,
-        settingModeButton.dataset.nodeSettingMode,
-        { rerenderSettings: true },
-      );
-      return;
-    }
-
-    const settingChip = target.closest<HTMLElement>('[data-node-setting-chip-key]');
-    if (
-      settingChip?.dataset.nodeSettingChipKey &&
-      settingChip.dataset.nodeSettingChipValue &&
-      settingChip.dataset.nodeSettingChipBinding
-    ) {
-      applyNodeSettingSuggestion(
-        settingChip.dataset.nodeSettingChipKey,
-        settingChip.dataset.nodeSettingChipValue,
-        settingChip.dataset.nodeSettingChipBinding,
-      );
-      return;
-    }
-
-    if (target.closest('[data-workflow-run]')) {
-      void executeDesignerRun(workflowRunUrl);
-      return;
-    }
-
-    if (target.closest('[data-workflow-run-selected-node]')) {
-      if (settingsNodeId) {
-        void executeDesignerRun(getNodeRunUrl(settingsNodeId), { nodeId: settingsNodeId });
-      }
-      return;
-    }
-
-    if (target.closest('[data-workflow-fit-view]')) {
-      repositionGraph();
-      return;
-    }
-
-    if (target.closest('[data-workflow-zoom-in]')) {
-      viewportController.zoomByStep('in');
-      return;
-    }
-
-    if (target.closest('[data-workflow-zoom-out]')) {
-      viewportController.zoomByStep('out');
-      return;
-    }
-
-    const nodeAction = target.closest<HTMLElement>('[data-node-action]');
-    if (nodeAction?.dataset.nodeAction && nodeAction.dataset.nodeActionId) {
-      const nodeId = nodeAction.dataset.nodeActionId;
-      const action = nodeAction.dataset.nodeAction;
-
-      if (action === 'run') {
-        openNodeSettings(nodeId);
-        void executeDesignerRun(getNodeRunUrl(nodeId), { nodeId });
-        return;
-      }
-      if (action === 'settings') {
-        openNodeSettings(nodeId);
-        return;
-      }
-      if (action === 'delete') {
-        deleteNode(nodeId);
-        return;
-      }
-    }
-
-    if (target.closest('[data-open-node-browser]')) {
-      if (isBrowserOpen) {
-        closeBrowser();
-      } else {
-        openBrowser();
-      }
-      return;
-    }
-
-    if (target.closest('[data-open-empty-browser]')) {
-      openBrowser();
-      return;
-    }
-
-    if (target.closest('[data-close-node-browser]')) {
-      closeBrowser();
-      return;
-    }
-
-    if (target.closest('[data-node-browser-back]')) {
-      goBackBrowserView();
-      return;
-    }
-
-    if (contextMenuState && !target.closest('[data-workflow-node-menu]')) {
-      closeNodeContextMenu();
-    }
-
-    if (target.closest('[data-close-node-settings]')) {
-      closeNodeSettings();
-      return;
-    }
-
-    const removeEdgeButton = target.closest<HTMLElement>('[data-remove-edge]');
-    if (removeEdgeButton?.dataset.removeEdge) {
-      removeEdge(removeEdgeButton.dataset.removeEdge);
-      return;
-    }
-
-    const nodeMenuAction = target.closest<HTMLElement>('[data-node-menu-action]');
-    if (nodeMenuAction?.dataset.nodeMenuAction && contextMenuState) {
-      const nodeId = contextMenuState.nodeId;
-      const action = nodeMenuAction.dataset.nodeMenuAction;
-      closeNodeContextMenu();
-      if (action === 'settings') {
-        openNodeSettings(nodeId);
-        return;
-      }
-      if (action === 'delete') {
-        deleteNode(nodeId);
-        return;
-      }
-    }
-
-    const browserItem = target.closest<HTMLElement>('[data-node-browser-item]');
-    if (browserItem?.dataset.nodeBrowserItem) {
-      addNode(browserItem.dataset.nodeBrowserItem);
-      return;
-    }
-
-    const browserNavigation = target.closest<HTMLElement>('[data-node-browser-nav]');
-    if (browserNavigation?.dataset.nodeBrowserNav) {
-      if (browserNavigation.dataset.nodeBrowserNav === 'trigger-apps') {
-        setBrowserView({
-          backTo: browserView.kind === 'trigger-root' && browserView.backTo === 'next-step-root'
-            ? 'next-step-root'
-            : 'trigger-root',
-          kind: 'trigger-apps',
-        });
-        renderBrowser();
-        return;
-      }
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'app-details' && browserNavigation.dataset.appId) {
-        setBrowserView({
-          appId: browserNavigation.dataset.appId,
-          backTo: browserView.kind === 'trigger-apps' ? 'trigger-apps' : 'app-actions',
-          kind: 'app-details',
-        });
-        renderBrowser();
-        return;
-      }
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'app-actions') {
-        setBrowserView({ kind: 'app-actions' });
-        renderBrowser();
-        return;
-      }
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'trigger-root') {
-        setBrowserView(isEmptyWorkflow() ? { kind: 'trigger-root' } : { backTo: 'next-step-root', kind: 'trigger-root' });
-        renderBrowser();
-        return;
-      }
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'next-ai') {
-        setBrowserView({ category: 'ai', kind: 'category-details' });
-        renderBrowser();
-        return;
-      }
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'next-data') {
-        setBrowserView({ category: 'data', kind: 'category-details' });
-        renderBrowser();
-        return;
-      }
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'next-flow') {
-        setBrowserView({ category: 'flow', kind: 'category-details' });
-        renderBrowser();
-        return;
-      }
-
-      if (browserNavigation.dataset.nodeBrowserNav === 'next-core') {
-        setBrowserView({ category: 'core', kind: 'category-details' });
-        renderBrowser();
-        return;
-      }
-      return;
-    }
-
-    const auxiliaryPort = target.closest<HTMLElement>('[data-workflow-node-aux-port]');
-    const auxiliaryTargetId = auxiliaryPort?.dataset.workflowNodeAuxNode;
-    const auxiliaryTargetPort = auxiliaryPort?.dataset.workflowNodeAuxPort as AgentAuxiliaryPortId | undefined;
-    if (auxiliaryTargetId && auxiliaryTargetPort) {
-      openAuxiliaryInsertBrowser(auxiliaryTargetId, auxiliaryTargetPort);
-    }
-  });
-
   registerWorkflowDesignerPointerInteractions({
     addEdge,
     beginConnection,
@@ -1678,89 +1473,54 @@ export function initWorkflowDesigner(): void {
     viewportController,
   });
 
-  root.addEventListener('keydown', (event) => {
-    if (
-      (event.key === 'Delete' || event.key === 'Backspace') &&
-      !event.metaKey &&
-      !event.ctrlKey &&
-      !event.altKey &&
-      selectedNodeId &&
-      !isTextEntryTarget(event.target)
-    ) {
-      deleteNode(selectedNodeId);
-      event.preventDefault();
-      return;
-    }
-
-    if (event.key !== 'Escape') {
-      const target = event.target as HTMLElement | null;
-      const auxiliaryPort = target?.closest<HTMLElement>('[data-workflow-node-aux-port]');
-      const auxiliaryTargetId = auxiliaryPort?.dataset.workflowNodeAuxNode;
-      const auxiliaryTargetPort = auxiliaryPort?.dataset.workflowNodeAuxPort as AgentAuxiliaryPortId | undefined;
-      if (
-        auxiliaryTargetId &&
-        auxiliaryTargetPort &&
-        (event.key === 'Enter' || event.key === ' ')
-      ) {
-        openAuxiliaryInsertBrowser(auxiliaryTargetId, auxiliaryTargetPort);
-        event.preventDefault();
+  registerWorkflowDesignerUiBindings({
+    addNode,
+    applyNodeSettingSuggestion,
+    browser,
+    canvas,
+    cancelConnection,
+    closeBrowser,
+    closeNodeContextMenu,
+    closeNodeSettings,
+    deleteNode,
+    getBrowserView: () => browserView,
+    getConnectionDraftActive: () => Boolean(connectionDraft),
+    getContextMenuNodeId: () => contextMenuState?.nodeId ?? null,
+    getIsBrowserOpen: () => isBrowserOpen,
+    getSelectedNodeId: () => selectedNodeId,
+    getSettingsNodeId: () => settingsNodeId,
+    goBackBrowserView,
+    isEmptyWorkflow,
+    isTextEntryTarget,
+    openAuxiliaryInsertBrowser,
+    openBrowser,
+    openNodeSettings,
+    removeEdge,
+    renderBrowser,
+    repositionGraph,
+    root,
+    runNode: (nodeId) => {
+      void executeDesignerRun(getNodeRunUrl(nodeId), { nodeId });
+    },
+    runSelectedNode: () => {
+      if (!settingsNodeId) {
+        return;
       }
-      return;
-    }
-
-    if (connectionDraft) {
-      cancelConnection();
-      return;
-    }
-
-    if (isBrowserOpen) {
-      closeBrowser();
-      return;
-    }
-
-    if (contextMenuState) {
-      closeNodeContextMenu();
-      return;
-    }
-
-    if (settingsNodeId) {
-      closeNodeSettings();
-    }
-  });
-
-  browser.searchInput.addEventListener('input', () => {
-    searchQuery = browser.searchInput.value;
-    renderBrowser();
-  });
-
-  canvas.settingsFields.addEventListener('input', (event) => {
-    const target = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
-    if (target.matches('[data-node-setting-label]')) {
-      updateSelectedNodeLabel(target.value);
-      return;
-    }
-
-    const key = target.dataset.nodeSettingKey;
-    if (!key) {
-      return;
-    }
-
-    updateSelectedNodeField(key, target.value);
-  });
-
-  canvas.settingsFields.addEventListener('change', (event) => {
-    const target = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
-    if (target.matches('[data-node-setting-label]')) {
-      updateSelectedNodeLabel(target.value, { rerenderSettings: true });
-      return;
-    }
-
-    const key = target.dataset.nodeSettingKey;
-    if (!key) {
-      return;
-    }
-
-    updateSelectedNodeField(key, target.value, { rerenderSettings: true });
+      void executeDesignerRun(getNodeRunUrl(settingsNodeId), { nodeId: settingsNodeId });
+    },
+    runWorkflow: () => {
+      void executeDesignerRun(workflowRunUrl);
+    },
+    setBrowserView,
+    setSearchQuery: (value) => {
+      searchQuery = value;
+    },
+    updateSelectedNodeField,
+    updateSelectedNodeFieldMode,
+    updateSelectedNodeLabel,
+    zoomByStep: (direction) => {
+      viewportController.zoomByStep(direction);
+    },
   });
 
   syncDefinitionInput();
