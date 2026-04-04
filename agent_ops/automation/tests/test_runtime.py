@@ -692,6 +692,102 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.output_data["node_id"], "model-1")
         self.assertEqual(run.output_data["output"]["model"], "gpt-4.1-mini")
 
+    def test_execute_workflow_node_preview_rejects_disabled_node(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Preview disabled node",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.manual_trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "core.set",
+                        "label": "Disabled set",
+                        "disabled": True,
+                        "config": {
+                            "output_key": "tool.output",
+                            "value": "hello",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow_node_preview(
+            workflow,
+            node_id="tool-1",
+            input_data={"ticket_id": "T-42"},
+        )
+
+        self.assertEqual(run.status, "failed")
+        self.assertIn('Node "tool-1" is disabled and cannot be previewed.', run.error)
+        self.assertEqual(run.step_count, 0)
+
+    def test_execute_workflow_skips_disabled_nodes(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Skip disabled node",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.manual_trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "core.set",
+                        "label": "Disabled set",
+                        "disabled": True,
+                        "config": {
+                            "output_key": "tool.output",
+                            "value": "Service {{ trigger.payload.service }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "Completed {{ trigger.payload.service }}",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(
+            workflow,
+            input_data={"service": "payments"},
+        )
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"], "Completed payments")
+        self.assertEqual(run.step_count, 2)
+        self.assertEqual(run.scheduler_state["skipped_node_ids"], ["tool-1"])
+        self.assertEqual([step["node_id"] for step in run.step_results], ["trigger-1", "response-1"])
+
     def test_execute_workflow_runs_core_catalog_nodes_end_to_end(self):
         workflow = Workflow.objects.create(
             environment=self.environment,

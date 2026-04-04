@@ -25,6 +25,7 @@ from automation.workflow_connections import (
 from automation.models.runs import WorkflowRun, WorkflowStepRun
 from automation.models.versions import ensure_workflow_version_snapshot
 from automation.primitives import (
+    _is_disabled_runtime_node,
     normalize_workflow_definition_nodes,
     validate_workflow_runtime_definition,
 )
@@ -356,6 +357,55 @@ def _resolve_selected_targets(
     return []
 
 
+def _activate_selected_targets(
+    *,
+    active_node_ids: set[str],
+    activated_node_ids: set[str],
+    adjacency: dict[str, list[str]],
+    completed_node_ids: set[str],
+    current_node_id: str,
+    failed_node_ids: set[str],
+    incoming_predecessors: dict[str, set[str]],
+    nodes_by_id: dict[str, dict[str, Any]],
+    ready_node_ids: list[str],
+    selected_predecessors: dict[str, set[str]],
+    skipped_node_ids: set[str],
+    skipped_predecessors: dict[str, set[str]],
+    selected_targets: set[str],
+) -> None:
+    outgoing_targets = adjacency.get(current_node_id, [])
+
+    for target_id in selected_targets:
+        activated_node_ids.add(target_id)
+        selected_predecessors.setdefault(target_id, set()).add(current_node_id)
+
+    for target_id in outgoing_targets:
+        if target_id not in selected_targets:
+            skipped_predecessors.setdefault(target_id, set()).add(current_node_id)
+
+    for target_id in selected_targets:
+        active_predecessors = incoming_predecessors.get(target_id, set()).intersection(activated_node_ids)
+        unresolved_predecessors = {
+            predecessor_id
+            for predecessor_id in active_predecessors
+            if predecessor_id
+            not in selected_predecessors.get(target_id, set()).union(
+                skipped_predecessors.get(target_id, set())
+            )
+        }
+        if unresolved_predecessors:
+            continue
+        if (
+            target_id not in ready_node_ids
+            and target_id not in active_node_ids
+            and target_id not in completed_node_ids
+            and target_id not in failed_node_ids
+            and target_id not in skipped_node_ids
+            and target_id in nodes_by_id
+        ):
+            ready_node_ids.append(target_id)
+
+
 def _initialize_workflow_run(
     workflow,
     *,
@@ -664,9 +714,21 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
         target_node_id = run.target_node_id or None
         if target_node_id is not None and target_node_id not in nodes_by_id:
             raise ValidationError({"definition": f'Workflow does not define node "{target_node_id}".'})
+        if (
+            target_node_id is not None
+            and run.execution_mode != WorkflowRun.ExecutionModeChoices.NODE_PREVIEW
+            and _is_disabled_runtime_node(nodes_by_id[target_node_id])
+        ):
+            raise ValidationError(
+                {"definition": f'Workflow target node "{target_node_id}" is disabled and cannot be run directly.'}
+            )
 
         if run.execution_mode == WorkflowRun.ExecutionModeChoices.NODE_PREVIEW:
             node = nodes_by_id[target_node_id]
+            if _is_disabled_runtime_node(node):
+                raise ValidationError(
+                    {"definition": f'Node "{node["id"]}" is disabled and cannot be previewed.'}
+                )
             outgoing_targets = adjacency.get(node["id"], [])
             default_next_node_id = _get_default_next_node_id(outgoing_targets)
             activated_node_ids.add(node["id"])
@@ -797,7 +859,48 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                 raise ValidationError({"definition": "Workflow execution exceeded the supported step limit."})
 
             current_node_id = ready_node_ids.pop(0)
-            if current_node_id in completed_node_ids or current_node_id in failed_node_ids:
+            if (
+                current_node_id in completed_node_ids
+                or current_node_id in failed_node_ids
+                or current_node_id in skipped_node_ids
+            ):
+                continue
+
+            node = nodes_by_id[current_node_id]
+            if _is_disabled_runtime_node(node):
+                skipped_node_ids.add(current_node_id)
+                selected_targets = {
+                    target_id
+                    for target_id in adjacency.get(current_node_id, [])
+                    if target_id in nodes_by_id
+                }
+                _activate_selected_targets(
+                    active_node_ids=active_node_ids,
+                    activated_node_ids=activated_node_ids,
+                    adjacency=adjacency,
+                    completed_node_ids=completed_node_ids,
+                    current_node_id=current_node_id,
+                    failed_node_ids=failed_node_ids,
+                    incoming_predecessors=incoming_predecessors,
+                    nodes_by_id=nodes_by_id,
+                    ready_node_ids=ready_node_ids,
+                    selected_predecessors=selected_predecessors,
+                    skipped_node_ids=skipped_node_ids,
+                    skipped_predecessors=skipped_predecessors,
+                    selected_targets=selected_targets,
+                )
+                scheduler_state = _update_run_scheduler_state(
+                    run,
+                    ready_node_ids=ready_node_ids,
+                    active_node_ids=active_node_ids,
+                    activated_node_ids=activated_node_ids,
+                    completed_node_ids=completed_node_ids,
+                    failed_node_ids=failed_node_ids,
+                    skipped_node_ids=skipped_node_ids,
+                    selected_predecessors=selected_predecessors,
+                    skipped_predecessors=skipped_predecessors,
+                )
+                _persist_run_scheduler_state(run)
                 continue
 
             active_node_ids.add(current_node_id)
@@ -813,7 +916,6 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                 skipped_predecessors=skipped_predecessors,
             )
             _persist_run_scheduler_state(run)
-            node = nodes_by_id[current_node_id]
             outgoing_targets = adjacency.get(current_node_id, [])
             default_next_node_id = _get_default_next_node_id(outgoing_targets)
             should_break = False
@@ -891,33 +993,21 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                     )
                     if target_id in nodes_by_id
                 }
-                for target_id in selected_targets:
-                    activated_node_ids.add(target_id)
-                    selected_predecessors.setdefault(target_id, set()).add(current_node_id)
-
-                for target_id in outgoing_targets:
-                    if target_id not in selected_targets:
-                        skipped_predecessors.setdefault(target_id, set()).add(current_node_id)
-
-                for target_id in selected_targets:
-                    active_predecessors = incoming_predecessors.get(target_id, set()).intersection(activated_node_ids)
-                    unresolved_predecessors = {
-                        predecessor_id
-                        for predecessor_id in active_predecessors
-                        if predecessor_id
-                        not in selected_predecessors.get(target_id, set()).union(
-                            skipped_predecessors.get(target_id, set())
-                        )
-                    }
-                    if unresolved_predecessors:
-                        continue
-                    if (
-                        target_id not in ready_node_ids
-                        and target_id not in active_node_ids
-                        and target_id not in completed_node_ids
-                        and target_id not in failed_node_ids
-                    ):
-                        ready_node_ids.append(target_id)
+                _activate_selected_targets(
+                    active_node_ids=active_node_ids,
+                    activated_node_ids=activated_node_ids,
+                    adjacency=adjacency,
+                    completed_node_ids=completed_node_ids,
+                    current_node_id=current_node_id,
+                    failed_node_ids=failed_node_ids,
+                    incoming_predecessors=incoming_predecessors,
+                    nodes_by_id=nodes_by_id,
+                    ready_node_ids=ready_node_ids,
+                    selected_predecessors=selected_predecessors,
+                    skipped_node_ids=skipped_node_ids,
+                    skipped_predecessors=skipped_predecessors,
+                    selected_targets=selected_targets,
+                )
 
                 if run.execution_mode == WorkflowRun.ExecutionModeChoices.NODE_PATH and node["id"] == target_node_id:
                     reached_stop_node = True

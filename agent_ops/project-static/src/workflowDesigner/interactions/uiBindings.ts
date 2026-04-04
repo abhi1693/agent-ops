@@ -37,6 +37,7 @@ export function registerWorkflowDesignerUiBindings(params: {
   selectExecutionStep: (stepIndex: number) => void;
   selectExecutionTab: (tab: ExecutionInspectorTab) => void;
   setSearchQuery: (value: string) => void;
+  toggleNodeDisabled: (nodeId: string) => void;
   updateSelectedNodeField: (
     key: string,
     value: string,
@@ -81,6 +82,7 @@ export function registerWorkflowDesignerUiBindings(params: {
     selectExecutionStep,
     selectExecutionTab,
     setSearchQuery,
+    toggleNodeDisabled,
     updateSelectedNodeField,
     updateSelectedNodeFieldMode,
     updateSelectedNodeLabel,
@@ -175,8 +177,11 @@ export function registerWorkflowDesignerUiBindings(params: {
       const action = nodeAction.dataset.nodeAction;
 
       if (action === 'run') {
-        openNodeSettings(nodeId);
         runNode(nodeId);
+        return;
+      }
+      if (action === 'toggle-disabled') {
+        toggleNodeDisabled(nodeId);
         return;
       }
       if (action === 'settings') {

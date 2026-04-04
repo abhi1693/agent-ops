@@ -56,6 +56,7 @@ export type BrowserRenderParams = BrowserRenderHelpers & {
   browserView: BrowserView;
   groups: WorkflowCatalogGroup[];
   catalogSections: WorkflowCatalogSection[];
+  hasTrigger: boolean;
   insertPort: AgentAuxiliaryPortId | undefined;
   isEmptyWorkflow: boolean;
   presentation: WorkflowNodeSelectionPresentation;
@@ -496,7 +497,7 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
         icon: 'mdi-earth',
         label: nodeSelection.next_step_root.items.app_action.label,
       })] : []),
-      ...(availableDefinitions.some((definition) => definition.kind === 'trigger') ? [renderBrowserListItem({
+      ...(!params.hasTrigger && availableDefinitions.some((definition) => definition.kind === 'trigger') ? [renderBrowserListItem({
         action: 'navigate',
         actionValue: 'trigger-root',
         description: nodeSelection.trigger_root.additional.description,

@@ -94,6 +94,7 @@ export type WorkflowExecutionPresentation = {
       last_completed_node: string;
       mode: string;
       selected_node: string;
+      skipped_nodes: string;
       step_count: string;
       trigger_mode: string;
       workflow_version: string;
@@ -405,11 +406,13 @@ export type WorkflowEditorNodePresentation = {
   agentDisplayTitle: string;
   agentNeedsModel: boolean;
   auxiliaryPorts: WorkflowEditorAuxiliaryPort[];
+  canToggleDisabled: boolean;
   connectors: WorkflowEditorNodeConnector[];
   icon: string;
   isConnectionCandidate: boolean;
   isConnectionSource: boolean;
   isConnectionTarget: boolean;
+  isDisabled: boolean;
   isExecutionFailed: boolean;
   isExecutionPending: boolean;
   isExecutionSucceeded: boolean;

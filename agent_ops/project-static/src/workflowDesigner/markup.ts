@@ -463,10 +463,25 @@ export function renderWorkflowEditorNodeMarkup(params: WorkflowEditorNodePresent
           data-node-action="run"
           data-node-action-id="${escapeHtml(params.node.id)}"
           aria-label="Run node"
-          ${params.isExecutionPending ? 'disabled' : ''}
+          ${params.isExecutionPending || params.isDisabled ? 'disabled' : ''}
         >
           <i class="mdi ${params.isExecutionPending ? 'mdi-loading mdi-spin' : 'mdi-play'}"></i>
         </button>
+        ${
+          params.canToggleDisabled
+            ? `
+              <button
+                type="button"
+                class="workflow-node-toolbar-button${params.isDisabled ? ' is-active' : ''}"
+                data-node-action="toggle-disabled"
+                data-node-action-id="${escapeHtml(params.node.id)}"
+                aria-label="${params.isDisabled ? 'Enable node' : 'Disable node'}"
+              >
+                <i class="mdi ${params.isDisabled ? 'mdi-power-plug-off-outline' : 'mdi-power'}"></i>
+              </button>
+            `
+            : ''
+        }
         <button
           type="button"
           class="workflow-node-toolbar-button"
@@ -491,7 +506,7 @@ export function renderWorkflowEditorNodeMarkup(params: WorkflowEditorNodePresent
 
   return `
     <article
-      class="workflow-editor-node workflow-editor-node--${escapeHtml(params.node.kind)}${params.isSelected ? ' is-selected' : ''}${params.isConnectionSource ? ' is-connection-source' : ''}${params.isConnectionCandidate ? ' is-connection-candidate' : ''}${params.isConnectionTarget ? ' is-connection-target' : ''}${params.agentNeedsModel ? ' is-agent-incomplete' : ''}${params.isExecutionPending ? ' is-executing' : ''}${params.isExecutionSucceeded ? ' is-execution-succeeded' : ''}${params.isExecutionFailed ? ' is-execution-failed' : ''}"
+      class="workflow-editor-node workflow-editor-node--${escapeHtml(params.node.kind)}${params.isSelected ? ' is-selected' : ''}${params.isConnectionSource ? ' is-connection-source' : ''}${params.isConnectionCandidate ? ' is-connection-candidate' : ''}${params.isConnectionTarget ? ' is-connection-target' : ''}${params.agentNeedsModel ? ' is-agent-incomplete' : ''}${params.isDisabled ? ' is-disabled' : ''}${params.isExecutionPending ? ' is-executing' : ''}${params.isExecutionSucceeded ? ' is-execution-succeeded' : ''}${params.isExecutionFailed ? ' is-execution-failed' : ''}"
       data-workflow-node-id="${escapeHtml(params.node.id)}"
       tabindex="0"
     >

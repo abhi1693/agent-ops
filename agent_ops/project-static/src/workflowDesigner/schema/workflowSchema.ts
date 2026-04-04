@@ -50,6 +50,7 @@ function normalizeNode(value: unknown, options?: WorkflowSchemaOptions): Workflo
 
   return {
     config,
+    disabled: node.disabled === true,
     id: node.id,
     kind,
     label:
@@ -132,6 +133,7 @@ export function normalizeWorkflowDefinition(
 
 function serializeWorkflowNode(node: WorkflowNode): WorkflowPersistedNode {
   const payload: WorkflowPersistedNode = {
+    ...(node.disabled ? { disabled: true } : {}),
     id: node.id,
     kind: node.kind,
     name: node.label,

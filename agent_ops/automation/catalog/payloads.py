@@ -35,8 +35,8 @@ WORKFLOW_CATALOG_GROUPS: tuple[dict[str, str], ...] = (
 )
 
 WORKFLOW_TRIGGER_SELECTION: dict[str, Any] = {
-    "description": "Triggers start your workflow. Workflows can have multiple triggers.",
-    "label": "Add another trigger",
+    "description": "Triggers start your workflow. Each workflow can only have one trigger.",
+    "label": "Add trigger",
 }
 
 WORKFLOW_NODE_SELECTION_PRESENTATION: dict[str, Any] = {
@@ -178,6 +178,7 @@ WORKFLOW_DESIGNER_PRESENTATION: dict[str, Any] = {
                 "last_completed_node": "Last completed",
                 "mode": "Mode",
                 "selected_node": "Selected node",
+                "skipped_nodes": "Skipped nodes",
                 "step_count": "Step count",
                 "trigger_mode": "Trigger mode",
                 "workflow_version": "Workflow version",

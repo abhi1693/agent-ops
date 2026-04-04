@@ -383,6 +383,10 @@ def _validate_runtime_cycle_free(*, adjacency: dict[str, list[str]]) -> None:
     for node_id in adjacency:
         visit(node_id)
 
+
+def _is_disabled_runtime_node(node: dict) -> bool:
+    return node.get("disabled") is True
+
 def _validate_catalog_runtime_node(
     *,
     node: dict,
@@ -434,6 +438,8 @@ def validate_workflow_runtime_definition(*, nodes: list[dict], edges: list[dict]
     trigger_nodes = [node for node in nodes if node["kind"] == "trigger"]
     if len(trigger_nodes) != 1:
         raise_definition_error("Workflow runtime requires exactly one trigger node.")
+    if any(_is_disabled_runtime_node(node) for node in trigger_nodes):
+        raise_definition_error("Workflow trigger nodes cannot be disabled.")
 
     _validate_runtime_cycle_free(adjacency=adjacency)
     validate_agent_auxiliary_edges(nodes_by_id=nodes_by_id, edges=auxiliary_edges)

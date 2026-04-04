@@ -61,6 +61,7 @@ import {
   formatKindLabel,
   isTemplateFieldVisible,
   parseJsonScript,
+  supportsNodeDisabledState,
 } from './workflowDesigner/utils';
 import { createViewportController } from './workflowDesigner/viewport/controller';
 
@@ -262,8 +263,8 @@ export function initWorkflowDesigner(): void {
         },
         trigger_root: {
           additional: {
-            description: 'Triggers start your workflow. Workflows can have multiple triggers.',
-            label: 'Add another trigger',
+            description: 'Triggers start your workflow. Each workflow can only have one trigger.',
+            label: 'Add trigger',
           },
           empty: 'No matching triggers',
           initial: {
@@ -297,6 +298,7 @@ export function initWorkflowDesigner(): void {
             last_completed_node: 'Last completed',
             mode: 'Mode',
             selected_node: 'Selected node',
+            skipped_nodes: 'Skipped nodes',
             step_count: 'Step count',
             trigger_mode: 'Trigger mode',
             workflow_version: 'Workflow version',
@@ -657,13 +659,11 @@ export function initWorkflowDesigner(): void {
     getInitialExecutionNodeId,
     getNode: (nodeId) => getNode(nodeId ?? null),
     getSelectedNodeId,
-    getSettingsNodeId,
     isTerminalRunStatus,
     onExecutionStateChange: () => {
       renderCanvas();
       renderSettingsPanel();
     },
-    openNodeSettings,
   });
 
   ({
@@ -783,6 +783,14 @@ export function initWorkflowDesigner(): void {
     if (!nodeDefinition) {
       return;
     }
+    if (
+      nodeDefinition.kind === 'trigger'
+      && workflowDefinition.nodes.some((node) => node.kind === 'trigger')
+    ) {
+      closeBrowser();
+      renderBrowser();
+      return;
+    }
 
     const pendingInsert = getInsertDraft();
     const newNode = createWorkflowNode(
@@ -808,6 +816,18 @@ export function initWorkflowDesigner(): void {
     }
     renderCanvas();
     renderBrowser();
+    renderSettingsPanel();
+  }
+
+  function toggleNodeDisabled(nodeId: string): void {
+    const node = getNode(nodeId);
+    if (!node || !supportsNodeDisabledState(node)) {
+      return;
+    }
+
+    node.disabled = !node.disabled;
+    syncDefinitionInput();
+    renderCanvas();
     renderSettingsPanel();
   }
 
@@ -920,11 +940,11 @@ export function initWorkflowDesigner(): void {
       void executeDesignerRun(getNodeRunUrl(nodeId), { nodeId });
     },
     runSelectedNode: () => {
-      const settingsNodeId = getSettingsNodeId();
-      if (!settingsNodeId) {
+      const selectedNodeId = getSelectedNodeId();
+      if (!selectedNodeId) {
         return;
       }
-      void executeDesignerRun(getNodeRunUrl(settingsNodeId), { nodeId: settingsNodeId });
+      void executeDesignerRun(getNodeRunUrl(selectedNodeId), { nodeId: selectedNodeId });
     },
     runWorkflow: () => {
       void executeDesignerRun(workflowRunUrl);
@@ -932,6 +952,7 @@ export function initWorkflowDesigner(): void {
     selectExecutionStep,
     selectExecutionTab,
     setSearchQuery,
+    toggleNodeDisabled,
     updateSelectedNodeField,
     updateSelectedNodeFieldMode,
     updateSelectedNodeLabel,

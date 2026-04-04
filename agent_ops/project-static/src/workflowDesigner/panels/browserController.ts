@@ -127,6 +127,7 @@ export function createWorkflowDesignerBrowserController(params: {
       catalogSections,
       definitions,
       filteredSections,
+      hasTrigger: getWorkflowDefinition().nodes.some((node) => node.kind === 'trigger'),
       insertPort: insertPort?.id,
       isEmptyWorkflow: getIsEmptyWorkflow(),
       presentation,

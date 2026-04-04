@@ -191,7 +191,7 @@ class WorkflowAPITests(TestCase):
         self.assertEqual(payload["presentation"]["chrome"]["toolbar"]["add_node"], "Add node")
         self.assertEqual(
             payload["presentation"]["node_selection"]["trigger_root"]["additional"]["label"],
-            "Add another trigger",
+            "Add trigger",
         )
         self.assertEqual(payload["presentation"]["settings"]["groups"]["input"]["title"], "Pass data in")
         self.assertEqual(payload["presentation"]["execution"]["statuses"]["running"]["label"], "Running")

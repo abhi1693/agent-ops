@@ -32,6 +32,7 @@ export type CanvasElements = {
 export type ExecutionElements = {
   error: HTMLElement;
   nodeRunButton: HTMLButtonElement | null;
+  selectedNode: HTMLElement | null;
   result: HTMLElement;
   resultBadge: HTMLElement;
   resultBody: HTMLElement;
@@ -142,6 +143,7 @@ export function getCanvasElements(root: ParentNode): CanvasElements | null {
 
 export function getExecutionElements(root: ParentNode): ExecutionElements | null {
   const nodeRunButton = root.querySelector<HTMLButtonElement>('[data-workflow-run-selected-node]');
+  const selectedNode = root.querySelector<HTMLElement>('[data-workflow-execution-selected-node]');
   const runButton = root.querySelector<HTMLButtonElement>('[data-workflow-run]');
   const error = root.querySelector<HTMLElement>('[data-workflow-execution-error]');
   const result = root.querySelector<HTMLElement>('[data-workflow-execution-result]');
@@ -171,6 +173,7 @@ export function getExecutionElements(root: ParentNode): ExecutionElements | null
   return {
     error,
     nodeRunButton,
+    selectedNode,
     result,
     resultBadge,
     resultBody,

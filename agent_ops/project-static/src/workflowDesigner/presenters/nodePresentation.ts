@@ -21,6 +21,8 @@ import {
   getConfigString,
   getTemplateFieldOptions,
   getTemplateFieldValue,
+  isNodeDisabled,
+  supportsNodeDisabledState,
 } from '../utils';
 
 type ConnectionDraftInput = {
@@ -196,6 +198,7 @@ export function buildWorkflowEditorNodePresentation(params: {
   const isDefaultAgentTitle = node.kind === 'agent' && title === (nodeDefinition?.label ?? 'Agent');
   const agentDisplayTitle = node.kind === 'agent' && isDefaultAgentTitle ? 'AI Agent' : title;
   const showAgentKindLabel = node.kind === 'agent' && !isDefaultAgentTitle;
+  const isDisabled = isNodeDisabled(node);
   const isSelected = selectedNodeId === node.id;
   const isExecutionNodePending =
     executionActiveNodeIds.includes(node.id)
@@ -312,11 +315,13 @@ export function buildWorkflowEditorNodePresentation(params: {
     agentDisplayTitle,
     agentNeedsModel,
     auxiliaryPorts,
+    canToggleDisabled: supportsNodeDisabledState(node),
     connectors,
     icon,
     isConnectionCandidate,
     isConnectionSource,
     isConnectionTarget,
+    isDisabled,
     isExecutionFailed,
     isExecutionPending: isExecutionNodePending,
     isExecutionSucceeded,

@@ -89,7 +89,11 @@ export function formatCount(value: number, singular: string, plural = `${singula
 }
 
 export function isNodeDisabled(node: WorkflowNode | undefined): boolean {
-  return Boolean(node?.config && node.config['disabled']);
+  return Boolean(node?.disabled);
+}
+
+export function supportsNodeDisabledState(node: WorkflowNode | undefined): boolean {
+  return node?.kind === 'agent' || node?.kind === 'tool';
 }
 
 export function isTemplateFieldVisible(

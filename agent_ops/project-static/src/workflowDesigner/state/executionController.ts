@@ -1,6 +1,6 @@
 import type { ExecutionElements } from '../dom';
 import type { WorkflowExecutionPresentation, WorkflowNode } from '../types';
-import { escapeHtml, formatKindLabel } from '../utils';
+import { escapeHtml, formatKindLabel, isNodeDisabled } from '../utils';
 
 type DesignerRunResponse = {
   message: string;
@@ -22,6 +22,7 @@ type DesignerRunResponse = {
     input_json: string | null;
     last_completed_node_id: string | null;
     output_json: string | null;
+    skipped_node_ids: string[];
     status: string;
     step_count: number;
     steps_json: string | null;
@@ -48,10 +49,8 @@ export function createWorkflowDesignerExecutionController(params: {
   getInitialExecutionNodeId: (nodeId: string | null) => string | null;
   getNode: (nodeId: string | null | undefined) => WorkflowNode | undefined;
   getSelectedNodeId: () => string | null;
-  getSettingsNodeId: () => string | null;
   isTerminalRunStatus: (status: string) => boolean;
   onExecutionStateChange: () => void;
-  openNodeSettings: (nodeId: string) => void;
 }): {
   executeDesignerRun: (
     url: string,
@@ -76,10 +75,8 @@ export function createWorkflowDesignerExecutionController(params: {
     getInitialExecutionNodeId,
     getNode,
     getSelectedNodeId,
-    getSettingsNodeId,
     isTerminalRunStatus,
     onExecutionStateChange,
-    openNodeSettings,
   } = params;
 
   let isExecutionPending = false;
@@ -288,6 +285,10 @@ export function createWorkflowDesignerExecutionController(params: {
             <div class="workflow-editor-execution-stat-label">${escapeHtml(overviewLabels.failed_nodes)}</div>
             <div class="workflow-editor-execution-stat-value">${escapeHtml(getNodeListLabel(payload.run.failed_node_ids ?? []))}</div>
           </div>
+          <div class="workflow-editor-execution-stat">
+            <div class="workflow-editor-execution-stat-label">${escapeHtml(overviewLabels.skipped_nodes)}</div>
+            <div class="workflow-editor-execution-stat-value">${escapeHtml(getNodeListLabel(payload.run.skipped_node_ids ?? []))}</div>
+          </div>
         </div>
       `,
       output: `
@@ -479,12 +480,6 @@ export function createWorkflowDesignerExecutionController(params: {
     }
 
     const nodeId = options?.nodeId ?? null;
-    if (nodeId && getSettingsNodeId() !== nodeId) {
-      openNodeSettings(nodeId);
-    } else if (!nodeId && !getSettingsNodeId() && getSelectedNodeId()) {
-      openNodeSettings(getSelectedNodeId() as string);
-    }
-
     const inputData = parseExecutionInput();
     if (inputData === null) {
       return;
@@ -549,8 +544,14 @@ export function createWorkflowDesignerExecutionController(params: {
       return;
     }
 
-    const settingsNode = getNode(getSettingsNodeId());
-    if (!settingsNode) {
+    const selectedNode = getNode(getSelectedNodeId());
+    if (execution.selectedNode) {
+      execution.selectedNode.textContent = selectedNode
+        ? selectedNode.label || selectedNode.id
+        : executionPresentation.inspector.overview.idle_value;
+    }
+
+    if (!selectedNode) {
       execution.nodeRunButton.hidden = true;
       execution.nodeRunButton.disabled = true;
       execution.nodeRunButton.innerHTML = `
@@ -561,10 +562,10 @@ export function createWorkflowDesignerExecutionController(params: {
     }
 
     const isNodeExecutionPending =
-      executionActiveNodeIds.includes(settingsNode.id)
-      || (isExecutionPending && activeExecutionNodeId === settingsNode.id);
+      executionActiveNodeIds.includes(selectedNode.id)
+      || (isExecutionPending && activeExecutionNodeId === selectedNode.id);
     execution.nodeRunButton.hidden = false;
-    execution.nodeRunButton.disabled = isExecutionPending;
+    execution.nodeRunButton.disabled = isExecutionPending || isNodeDisabled(selectedNode);
     execution.nodeRunButton.innerHTML = `
       <i class="mdi ${isNodeExecutionPending ? 'mdi-loading mdi-spin' : 'mdi-play'}"></i>
       <span class="ms-1">${isNodeExecutionPending ? executionPresentation.run_button.running : executionPresentation.run_button.idle}</span>
