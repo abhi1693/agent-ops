@@ -12,7 +12,6 @@ import type {
   Point,
   WorkflowDefinition,
   WorkflowNode,
-  WorkflowNodeDefinition,
 } from '../types';
 import { clamp } from '../utils';
 
@@ -31,7 +30,6 @@ export function createWorkflowDesignerCanvasController(params: {
   contextMenuOffsetY: number;
   contextMenuWidth: number;
   getNode: (nodeId: string | null | undefined) => WorkflowNode | undefined;
-  getNodeDefinition: (node: WorkflowNode | undefined) => WorkflowNodeDefinition | undefined;
   getWorkflowDefinition: () => WorkflowDefinition;
   isValidConnection: (
     sourceId: string,
@@ -62,7 +60,6 @@ export function createWorkflowDesignerCanvasController(params: {
     contextMenuOffsetY,
     contextMenuWidth,
     getNode,
-    getNodeDefinition,
     getWorkflowDefinition,
     isValidConnection,
     nodeLayer,

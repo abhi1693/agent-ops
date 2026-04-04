@@ -54,7 +54,6 @@ export function createWorkflowDesignerBrowserController(params: {
   setSelectedNodeId: (nodeId: string) => void;
 }): {
   closeBrowser: () => void;
-  getBrowserView: () => BrowserView;
   getInsertDraft: () => WorkflowBrowserInsertDraft | null;
   getIsBrowserOpen: () => boolean;
   goBackBrowserView: () => void;
@@ -63,7 +62,6 @@ export function createWorkflowDesignerBrowserController(params: {
   openBrowser: () => void;
   openInsertBrowser: (sourceId: string, clientX: number, clientY: number) => void;
   renderBrowser: () => void;
-  setBrowserView: (nextView: BrowserView) => void;
   setSearchQuery: (value: string) => void;
   showEmptyWorkflowBrowser: () => void;
 } {
@@ -282,7 +280,6 @@ export function createWorkflowDesignerBrowserController(params: {
 
   return {
     closeBrowser,
-    getBrowserView: () => browserView,
     getInsertDraft: () => insertDraft,
     getIsBrowserOpen: () => isBrowserOpen,
     goBackBrowserView,
@@ -291,7 +288,6 @@ export function createWorkflowDesignerBrowserController(params: {
     openBrowser,
     openInsertBrowser,
     renderBrowser,
-    setBrowserView,
     setSearchQuery,
     showEmptyWorkflowBrowser,
   };

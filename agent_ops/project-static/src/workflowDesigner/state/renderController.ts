@@ -64,7 +64,6 @@ export function createWorkflowDesignerRenderController(params: {
   renderCanvas: () => void;
   renderCanvasHud: () => void;
   renderEdges: () => void;
-  renderEmptyState: () => void;
   renderNodeContextMenu: () => void;
   renderNodes: () => void;
 } {
@@ -227,7 +226,6 @@ export function createWorkflowDesignerRenderController(params: {
     renderCanvas,
     renderCanvasHud,
     renderEdges,
-    renderEmptyState,
     renderNodeContextMenu,
     renderNodes,
   };

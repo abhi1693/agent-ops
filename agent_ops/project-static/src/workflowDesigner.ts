@@ -1,8 +1,4 @@
 import {
-  NODE_HEIGHT,
-  NODE_WIDTH,
-} from './workflowDesigner/constants';
-import {
   getBrowserElements,
   getCanvasElements,
   getExecutionElements,
@@ -53,23 +49,15 @@ import type {
   WorkflowCatalogPayload,
   WorkflowConnection,
   WorkflowDefinition,
-  WorkflowNodeKind,
   WorkflowNode,
   WorkflowNodeDefinition,
   WorkflowNodeTemplateField,
-  WorkflowNodeTemplateOption,
-  WorkflowPaletteSection,
   WorkflowPersistedDefinition,
 } from './workflowDesigner/types';
 import {
   cloneValue,
   createId,
-  escapeHtml,
   formatKindLabel,
-  getConfigString,
-  inferTemplateFieldInputMode,
-  getTemplateFieldOptions,
-  getTemplateFieldValue,
   isTemplateFieldVisible,
   parseJsonScript,
 } from './workflowDesigner/utils';
@@ -296,10 +284,6 @@ export function initWorkflowDesigner(): void {
     );
   }
 
-  function readExecutionInputData(): Record<string, unknown> {
-    return {};
-  }
-
   function renderSettingsPanel(): void {
     const settingsNode = getNode(getSettingsNodeId());
     const nodeDefinition = getNodeDefinition(settingsNode);
@@ -313,7 +297,7 @@ export function initWorkflowDesigner(): void {
     const activeSettingsNode = settingsNode;
     const activeNodeDefinition = nodeDefinition;
     const availableInputPaths = getAvailableInputPaths({
-      executionInputData: readExecutionInputData(),
+      executionInputData: {},
       getNode,
       nodeId: activeSettingsNode.id,
       workflowDefinition,
@@ -359,7 +343,6 @@ export function initWorkflowDesigner(): void {
     contextMenuOffsetY: NODE_CONTEXT_MENU_OFFSET_Y,
     contextMenuWidth: NODE_CONTEXT_MENU_WIDTH,
     getNode: (nodeId) => getNode(nodeId ?? null),
-    getNodeDefinition,
     getWorkflowDefinition: () => workflowDefinition,
     isValidConnection,
     nodeLayer: canvas.nodeLayer,
