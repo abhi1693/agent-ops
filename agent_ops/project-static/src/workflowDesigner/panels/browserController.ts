@@ -11,9 +11,12 @@ import {
 import type {
   AgentAuxiliaryPortId,
   Point,
+  WorkflowCatalogGroup,
+  WorkflowCatalogSection,
   WorkflowDefinition,
   WorkflowNode,
   WorkflowNodeDefinition,
+  WorkflowNodeSelectionPresentation,
   WorkflowPaletteSection,
 } from '../types';
 import {
@@ -37,8 +40,11 @@ export type WorkflowBrowserInsertDraft = {
 export function createWorkflowDesignerBrowserController(params: {
   board: HTMLElement;
   browser: BrowserElements;
+  groups: WorkflowCatalogGroup[];
+  presentation: WorkflowNodeSelectionPresentation;
   clearContextMenuState: () => void;
   clearSettingsNodeId: () => void;
+  catalogSections: WorkflowCatalogSection[];
   definitions: WorkflowNodeDefinition[];
   getAvailableSections: () => WorkflowPaletteSection[];
   getIsEmptyWorkflow: () => boolean;
@@ -68,8 +74,11 @@ export function createWorkflowDesignerBrowserController(params: {
   const {
     board,
     browser,
+    groups,
+    presentation,
     clearContextMenuState,
     clearSettingsNodeId,
+    catalogSections,
     definitions,
     getAvailableSections,
     getIsEmptyWorkflow,
@@ -101,7 +110,6 @@ export function createWorkflowDesignerBrowserController(params: {
   }
 
   function renderBrowser(): void {
-    const workflowDefinition = getWorkflowDefinition();
     const insertPort = getAgentAuxiliaryPortDefinition(insertDraft?.targetPort);
     const allowedNodeTypes = insertDraft?.allowedNodeTypes ?? null;
     const filteredSections = getAvailableSections()
@@ -115,10 +123,13 @@ export function createWorkflowDesignerBrowserController(params: {
     const browserState = renderBrowserState({
       allowedNodeTypes,
       browserView,
+      groups,
+      catalogSections,
       definitions,
       filteredSections,
       insertPort: insertPort?.id,
       isEmptyWorkflow: getIsEmptyWorkflow(),
+      presentation,
       searchQuery,
     });
 
@@ -178,27 +189,15 @@ export function createWorkflowDesignerBrowserController(params: {
       return;
     }
 
-    if (action === 'next-ai') {
-      setBrowserView({ category: 'ai', kind: 'category-details' });
+    if (action.startsWith('next-category:')) {
+      const categoryId = action.slice('next-category:'.length).trim();
+      if (!categoryId) {
+        return;
+      }
+
+      setBrowserView({ category: categoryId, kind: 'category-details' });
       renderBrowser();
       return;
-    }
-
-    if (action === 'next-data') {
-      setBrowserView({ category: 'data', kind: 'category-details' });
-      renderBrowser();
-      return;
-    }
-
-    if (action === 'next-flow') {
-      setBrowserView({ category: 'flow', kind: 'category-details' });
-      renderBrowser();
-      return;
-    }
-
-    if (action === 'next-core') {
-      setBrowserView({ category: 'core', kind: 'category-details' });
-      renderBrowser();
     }
   }
 

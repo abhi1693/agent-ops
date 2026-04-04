@@ -2,6 +2,7 @@ import { renderSettingAssistMarkup } from './settingsAssist';
 import type {
   WorkflowNode,
   WorkflowNodeDefinition,
+  WorkflowSettingsPresentation,
   WorkflowNodeTemplateField,
   WorkflowNodeTemplateOption,
 } from '../types';
@@ -38,22 +39,26 @@ export function renderSettingsSection(params: {
 }
 
 export function renderSettingsOverviewSection(params: {
+  presentation: WorkflowSettingsPresentation;
   nodeDefinitionLabel: string;
   nodeId: string;
 }): string {
+  const overviewPresentation = params.presentation.groups.overview;
+  const overviewFields = overviewPresentation.fields ?? {};
+
   return `
     <section class="workflow-editor-settings-section">
       <div class="workflow-editor-settings-section-head">
-        <div class="workflow-editor-settings-section-title">Node overview</div>
-        <div class="workflow-editor-settings-section-description">Keep the graph readable and make the node’s role obvious at a glance.</div>
+        <div class="workflow-editor-settings-section-title">${escapeHtml(overviewPresentation.title)}</div>
+        <div class="workflow-editor-settings-section-description">${escapeHtml(overviewPresentation.description)}</div>
       </div>
       <div class="workflow-editor-settings-section-body">
         <div class="workflow-editor-settings-group">
-          <div class="workflow-editor-settings-help">Type</div>
+          <div class="workflow-editor-settings-help">${escapeHtml(overviewFields.type ?? 'Type')}</div>
           <div class="workflow-editor-settings-preview">${escapeHtml(params.nodeDefinitionLabel)}</div>
         </div>
         <div class="workflow-editor-settings-group">
-          <div class="workflow-editor-settings-help">Node id</div>
+          <div class="workflow-editor-settings-help">${escapeHtml(overviewFields.node_id ?? 'Node id')}</div>
           <div class="workflow-editor-settings-expression-hint"><code>${escapeHtml(params.nodeId)}</code></div>
         </div>
       </div>
@@ -64,16 +69,20 @@ export function renderSettingsOverviewSection(params: {
 export function renderSettingsIdentitySection(params: {
   nodeId: string;
   nodeLabel: string;
+  presentation: WorkflowSettingsPresentation;
 }): string {
+  const identityPresentation = params.presentation.groups.identity;
+  const identityFields = identityPresentation.fields ?? {};
+
   return `
     <section class="workflow-editor-settings-section">
       <div class="workflow-editor-settings-section-head">
-        <div class="workflow-editor-settings-section-title">Identity</div>
-        <div class="workflow-editor-settings-section-description">Rename the node so the graph reads clearly.</div>
+        <div class="workflow-editor-settings-section-title">${escapeHtml(identityPresentation.title)}</div>
+        <div class="workflow-editor-settings-section-description">${escapeHtml(identityPresentation.description)}</div>
       </div>
       <div class="workflow-editor-settings-section-body">
         <div class="workflow-editor-settings-group">
-          <label class="form-label" for="workflow-node-label-${escapeHtml(params.nodeId)}">Node name</label>
+          <label class="form-label" for="workflow-node-label-${escapeHtml(params.nodeId)}">${escapeHtml(identityFields.node_name ?? 'Node name')}</label>
           <input
             id="workflow-node-label-${escapeHtml(params.nodeId)}"
             type="text"
@@ -93,6 +102,7 @@ export function renderNodeSettingsFieldsMarkup(params: {
   getNodeTargetOptions: () => Array<{ label: string; value: string }>;
   node: WorkflowNode;
   nodeDefinition: WorkflowNodeDefinition;
+  presentation: WorkflowSettingsPresentation;
 }): string {
   const visibleFields = params.nodeDefinition.fields.filter((field) => isTemplateFieldVisible(params.node, field));
 
@@ -107,14 +117,14 @@ export function renderNodeSettingsFieldsMarkup(params: {
       ? `
           <div class="workflow-editor-settings-label-row">
             <label class="form-label" for="${escapeHtml(fieldId)}">${escapeHtml(field.label)}</label>
-            <div class="workflow-editor-settings-mode-toggle" role="group" aria-label="${escapeHtml(`${field.label} mode`)}">
+            <div class="workflow-editor-settings-mode-toggle" role="group" aria-label="${escapeHtml(`${field.label} ${params.presentation.controls.mode_suffix}`)}">
               <button
                 type="button"
                 class="workflow-editor-settings-mode-button${fieldInputMode === 'static' ? ' is-active' : ''}"
                 data-node-setting-mode-key="${escapeHtml(field.key)}"
                 data-node-setting-mode="static"
               >
-                Static
+                ${escapeHtml(params.presentation.controls.mode_static)}
               </button>
               <button
                 type="button"
@@ -122,7 +132,7 @@ export function renderNodeSettingsFieldsMarkup(params: {
                 data-node-setting-mode-key="${escapeHtml(field.key)}"
                 data-node-setting-mode="expression"
               >
-                Expression
+                ${escapeHtml(params.presentation.controls.mode_expression)}
               </button>
             </div>
           </div>
@@ -134,7 +144,7 @@ export function renderNodeSettingsFieldsMarkup(params: {
     const expressionHint = supportsInputMode && fieldInputMode === 'expression'
       ? `
           <div class="workflow-editor-settings-expression-hint">
-            Use template syntax like <code>{{ trigger.payload.ticket_id }}</code> or <code>{{ llm.response.text }}</code>.
+            ${escapeHtml(params.presentation.controls.expression_hint)}
           </div>
         `
       : '';
@@ -212,7 +222,7 @@ export function renderNodeSettingsFieldsMarkup(params: {
             data-node-setting-key="${escapeHtml(field.key)}"
             data-node-setting-type="${escapeHtml(field.type)}"
           >
-            <option value="">Select</option>
+            <option value="">${escapeHtml(params.presentation.controls.select_placeholder)}</option>
             ${options}
           </select>
           ${helpText}
@@ -247,18 +257,18 @@ export function renderNodeSettingsFieldsMarkup(params: {
 
   return [
     renderSettingsSection({
-      title: 'Pass data in',
-      description: 'Choose Static or Expression for each input, then map trigger payload and earlier node outputs.',
+      title: params.presentation.groups.input?.title ?? 'Pass data in',
+      description: params.presentation.groups.input?.description ?? '',
       body: inputFields.map((field) => renderSettingsField(field)).join(''),
     }),
     renderSettingsSection({
-      title: 'Save result',
-      description: 'Choose where this node should read or write workflow context values.',
+      title: params.presentation.groups.result?.title ?? 'Save result',
+      description: params.presentation.groups.result?.description ?? '',
       body: resultFields.map((field) => renderSettingsField(field)).join(''),
     }),
     renderSettingsSection({
-      title: 'Other settings',
-      description: 'Provider, routing, and runtime controls for this node.',
+      title: params.presentation.groups.advanced?.title ?? 'Other settings',
+      description: params.presentation.groups.advanced?.description ?? '',
       body: advancedFields.map((field) => renderSettingsField(field)).join(''),
     }),
   ]

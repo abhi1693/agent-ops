@@ -170,9 +170,220 @@ export function initWorkflowDesigner(): void {
   const workflowDefinition = graphStore.definition;
   const workflowCatalog = parseJsonScript<WorkflowCatalogPayload>('workflow-catalog-data', {
     definitions: [],
+    groups: [],
+    presentation: {
+      chrome: {
+        browser: {
+          aria_label: 'Node browser',
+          close_label: 'Close node browser',
+          default_title: 'Add node',
+          search_label: 'Search nodes',
+        },
+        canvas: {
+          controls_aria_label: 'Canvas controls',
+          empty_state: {
+            action_aria_label: 'Add the first workflow step',
+            action_caption: 'Choose a trigger to start the workflow',
+            action_label: 'Add first step',
+          },
+          zoom: {
+            fit: 'Fit',
+            zoom_in: 'Zoom in',
+            zoom_out: 'Zoom out',
+          },
+        },
+        execution_panel: {
+          aria_label: 'Execution preview',
+          context_label: 'Context',
+          description: 'Test the selected node here, or use the toolbar to run the full workflow.',
+          empty: 'Run the selected node to inspect output, trace, and context here.',
+          output_label: 'Output',
+          title: 'Run preview',
+          trace_label: 'Trace',
+        },
+        settings_panel: {
+          aria_label: 'Node settings',
+          close_label: 'Close node settings',
+          title: 'Node settings',
+        },
+        toolbar: {
+          add_node: 'Add node',
+          back_label: 'Workflow',
+          run_workflow: 'Run workflow',
+          settings: 'Settings',
+        },
+      },
+      node_selection: {
+        app_actions: {
+          action_meta: 'Action nodes',
+          empty: 'No matching apps',
+          search_placeholder: 'Search nodes...',
+          title: 'Action in an app',
+        },
+        app_details: {
+          default_title: 'Node details',
+          empty: 'No nodes available for this app',
+          sections: {
+            actions: 'Actions',
+            triggers: 'Triggers',
+          },
+        },
+        category_details: {
+          empty_template: 'No matching {group} nodes',
+          fallback_empty: 'No matching nodes',
+          search_placeholder: 'Search nodes...',
+        },
+        common: {
+          add_description: 'Choose the next step to add to this workflow.',
+          connect_description: 'Choose the next step to connect from here.',
+          default_empty: 'No matching nodes',
+          default_search_placeholder: 'Search nodes, apps, or actions',
+          default_title: 'Add node',
+        },
+        insert: {
+          model_provider: {
+            description: 'Choose a provider-backed model node. Each one includes curated presets and an optional custom override.',
+            empty: 'No matching model providers',
+            search_placeholder: 'Search model providers',
+            title: 'Attach model provider',
+          },
+          tool: {
+            description: 'Choose any tool or integration node to attach to this agent.',
+            empty: 'No matching tools',
+            search_placeholder: 'Search tools',
+            title: 'Attach tool',
+          },
+        },
+        next_step_root: {
+          empty: 'No matching node categories',
+          items: {
+            app_action: {
+              description: 'Do something in an app or service like Elasticsearch or Prometheus.',
+              label: 'Action in an app',
+            },
+          },
+          search_placeholder: 'Search nodes...',
+          title: 'What happens next?',
+        },
+        trigger_apps: {
+          empty: 'No matching apps',
+          search_placeholder: 'Search nodes...',
+          title: 'On app event',
+          trigger_meta: 'Trigger nodes',
+        },
+        trigger_root: {
+          additional: {
+            description: 'Triggers start your workflow. Workflows can have multiple triggers.',
+            label: 'Add another trigger',
+          },
+          empty: 'No matching triggers',
+          initial: {
+            description: 'A trigger is a step that starts your workflow',
+            title: 'What triggers this workflow?',
+          },
+          items: {
+            app_event: {
+              description: 'Start the workflow from an event in one of your apps.',
+            },
+            manual: {
+              label: 'Trigger manually',
+            },
+            schedule: {
+              label: 'On a schedule',
+            },
+          },
+          search_placeholder: 'Search nodes...',
+        },
+      },
+      execution: {
+        default_status: {
+          badge_class: 'text-bg-secondary',
+          label: 'Idle',
+        },
+        messages: {
+          execution_failed: 'Execution failed.',
+          poll_timeout: 'Workflow run polling timed out.',
+          status_fetch_failed: 'Unable to fetch run status.',
+        },
+        result_labels: {
+          node_run: 'Node run',
+          workflow_run: 'Workflow run',
+        },
+        run_button: {
+          idle: 'Run node',
+          running: 'Running node',
+        },
+        running_status: {
+          node: 'Running node',
+          workflow: 'Running workflow',
+        },
+        statuses: {
+          failed: {
+            badge_class: 'text-bg-danger',
+            label: 'Failed',
+          },
+          pending: {
+            badge_class: 'text-bg-secondary',
+            label: 'Queued',
+          },
+          running: {
+            badge_class: 'text-bg-primary',
+            label: 'Running',
+          },
+          succeeded: {
+            badge_class: 'text-bg-success',
+            label: 'Completed',
+          },
+        },
+      },
+      settings: {
+        controls: {
+          expression_hint: 'Use template syntax like {{ trigger.payload.ticket_id }} or {{ llm.response.text }}.',
+          mode_expression: 'Expression',
+          mode_static: 'Static',
+          mode_suffix: 'mode',
+          select_placeholder: 'Select',
+        },
+        empty: 'No editable settings for this node yet.',
+        groups: {
+          advanced: {
+            description: 'Provider, routing, and runtime controls for this node.',
+            title: 'Other settings',
+          },
+          identity: {
+            description: 'Rename the node so the graph reads clearly.',
+            fields: {
+              node_name: 'Node name',
+            },
+            title: 'Identity',
+          },
+          input: {
+            description: 'Choose Static or Expression for each input, then map trigger payload and earlier node outputs.',
+            title: 'Pass data in',
+          },
+          overview: {
+            description: 'Keep the graph readable and make the node’s role obvious at a glance.',
+            fields: {
+              node_id: 'Node id',
+              type: 'Type',
+            },
+            title: 'Node overview',
+          },
+          result: {
+            description: 'Choose where this node should read or write workflow context values.',
+            title: 'Save result',
+          },
+        },
+      },
+    },
+    sections: [],
   });
   const workflowConnections = parseJsonScript<WorkflowConnection[]>('workflow-connections-data', []);
-  const nodeRegistry = buildNodeRegistry(workflowCatalog.definitions, workflowConnections);
+  const nodeRegistry = buildNodeRegistry(
+    workflowCatalog.definitions,
+    workflowConnections,
+    workflowCatalog.sections,
+  );
   let renderCanvas = (): void => {};
   let renderCanvasHud = (): void => {};
   let renderEdges = (): void => {};
@@ -308,6 +519,7 @@ export function initWorkflowDesigner(): void {
       getNodeTargetOptions: () => getNodeTargetOptions(activeSettingsNode, workflowDefinition),
       node: activeSettingsNode,
       nodeDefinition: activeNodeDefinition,
+      presentation: workflowCatalog.presentation.settings,
     });
 
     const description = nodeDefinition.description || nodeDefinition.label;
@@ -318,12 +530,14 @@ export function initWorkflowDesigner(): void {
       ${renderSettingsOverviewSection({
         nodeDefinitionLabel: nodeDefinition.label,
         nodeId: settingsNode.id,
+        presentation: workflowCatalog.presentation.settings,
       })}
       ${renderSettingsIdentitySection({
         nodeId: settingsNode.id,
         nodeLabel: settingsNode.label,
+        presentation: workflowCatalog.presentation.settings,
       })}
-      ${fieldMarkup || '<div class="workflow-editor-settings-empty">No editable settings for this node yet.</div>'}
+      ${fieldMarkup || `<div class="workflow-editor-settings-empty">${workflowCatalog.presentation.settings.empty}</div>`}
     `;
     renderExecutionNodeAction();
   }
@@ -389,6 +603,7 @@ export function initWorkflowDesigner(): void {
     buildExecutionRequestBody,
     csrfToken,
     execution,
+    executionPresentation: workflowCatalog.presentation.execution,
     getInitialExecutionNodeId,
     getNode: (nodeId) => getNode(nodeId ?? null),
     getSelectedNodeId,
@@ -447,6 +662,7 @@ export function initWorkflowDesigner(): void {
     browser,
     clearContextMenuState,
     clearSettingsNodeId: () => setSettingsNodeId(null),
+    catalogSections: workflowCatalog.sections,
     definitions: nodeRegistry.definitions,
     getAvailableSections: () => getAvailablePaletteSections(nodeRegistry, workflowDefinition),
     getIsEmptyWorkflow: isEmptyWorkflow,
@@ -455,6 +671,8 @@ export function initWorkflowDesigner(): void {
     initialIsOpen: workflowDefinition.nodes.length === 0,
     initialView: getDefaultBrowserView(workflowDefinition.nodes.length === 0),
     openNodeSettings,
+    groups: workflowCatalog.groups,
+    presentation: workflowCatalog.presentation.node_selection,
     renderCanvas,
     renderNodeContextMenu,
     renderSettingsPanel,

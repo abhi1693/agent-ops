@@ -177,6 +177,28 @@ class WorkflowAPITests(TestCase):
         self.assertIn("openrouter.model.chat", node_types)
         self.assertIn("xai.model.chat", node_types)
         self.assertIn("fireworks.model.chat", node_types)
+        self.assertEqual(
+            [section["id"] for section in payload["sections"]],
+            ["triggers", "flow", "data", "apps"],
+        )
+        self.assertEqual(
+            [category["id"] for category in payload["groups"]],
+            ["ai", "data", "flow", "core"],
+        )
+        self.assertEqual(payload["presentation"]["chrome"]["toolbar"]["add_node"], "Add node")
+        self.assertEqual(
+            payload["presentation"]["node_selection"]["trigger_root"]["additional"]["label"],
+            "Add another trigger",
+        )
+        self.assertEqual(payload["presentation"]["settings"]["groups"]["input"]["title"], "Pass data in")
+        self.assertEqual(payload["presentation"]["execution"]["statuses"]["running"]["label"], "Running")
+        definition_by_type = {
+            item["type"]: item
+            for item in payload["definitions"]
+        }
+        self.assertEqual(definition_by_type["core.manual_trigger"]["group"], "trigger")
+        self.assertEqual(definition_by_type["github.trigger.webhook"]["group"], "app_trigger")
+        self.assertEqual(definition_by_type["openai.model.chat"]["group"], "app_action")
 
     def test_workflow_connections_endpoint_is_scope_filtered(self):
         WorkflowConnection.objects.create(

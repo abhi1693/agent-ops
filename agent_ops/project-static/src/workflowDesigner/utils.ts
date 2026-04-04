@@ -1,6 +1,5 @@
 import type {
   WorkflowNode,
-  WorkflowNodeDefinition,
   WorkflowNodeTemplateOption,
   WorkflowNodeTemplateField,
 } from './types';
@@ -91,56 +90,6 @@ export function formatCount(value: number, singular: string, plural = `${singula
 
 export function isNodeDisabled(node: WorkflowNode | undefined): boolean {
   return Boolean(node?.config && node.config['disabled']);
-}
-
-export function getNodeStatusLabel(node: WorkflowNode | undefined, isRunning = false): string {
-  if (!node) {
-    return 'Idle';
-  }
-  if (isRunning) {
-    return 'Running';
-  }
-  if (isNodeDisabled(node)) {
-    return 'Disabled';
-  }
-  return 'Ready';
-}
-
-export function getNodeSubtitle(
-  node: WorkflowNode,
-  template?: WorkflowNodeDefinition,
-): string {
-  if (node.kind === 'trigger') {
-    return template?.label ?? 'Workflow entry point';
-  }
-
-  if (node.kind === 'tool') {
-    return template?.label ?? 'Runs a workflow tool';
-  }
-
-  if (node.kind === 'condition') {
-    const path = getConfigString(node.config, 'path');
-    const operator = getConfigString(node.config, 'operator');
-    if (path && operator) {
-      return `${path} • ${formatKindLabel(operator)}`;
-    }
-    if (path) {
-      return path;
-    }
-    return 'Branches workflow execution';
-  }
-
-  if (node.kind === 'response') {
-    const status = getConfigString(node.config, 'status');
-    return status ? `Marks run as ${status.replace(/_/g, ' ')}` : 'Completes the workflow';
-  }
-
-  if (node.kind === 'agent') {
-    const outputKey = getConfigString(node.config, 'output_key');
-    return outputKey ? `Agent orchestration • Writes to ${outputKey}` : 'Agent orchestration';
-  }
-
-  return 'Custom workflow node';
 }
 
 export function isTemplateFieldVisible(

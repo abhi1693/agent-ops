@@ -38,7 +38,7 @@
         <div class="workflow-editor-toolbar-leading">
           <a href="{{ workflow_detail_url }}" class="workflow-editor-toolbar-back">
             <i class="mdi mdi-arrow-left"></i>
-            <span class="ms-1">Workflow</span>
+            <span class="ms-1">{{ workflow_catalog.presentation.chrome.toolbar.back_label }}</span>
           </a>
           <h1 class="workflow-editor-toolbar-title">{{ object }}</h1>
         </div>
@@ -46,16 +46,16 @@
         <div class="workflow-editor-toolbar-actions">
           <button type="button" class="btn btn-outline-secondary" data-open-node-browser>
             <i class="mdi mdi-plus"></i>
-            <span class="ms-1">Add node</span>
+            <span class="ms-1">{{ workflow_catalog.presentation.chrome.toolbar.add_node }}</span>
           </button>
           <a href="{{ workflow_edit_url }}" class="btn btn-outline-secondary">
             <i class="mdi mdi-cog-outline"></i>
-            <span class="ms-1">Settings</span>
+            <span class="ms-1">{{ workflow_catalog.presentation.chrome.toolbar.settings }}</span>
           </a>
           {% if can_execute %}
             <button type="button" class="btn btn-outline-primary" data-workflow-run>
               <i class="mdi mdi-play-circle-outline"></i>
-              <span class="ms-1">Run workflow</span>
+              <span class="ms-1">{{ workflow_catalog.presentation.chrome.toolbar.run_workflow }}</span>
             </button>
           {% endif %}
           <button type="submit" class="btn btn-primary">
@@ -67,7 +67,7 @@
 
       <section class="workflow-editor-canvas-shell">
         <div class="workflow-editor-canvas" data-workflow-board>
-          <div class="workflow-editor-hud" aria-label="Canvas controls">
+          <div class="workflow-editor-hud" aria-label="{{ workflow_catalog.presentation.chrome.canvas.controls_aria_label }}">
             <div class="workflow-editor-hud-group">
               <button
                 type="button"
@@ -75,13 +75,13 @@
                 data-workflow-fit-view
               >
                 <i class="mdi mdi-fit-to-page-outline"></i>
-                <span>Fit</span>
+                <span>{{ workflow_catalog.presentation.chrome.canvas.zoom.fit }}</span>
               </button>
               <button
                 type="button"
                 class="workflow-editor-hud-button"
                 data-workflow-zoom-out
-                aria-label="Zoom out"
+                aria-label="{{ workflow_catalog.presentation.chrome.canvas.zoom.zoom_out }}"
               >
                 <i class="mdi mdi-magnify-minus-outline"></i>
               </button>
@@ -90,7 +90,7 @@
                 type="button"
                 class="workflow-editor-hud-button"
                 data-workflow-zoom-in
-                aria-label="Zoom in"
+                aria-label="{{ workflow_catalog.presentation.chrome.canvas.zoom.zoom_in }}"
               >
                 <i class="mdi mdi-magnify-plus-outline"></i>
               </button>
@@ -108,13 +108,13 @@
                 type="button"
                 class="workflow-editor-empty-state-action"
                 data-open-empty-browser
-                aria-label="Add the first workflow step"
+                aria-label="{{ workflow_catalog.presentation.chrome.canvas.empty_state.action_aria_label }}"
               >
                 <span class="workflow-editor-empty-state-action-icon" aria-hidden="true">
                   <i class="mdi mdi-plus"></i>
                 </span>
-                <span class="workflow-editor-empty-state-action-label">Add first step</span>
-                <span class="workflow-editor-empty-state-action-caption">Choose a trigger to start the workflow</span>
+                <span class="workflow-editor-empty-state-action-label">{{ workflow_catalog.presentation.chrome.canvas.empty_state.action_label }}</span>
+                <span class="workflow-editor-empty-state-action-caption">{{ workflow_catalog.presentation.chrome.canvas.empty_state.action_caption }}</span>
               </button>
             </div>
           </div>
@@ -128,24 +128,24 @@
               type="button"
               class="workflow-editor-settings-backdrop"
               data-close-node-settings
-              aria-label="Close node settings"
+              aria-label="{{ workflow_catalog.presentation.chrome.settings_panel.close_label }}"
             ></button>
 
             <section
               class="workflow-editor-settings-sheet"
-              aria-label="Node settings"
+              aria-label="{{ workflow_catalog.presentation.chrome.settings_panel.aria_label }}"
               aria-modal="true"
               role="dialog"
             >
               <header class="workflow-editor-settings-head">
                 <div class="workflow-editor-settings-title-row">
                   <div class="workflow-editor-settings-title-copy">
-                    <h2 class="workflow-editor-settings-title" data-workflow-settings-title>Node settings</h2>
+                    <h2 class="workflow-editor-settings-title" data-workflow-settings-title>{{ workflow_catalog.presentation.chrome.settings_panel.title }}</h2>
                     <div class="workflow-editor-settings-description" data-workflow-settings-description></div>
                   </div>
                   <div class="workflow-editor-settings-actions">
                     {% if can_execute %}
-                      <span class="badge text-bg-secondary" data-workflow-execution-status>Idle</span>
+                      <span class="badge text-bg-secondary" data-workflow-execution-status>{{ workflow_catalog.presentation.execution.default_status.label }}</span>
                       <button
                         type="button"
                         class="btn btn-outline-primary btn-sm"
@@ -153,14 +153,14 @@
                         hidden
                       >
                         <i class="mdi mdi-play"></i>
-                        <span class="ms-1">Run node</span>
+                        <span class="ms-1">{{ workflow_catalog.presentation.execution.run_button.idle }}</span>
                       </button>
                     {% endif %}
                     <button
                       type="button"
                       class="workflow-editor-settings-close"
                       data-close-node-settings
-                      aria-label="Close node settings"
+                      aria-label="{{ workflow_catalog.presentation.chrome.settings_panel.close_label }}"
                     >
                       <i class="mdi mdi-close"></i>
                     </button>
@@ -171,12 +171,12 @@
               <div class="workflow-editor-settings-content">
                 <div class="workflow-editor-settings-body" data-workflow-settings-fields></div>
                 {% if can_execute %}
-                  <aside class="workflow-editor-execution-panel" aria-label="Execution preview">
+                  <aside class="workflow-editor-execution-panel" aria-label="{{ workflow_catalog.presentation.chrome.execution_panel.aria_label }}">
                     <div class="workflow-editor-execution-card">
                       <div class="workflow-editor-execution-copy">
-                        <h3 class="workflow-editor-execution-title">Run preview</h3>
+                        <h3 class="workflow-editor-execution-title">{{ workflow_catalog.presentation.chrome.execution_panel.title }}</h3>
                         <div class="workflow-editor-execution-description">
-                          Test the selected node here, or use the toolbar to run the full workflow.
+                          {{ workflow_catalog.presentation.chrome.execution_panel.description }}
                         </div>
                       </div>
 
@@ -184,31 +184,31 @@
 
                       <div class="workflow-editor-execution-result-wrap">
                         <div class="empty-state" data-workflow-execution-empty>
-                          Run the selected node to inspect output, trace, and context here.
+                          {{ workflow_catalog.presentation.chrome.execution_panel.empty }}
                         </div>
                         <div data-workflow-execution-result hidden>
                           <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
                             <div>
-                              <div class="fw-semibold" data-workflow-execution-title>Workflow run</div>
+                              <div class="fw-semibold" data-workflow-execution-title>{{ workflow_catalog.presentation.execution.result_labels.workflow_run }}</div>
                               <div class="text-secondary small" data-workflow-execution-summary></div>
                             </div>
-                            <span class="badge text-bg-secondary" data-workflow-execution-badge>Idle</span>
+                            <span class="badge text-bg-secondary" data-workflow-execution-badge>{{ workflow_catalog.presentation.execution.default_status.label }}</span>
                           </div>
 
                           <div class="alert alert-danger mb-3" role="alert" data-workflow-execution-run-error hidden></div>
 
                           <div class="mb-3">
-                            <div class="text-secondary mb-1">Output</div>
+                            <div class="text-secondary mb-1">{{ workflow_catalog.presentation.chrome.execution_panel.output_label }}</div>
                             <pre class="workflow-json-preview mb-0" data-workflow-execution-output></pre>
                           </div>
 
                           <div class="mb-3">
-                            <div class="text-secondary mb-1">Trace</div>
+                            <div class="text-secondary mb-1">{{ workflow_catalog.presentation.chrome.execution_panel.trace_label }}</div>
                             <pre class="workflow-json-preview mb-0" data-workflow-execution-trace></pre>
                           </div>
 
                           <div>
-                            <div class="text-secondary mb-1">Context</div>
+                            <div class="text-secondary mb-1">{{ workflow_catalog.presentation.chrome.execution_panel.context_label }}</div>
                             <pre class="workflow-json-preview mb-0" data-workflow-execution-context></pre>
                           </div>
                         </div>
@@ -223,7 +223,7 @@
           <section
             class="workflow-node-browser"
             data-node-browser
-            aria-label="Node browser"
+            aria-label="{{ workflow_catalog.presentation.chrome.browser.aria_label }}"
             hidden
           >
             <header class="workflow-node-browser-head">
@@ -238,14 +238,14 @@
                   <i class="mdi mdi-arrow-left"></i>
                 </button>
                 <div class="workflow-node-browser-title-copy">
-                  <h2 class="workflow-node-browser-title" data-node-browser-title>Add node</h2>
+                  <h2 class="workflow-node-browser-title" data-node-browser-title>{{ workflow_catalog.presentation.chrome.browser.default_title }}</h2>
                   <div class="workflow-node-browser-description" data-node-browser-description hidden></div>
                 </div>
                 <button
                   type="button"
                   class="workflow-node-browser-close"
                   data-close-node-browser
-                  aria-label="Close node browser"
+                  aria-label="{{ workflow_catalog.presentation.chrome.browser.close_label }}"
                 >
                   <i class="mdi mdi-close"></i>
                 </button>
@@ -261,7 +261,7 @@
                   id="workflow-node-browser-search"
                   type="search"
                   class="workflow-node-browser-search"
-                  placeholder="Search nodes"
+                  placeholder="{{ workflow_catalog.presentation.chrome.browser.search_label }}"
                   data-node-browser-search
                 >
               </label>

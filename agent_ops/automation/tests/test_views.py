@@ -413,8 +413,33 @@ class WorkflowViewTests(TestCase):
             for item in response.context["workflow_catalog"]["definitions"]
             if item["type"] == "openai.model.chat"
         )
+        self.assertEqual(
+            [section["id"] for section in response.context["workflow_catalog"]["sections"]],
+            ["triggers", "flow", "data", "apps"],
+        )
+        self.assertEqual(
+            [category["id"] for category in response.context["workflow_catalog"]["groups"]],
+            ["ai", "data", "flow", "core"],
+        )
+        self.assertEqual(
+            response.context["workflow_catalog"]["presentation"]["settings"]["groups"]["identity"]["title"],
+            "Identity",
+        )
+        self.assertEqual(
+            response.context["workflow_catalog"]["presentation"]["node_selection"]["app_actions"]["title"],
+            "Action in an app",
+        )
+        self.assertEqual(
+            response.context["workflow_catalog"]["presentation"]["execution"]["run_button"]["idle"],
+            "Run node",
+        )
+        self.assertEqual(
+            response.context["workflow_catalog"]["presentation"]["chrome"]["settings_panel"]["title"],
+            "Node settings",
+        )
         self.assertEqual(catalog_definition["connection_type"], "openai.api")
         self.assertEqual(catalog_definition["app_label"], "OpenAI")
+        self.assertEqual(catalog_definition["group"], "app_action")
 
     def test_workflow_connection_list_is_scoped_for_members(self):
         WorkflowConnection.objects.create(

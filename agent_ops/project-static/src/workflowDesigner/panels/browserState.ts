@@ -1,14 +1,14 @@
 import type {
   AgentAuxiliaryPortId,
-  WorkflowNodeCatalogSection,
+  WorkflowCatalogGroup,
+  WorkflowNodeSelectionPresentation,
+  WorkflowCatalogSection,
   WorkflowNodeDefinition,
   WorkflowPaletteSection,
 } from '../types';
 import { escapeHtml, formatKindLabel } from '../utils';
 import { isModelDefinition } from '../registry/modelDefinitions';
 import { renderPaletteDefinitions, renderPaletteSections } from './browserPanel';
-
-export type NextStepCategoryId = 'ai' | 'data' | 'flow' | 'core';
 
 export type BrowserView =
   | {
@@ -28,7 +28,7 @@ export type BrowserView =
       kind: 'app-details';
     }
   | {
-      category: NextStepCategoryId;
+      category: string;
       kind: 'category-details';
     }
   | {
@@ -54,8 +54,11 @@ type BrowserRenderHelpers = {
 export type BrowserRenderParams = BrowserRenderHelpers & {
   allowedNodeTypes: string[] | null;
   browserView: BrowserView;
+  groups: WorkflowCatalogGroup[];
+  catalogSections: WorkflowCatalogSection[];
   insertPort: AgentAuxiliaryPortId | undefined;
   isEmptyWorkflow: boolean;
+  presentation: WorkflowNodeSelectionPresentation;
   searchQuery: string;
 };
 
@@ -67,33 +70,6 @@ export type BrowserRenderResult = {
   searchPlaceholder: string;
   showBackButton: boolean;
   title: string;
-};
-
-const NEXT_STEP_CATEGORY_META: Record<NextStepCategoryId, {
-  description: string;
-  icon: string;
-  label: string;
-}> = {
-  ai: {
-    description: 'Build autonomous agents, summarize or search documents, etc.',
-    icon: 'mdi-robot-outline',
-    label: 'AI',
-  },
-  data: {
-    description: 'Manipulate, filter or convert data',
-    icon: 'mdi-pencil-outline',
-    label: 'Data transformation',
-  },
-  flow: {
-    description: 'Branch, merge or control the flow.',
-    icon: 'mdi-source-branch',
-    label: 'Flow',
-  },
-  core: {
-    description: 'Run built-in workflow steps.',
-    icon: 'mdi-toolbox-outline',
-    label: 'Core',
-  },
 };
 
 export function getDefaultBrowserView(isEmptyWorkflow: boolean): BrowserView {
@@ -128,20 +104,17 @@ export function getPreviousBrowserView(
 }
 
 export function getCatalogSectionLabel(
-  catalogSection: WorkflowNodeCatalogSection | string | null | undefined,
+  catalogSections: WorkflowCatalogSection[],
+  catalogSection: string | null | undefined,
 ): string | null {
-  switch (catalogSection) {
-    case 'triggers':
-      return 'Triggers';
-    case 'flow':
-      return 'Flow';
-    case 'data':
-      return 'Data';
-    case 'apps':
-      return 'Apps';
-    default:
-      return null;
-  }
+  return catalogSections.find((section) => section.id === catalogSection)?.label ?? null;
+}
+
+function getCatalogGroup(
+  groups: WorkflowCatalogGroup[],
+  categoryId: string,
+): WorkflowCatalogGroup | undefined {
+  return groups.find((category) => category.id === categoryId);
 }
 
 function filterNodeDefinitions(
@@ -239,7 +212,10 @@ function renderBrowserListItem(params: BrowserListItemParams): string {
   `;
 }
 
-function renderBrowserDefinitionList(definitions: WorkflowNodeDefinition[]): string {
+function renderBrowserDefinitionList(
+  definitions: WorkflowNodeDefinition[],
+  catalogSections: WorkflowCatalogSection[],
+): string {
   return definitions
     .map((definition) =>
       renderBrowserListItem({
@@ -250,7 +226,9 @@ function renderBrowserDefinitionList(definitions: WorkflowNodeDefinition[]): str
         icon: definition.icon,
         isModelProvider: isModelDefinition(definition),
         label: definition.label,
-        meta: definition.catalog_section ? getCatalogSectionLabel(definition.catalog_section) ?? undefined : undefined,
+        meta: definition.catalog_section
+          ? getCatalogSectionLabel(catalogSections, definition.catalog_section) ?? undefined
+          : undefined,
       }))
     .join('');
 }
@@ -277,60 +255,38 @@ function getAppNodeDefinitions(
 
 function getAppTriggerDefinitions(definitions: WorkflowNodeDefinition[]): WorkflowNodeDefinition[] {
   return definitions.filter(
-    (definition) => definition.kind === 'trigger' && getRealAppId(definition) !== '' && getRealAppId(definition) !== 'core',
+    (definition) => definition.group === 'app_trigger',
   );
 }
 
 function getAppActionDefinitions(definitions: WorkflowNodeDefinition[]): WorkflowNodeDefinition[] {
-  return definitions.filter((definition) =>
-    getRealAppId(definition) !== ''
-    && getRealAppId(definition) !== 'core'
-    && definition.kind !== 'trigger'
-    && !isModelDefinition(definition));
+  return definitions.filter(
+    (definition) => definition.group === 'app_action' && !isModelDefinition(definition),
+  );
 }
 
 function getNextStepCategoryDefinitions(
-  category: NextStepCategoryId,
+  categoryId: string,
   definitions: WorkflowNodeDefinition[],
 ): WorkflowNodeDefinition[] {
-  if (category === 'ai') {
-    return definitions
-      .filter((definition) => definition.kind === 'agent')
-      .sort((first, second) => first.label.localeCompare(second.label));
-  }
-
-  if (category === 'data') {
-    return definitions
-      .filter((definition) => definition.catalog_section === 'data')
-      .sort((first, second) => first.label.localeCompare(second.label));
-  }
-
-  if (category === 'flow') {
-    return definitions
-      .filter((definition) => definition.kind === 'condition')
-      .sort((first, second) => first.label.localeCompare(second.label));
-  }
-
   return definitions
-    .filter((definition) => {
-      const appId = getRealAppId(definition);
-      return (appId === '' || appId === 'core')
-        && definition.kind !== 'trigger'
-        && definition.kind !== 'agent'
-        && definition.kind !== 'condition'
-        && !isModelDefinition(definition)
-        && definition.catalog_section !== 'data';
-    })
+    .filter((definition) => definition.group === categoryId)
     .sort((first, second) => first.label.localeCompare(second.label));
+}
+
+function formatPresentationText(template: string, values: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
 }
 
 export function renderBrowserState(params: BrowserRenderParams): BrowserRenderResult {
   const availableDefinitions = params.allowedNodeTypes
     ? params.definitions.filter((definition) => params.allowedNodeTypes?.includes(definition.type))
     : params.definitions;
+  const nodeSelection = params.presentation;
   const browserRenderHelpers = {
     formatKindLabel,
-    getCatalogSectionLabel,
+    getCatalogSectionLabel: (catalogSection: string | null | undefined) =>
+      getCatalogSectionLabel(params.catalogSections, catalogSection),
     isModelProvider: isModelDefinition,
   };
   const renderDefinitions = (definitions: WorkflowNodeDefinition[]): string =>
@@ -346,13 +302,13 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
       renderDefinitions,
     );
 
-  let title = 'Add node';
+  let title = nodeSelection.common.default_title;
   let description = params.insertPort
-    ? 'Choose the next step to connect from here.'
-    : 'Choose the next step to add to this workflow.';
-  let emptyMessage = 'No matching nodes';
+    ? nodeSelection.common.connect_description
+    : nodeSelection.common.add_description;
+  let emptyMessage = nodeSelection.common.default_empty;
   let markup = renderSections(params.filteredSections);
-  let searchPlaceholder = 'Search nodes, apps, or actions';
+  let searchPlaceholder = nodeSelection.common.default_search_placeholder;
   let hideSearch = false;
 
   if (params.browserView.kind === 'trigger-root') {
@@ -367,14 +323,14 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
         appId: getRealAppId(manualTrigger),
         description: manualTrigger.description,
         icon: 'mdi-cursor-default-click-outline',
-        label: 'Trigger manually',
+        label: nodeSelection.trigger_root.items.manual.label,
       })] : []),
       ...(appTriggerDefinitions.length > 0 ? [renderBrowserListItem({
         action: 'navigate',
         actionValue: 'trigger-apps',
-        description: 'Start the workflow from an event in one of your apps.',
+        description: nodeSelection.trigger_root.items.app_event.description,
         icon: 'mdi-connection',
-        label: 'On app event',
+        label: nodeSelection.trigger_apps.title,
       })] : []),
       ...(scheduleTrigger ? [renderBrowserListItem({
         action: 'select',
@@ -382,7 +338,7 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
         appId: getRealAppId(scheduleTrigger),
         description: scheduleTrigger.description,
         icon: 'mdi-clock-outline',
-        label: 'On a schedule',
+        label: nodeSelection.trigger_root.items.schedule.label,
       })] : []),
       ...triggerDefinitions
         .filter((definition) =>
@@ -404,12 +360,14 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
       ? rootItems
       : rootItems.filter((itemMarkup) => itemMarkup.toLowerCase().includes(normalizedQuery));
 
-    title = params.browserView.backTo === 'next-step-root' ? 'Add another trigger' : 'What triggers this workflow?';
+    title = params.browserView.backTo === 'next-step-root'
+      ? nodeSelection.trigger_root.additional.label
+      : nodeSelection.trigger_root.initial.title;
     description = params.browserView.backTo === 'next-step-root'
-      ? 'Triggers start your workflow. Workflows can have multiple triggers.'
-      : 'A trigger is a step that starts your workflow';
-    emptyMessage = 'No matching triggers';
-    searchPlaceholder = 'Search nodes...';
+      ? nodeSelection.trigger_root.additional.description
+      : nodeSelection.trigger_root.initial.description;
+    emptyMessage = nodeSelection.trigger_root.empty;
+    searchPlaceholder = nodeSelection.trigger_root.search_placeholder;
     markup = filteredItems.join('');
   } else if (params.browserView.kind === 'trigger-apps') {
     const appItems = Array.from(
@@ -447,10 +405,10 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
           second.definition.app_label ?? second.definition.label,
         ));
 
-    title = 'On app event';
+    title = nodeSelection.trigger_apps.title;
     description = '';
-    emptyMessage = 'No matching apps';
-    searchPlaceholder = 'Search nodes...';
+    emptyMessage = nodeSelection.trigger_apps.empty;
+    searchPlaceholder = nodeSelection.trigger_apps.search_placeholder;
     markup = appItems
       .map(({ appId, definition }) =>
         renderBrowserListItem({
@@ -460,7 +418,7 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
           description: definition.app_description || definition.description,
           icon: definition.app_icon || definition.icon,
           label: definition.app_label || definition.label,
-          meta: 'Trigger nodes',
+          meta: nodeSelection.trigger_apps.trigger_meta,
         }))
       .join('');
   } else if (params.browserView.kind === 'app-details') {
@@ -472,17 +430,17 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
       ? [{
         count: triggerDefinitions.length,
         definitions: triggerDefinitions,
-        title: 'Triggers',
+        title: nodeSelection.app_details.sections.triggers,
       }]
       : [{
         count: actionDefinitions.length,
         definitions: actionDefinitions,
-        title: 'Actions',
+        title: nodeSelection.app_details.sections.actions,
       }];
 
-    title = appDefinition?.app_label || appDefinition?.label || 'Node details';
+    title = appDefinition?.app_label || appDefinition?.label || nodeSelection.app_details.default_title;
     description = appDefinition?.app_description || '';
-    emptyMessage = 'No nodes available for this app';
+    emptyMessage = nodeSelection.app_details.empty;
     hideSearch = true;
     markup = appDefinitions.length > 0
       ? `
@@ -492,7 +450,7 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
               .map((section) => `
                 <section class="workflow-node-browser-detail-section">
                   <div class="workflow-node-browser-detail-title">${section.title} (${section.count})</div>
-                  <div class="workflow-node-browser-grid">${renderBrowserDefinitionList(section.definitions)}</div>
+                  <div class="workflow-node-browser-grid">${renderBrowserDefinitionList(section.definitions, params.catalogSections)}</div>
                 </section>
               `)
               .join('')}
@@ -500,14 +458,14 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
         `
       : '';
   } else if (params.insertPort) {
-    title = params.insertPort === 'ai_languageModel' ? 'Attach model provider' : 'Attach tool';
-    description = params.insertPort === 'ai_languageModel'
-      ? 'Choose a provider-backed model node. Each one includes curated presets and an optional custom override.'
-      : 'Choose any tool or integration node to attach to this agent.';
-    emptyMessage = params.insertPort === 'ai_languageModel'
-      ? 'No matching model providers'
-      : 'No matching tools';
-    searchPlaceholder = params.insertPort === 'ai_languageModel' ? 'Search model providers' : 'Search tools';
+    const insertPresentation = params.insertPort === 'ai_languageModel'
+      ? nodeSelection.insert.model_provider
+      : nodeSelection.insert.tool;
+
+    title = insertPresentation.title;
+    description = insertPresentation.description;
+    emptyMessage = insertPresentation.empty;
+    searchPlaceholder = insertPresentation.search_placeholder;
     if (params.insertPort === 'ai_languageModel') {
       const modelDefinitions = filterNodeDefinitions(
         availableDefinitions.filter((definition) => isModelDefinition(definition)),
@@ -519,48 +477,31 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
     }
   } else if (params.browserView.kind === 'next-step-root') {
     const actionDefinitions = getAppActionDefinitions(availableDefinitions);
+    const categoryItems = params.groups
+      .filter((category) => getNextStepCategoryDefinitions(category.id, availableDefinitions).length > 0)
+      .map((category) =>
+        renderBrowserListItem({
+          action: 'navigate',
+          actionValue: `next-category:${category.id}`,
+          description: category.description,
+          icon: category.icon,
+          label: category.label,
+        }));
     const rootItems = [
-      ...(getNextStepCategoryDefinitions('ai', availableDefinitions).length > 0 ? [renderBrowserListItem({
-        action: 'navigate',
-        actionValue: 'next-ai',
-        description: NEXT_STEP_CATEGORY_META.ai.description,
-        icon: NEXT_STEP_CATEGORY_META.ai.icon,
-        label: NEXT_STEP_CATEGORY_META.ai.label,
-      })] : []),
+      ...categoryItems,
       ...(actionDefinitions.length > 0 ? [renderBrowserListItem({
         action: 'navigate',
         actionValue: 'app-actions',
-        description: 'Do something in an app or service like Elasticsearch or Prometheus.',
+        description: nodeSelection.next_step_root.items.app_action.description,
         icon: 'mdi-earth',
-        label: 'Action in an app',
-      })] : []),
-      ...(getNextStepCategoryDefinitions('data', availableDefinitions).length > 0 ? [renderBrowserListItem({
-        action: 'navigate',
-        actionValue: 'next-data',
-        description: NEXT_STEP_CATEGORY_META.data.description,
-        icon: NEXT_STEP_CATEGORY_META.data.icon,
-        label: NEXT_STEP_CATEGORY_META.data.label,
-      })] : []),
-      ...(getNextStepCategoryDefinitions('flow', availableDefinitions).length > 0 ? [renderBrowserListItem({
-        action: 'navigate',
-        actionValue: 'next-flow',
-        description: NEXT_STEP_CATEGORY_META.flow.description,
-        icon: NEXT_STEP_CATEGORY_META.flow.icon,
-        label: NEXT_STEP_CATEGORY_META.flow.label,
-      })] : []),
-      ...(getNextStepCategoryDefinitions('core', availableDefinitions).length > 0 ? [renderBrowserListItem({
-        action: 'navigate',
-        actionValue: 'next-core',
-        description: NEXT_STEP_CATEGORY_META.core.description,
-        icon: NEXT_STEP_CATEGORY_META.core.icon,
-        label: NEXT_STEP_CATEGORY_META.core.label,
+        label: nodeSelection.next_step_root.items.app_action.label,
       })] : []),
       ...(availableDefinitions.some((definition) => definition.kind === 'trigger') ? [renderBrowserListItem({
         action: 'navigate',
         actionValue: 'trigger-root',
-        description: 'Triggers start your workflow. Workflows can have multiple triggers.',
+        description: nodeSelection.trigger_root.additional.description,
         icon: 'mdi-lightning-bolt-outline',
-        label: 'Add another trigger',
+        label: nodeSelection.trigger_root.additional.label,
       })] : []),
     ];
     const normalizedQuery = params.searchQuery.trim().toLowerCase();
@@ -568,10 +509,10 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
       ? rootItems
       : rootItems.filter((itemMarkup) => itemMarkup.toLowerCase().includes(normalizedQuery));
 
-    title = 'What happens next?';
+    title = nodeSelection.next_step_root.title;
     description = '';
-    emptyMessage = 'No matching node categories';
-    searchPlaceholder = 'Search nodes...';
+    emptyMessage = nodeSelection.next_step_root.empty;
+    searchPlaceholder = nodeSelection.next_step_root.search_placeholder;
     markup = filteredItems.join('');
   } else if (params.browserView.kind === 'app-actions') {
     const appItems = Array.from(
@@ -609,10 +550,10 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
           second.definition.app_label ?? second.definition.label,
         ));
 
-    title = 'Action in an app';
+    title = nodeSelection.app_actions.title;
     description = '';
-    emptyMessage = 'No matching apps';
-    searchPlaceholder = 'Search nodes...';
+    emptyMessage = nodeSelection.app_actions.empty;
+    searchPlaceholder = nodeSelection.app_actions.search_placeholder;
     markup = appItems
       .map(({ appId, definition }) =>
         renderBrowserListItem({
@@ -622,22 +563,26 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
           description: definition.app_description || definition.description,
           icon: definition.app_icon || definition.icon,
           label: definition.app_label || definition.label,
-          meta: 'Action nodes',
+          meta: nodeSelection.app_actions.action_meta,
         }))
       .join('');
   } else if (params.browserView.kind === 'category-details') {
-    const categoryMeta = NEXT_STEP_CATEGORY_META[params.browserView.category];
+    const categoryMeta = getCatalogGroup(params.groups, params.browserView.category);
     const categoryDefinitions = filterNodeDefinitions(
       getNextStepCategoryDefinitions(params.browserView.category, availableDefinitions),
       params.searchQuery,
     );
 
-    title = categoryMeta.label;
-    description = categoryMeta.description;
-    emptyMessage = `No matching ${categoryMeta.label.toLowerCase()} nodes`;
-    searchPlaceholder = 'Search nodes...';
+    title = categoryMeta?.label ?? params.browserView.category;
+    description = categoryMeta?.description ?? '';
+    emptyMessage = categoryMeta
+      ? formatPresentationText(nodeSelection.category_details.empty_template, {
+        group: categoryMeta.label.toLowerCase(),
+      })
+      : nodeSelection.category_details.fallback_empty;
+    searchPlaceholder = nodeSelection.category_details.search_placeholder;
     markup = categoryDefinitions.length > 0
-      ? `<div class="workflow-node-browser-list">${renderBrowserDefinitionList(categoryDefinitions)}</div>`
+      ? `<div class="workflow-node-browser-list">${renderBrowserDefinitionList(categoryDefinitions, params.catalogSections)}</div>`
       : '';
   }
 

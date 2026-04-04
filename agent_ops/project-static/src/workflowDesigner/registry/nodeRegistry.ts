@@ -1,6 +1,7 @@
 import { getNodeCategoryForKind } from './categories';
 import type {
   WorkflowConnection,
+  WorkflowCatalogSection,
   WorkflowNodeCatalogSection,
   WorkflowDefinition,
   WorkflowNode,
@@ -15,47 +16,8 @@ export type WorkflowNodeRegistry = {
   paletteSections: WorkflowPaletteSection[];
 };
 
-type WorkflowPaletteSectionAccumulator = {
+type WorkflowPaletteSectionAccumulator = WorkflowCatalogSection & {
   definitions: WorkflowNodeDefinition[];
-  description: string;
-  icon: string;
-  id: WorkflowNodeCatalogSection;
-  label: string;
-};
-const WORKFLOW_CATALOG_SECTION_ORDER: WorkflowNodeCatalogSection[] = [
-  'triggers',
-  'flow',
-  'data',
-  'apps',
-];
-const WORKFLOW_CATALOG_SECTION_META: Record<
-  WorkflowNodeCatalogSection,
-  {
-    description: string;
-    icon: string;
-    label: string;
-  }
-> = {
-  triggers: {
-    label: 'Triggers',
-    description: 'Choose how the workflow starts.',
-    icon: 'mdi-rocket-launch-outline',
-  },
-  flow: {
-    label: 'Flow',
-    description: 'Control execution and AI-driven workflow steps.',
-    icon: 'mdi-vector-polyline',
-  },
-  data: {
-    label: 'Data',
-    description: 'Set values, render templates, and resolve workflow data.',
-    icon: 'mdi-database-outline',
-  },
-  apps: {
-    label: 'Apps',
-    description: 'Connect workflow steps to external systems and providers.',
-    icon: 'mdi-apps',
-  },
 };
 
 function buildConnectionField(
@@ -125,7 +87,7 @@ function isChatModelDefinition(definition: WorkflowNodeDefinition): boolean {
 }
 
 function normalizeCatalogSection(definition: WorkflowNodeDefinition): WorkflowNodeCatalogSection {
-  if (definition.catalog_section && definition.catalog_section in WORKFLOW_CATALOG_SECTION_META) {
+  if (definition.catalog_section) {
     return definition.catalog_section;
   }
 
@@ -147,18 +109,16 @@ function normalizeCatalogSection(definition: WorkflowNodeDefinition): WorkflowNo
 export function buildNodeRegistry(
   catalogDefinitions: WorkflowNodeDefinition[],
   connections: WorkflowConnection[],
+  catalogSections: WorkflowCatalogSection[],
 ): WorkflowNodeRegistry {
   const definitions = catalogDefinitions.map((definition) => enhanceDefinition(definition, connections));
   const definitionMap = new Map(definitions.map((definition) => [definition.type, definition]));
   const sectionsById = new Map<WorkflowNodeCatalogSection, WorkflowPaletteSectionAccumulator>(
-    WORKFLOW_CATALOG_SECTION_ORDER.map((sectionId) => [
-      sectionId,
+    catalogSections.map((section) => [
+      section.id,
       {
+        ...section,
         definitions: [],
-        description: WORKFLOW_CATALOG_SECTION_META[sectionId].description,
-        icon: WORKFLOW_CATALOG_SECTION_META[sectionId].icon,
-        id: sectionId,
-        label: WORKFLOW_CATALOG_SECTION_META[sectionId].label,
       },
     ]),
   );
@@ -174,9 +134,9 @@ export function buildNodeRegistry(
 
     section.definitions.push(definition);
   });
-  const paletteSections = WORKFLOW_CATALOG_SECTION_ORDER
+  const paletteSections = catalogSections
     .map<WorkflowPaletteSection | null>((sectionId) => {
-      const section = sectionsById.get(sectionId);
+      const section = sectionsById.get(sectionId.id);
       if (!section || section.definitions.length === 0) {
         return null;
       }

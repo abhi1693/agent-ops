@@ -1,5 +1,5 @@
 import type { ExecutionElements } from '../dom';
-import type { WorkflowNode } from '../types';
+import type { WorkflowExecutionPresentation, WorkflowNode } from '../types';
 
 type DesignerRunResponse = {
   message: string;
@@ -33,6 +33,7 @@ export function createWorkflowDesignerExecutionController(params: {
   buildExecutionRequestBody: (inputData: Record<string, unknown>) => string;
   csrfToken: string;
   execution: ExecutionElements | null;
+  executionPresentation: WorkflowExecutionPresentation;
   getInitialExecutionNodeId: (nodeId: string | null) => string | null;
   getNode: (nodeId: string | null | undefined) => WorkflowNode | undefined;
   getSelectedNodeId: () => string | null;
@@ -58,6 +59,7 @@ export function createWorkflowDesignerExecutionController(params: {
     buildExecutionRequestBody,
     csrfToken,
     execution,
+    executionPresentation,
     getInitialExecutionNodeId,
     getNode,
     getSelectedNodeId,
@@ -114,26 +116,8 @@ export function createWorkflowDesignerExecutionController(params: {
       return;
     }
 
-    const statusLabelByRunStatus: Record<string, { badgeClass: string; label: string }> = {
-      failed: {
-        badgeClass: 'text-bg-danger',
-        label: 'Failed',
-      },
-      pending: {
-        badgeClass: 'text-bg-secondary',
-        label: 'Queued',
-      },
-      running: {
-        badgeClass: 'text-bg-primary',
-        label: 'Running',
-      },
-      succeeded: {
-        badgeClass: 'text-bg-success',
-        label: 'Completed',
-      },
-    };
-    const statusPresentation = statusLabelByRunStatus[payload.run.status] ?? {
-      badgeClass: 'text-bg-secondary',
+    const statusPresentation = executionPresentation.statuses[payload.run.status] ?? {
+      badge_class: executionPresentation.default_status.badge_class,
       label: payload.run.status,
     };
     executionActiveNodeIds = payload.run.active_node_ids ?? [];
@@ -150,8 +134,8 @@ export function createWorkflowDesignerExecutionController(params: {
       executionFailedNodeIds = [];
     }
     const modeLabel = payload.mode.startsWith('node')
-      ? payload.node?.label ?? 'Node run'
-      : 'Workflow run';
+      ? payload.node?.label ?? executionPresentation.result_labels.node_run
+      : executionPresentation.result_labels.workflow_run;
     const summaryParts = [
       `Run #${payload.run.id}`,
       `${payload.run.step_count} step${payload.run.step_count === 1 ? '' : 's'}`,
@@ -177,7 +161,7 @@ export function createWorkflowDesignerExecutionController(params: {
       execution.resultError.hidden = true;
       execution.resultError.textContent = '';
     }
-    setExecutionStatus(statusPresentation.label, statusPresentation.badgeClass);
+    setExecutionStatus(statusPresentation.label, statusPresentation.badge_class);
     onExecutionStateChange();
   }
 
@@ -197,7 +181,11 @@ export function createWorkflowDesignerExecutionController(params: {
       });
       const payload = (await response.json()) as DesignerRunResponse | { detail?: string };
       if (!response.ok) {
-        throw new Error(payload && 'detail' in payload && payload.detail ? payload.detail : 'Unable to fetch run status.');
+        throw new Error(
+          payload && 'detail' in payload && payload.detail
+            ? payload.detail
+            : executionPresentation.messages.status_fetch_failed,
+        );
       }
 
       lastPayload = payload as DesignerRunResponse;
@@ -211,7 +199,7 @@ export function createWorkflowDesignerExecutionController(params: {
       return lastPayload;
     }
 
-    throw new Error('Workflow run polling timed out.');
+    throw new Error(executionPresentation.messages.poll_timeout);
   }
 
   async function executeDesignerRun(
@@ -242,7 +230,10 @@ export function createWorkflowDesignerExecutionController(params: {
     executionFailedNodeIds = [];
     executionSucceededNodeId = null;
     execution.runButton.disabled = true;
-    setExecutionStatus(nodeId ? 'Running node' : 'Running workflow', 'text-bg-primary');
+    setExecutionStatus(
+      nodeId ? executionPresentation.running_status.node : executionPresentation.running_status.workflow,
+      executionPresentation.statuses.running?.badge_class ?? 'text-bg-primary',
+    );
     onExecutionStateChange();
 
     try {
@@ -257,7 +248,11 @@ export function createWorkflowDesignerExecutionController(params: {
       });
       const payload = (await response.json()) as DesignerRunResponse | { detail?: string };
       if (!response.ok) {
-        throw new Error(payload && 'detail' in payload && payload.detail ? payload.detail : 'Execution failed.');
+        throw new Error(
+          payload && 'detail' in payload && payload.detail
+            ? payload.detail
+            : executionPresentation.messages.execution_failed,
+        );
       }
       const runPayload = payload as DesignerRunResponse;
       renderExecutionResult(runPayload);
@@ -265,12 +260,15 @@ export function createWorkflowDesignerExecutionController(params: {
         await pollDesignerRunStatus(runPayload.poll_url);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Execution failed.';
+      const message = error instanceof Error ? error.message : executionPresentation.messages.execution_failed;
       showExecutionError(message);
       executionActiveNodeIds = [];
       executionFailedNodeIds = [];
       executionSucceededNodeId = null;
-      setExecutionStatus('Failed', 'text-bg-danger');
+      setExecutionStatus(
+        executionPresentation.statuses.failed?.label ?? 'Failed',
+        executionPresentation.statuses.failed?.badge_class ?? 'text-bg-danger',
+      );
       onExecutionStateChange();
     } finally {
       isExecutionPending = false;
@@ -291,7 +289,7 @@ export function createWorkflowDesignerExecutionController(params: {
       execution.nodeRunButton.disabled = true;
       execution.nodeRunButton.innerHTML = `
         <i class="mdi mdi-play"></i>
-        <span class="ms-1">Run node</span>
+        <span class="ms-1">${executionPresentation.run_button.idle}</span>
       `;
       return;
     }
@@ -303,7 +301,7 @@ export function createWorkflowDesignerExecutionController(params: {
     execution.nodeRunButton.disabled = isExecutionPending;
     execution.nodeRunButton.innerHTML = `
       <i class="mdi ${isNodeExecutionPending ? 'mdi-loading mdi-spin' : 'mdi-play'}"></i>
-      <span class="ms-1">${isNodeExecutionPending ? 'Running node' : 'Run node'}</span>
+      <span class="ms-1">${isNodeExecutionPending ? executionPresentation.run_button.running : executionPresentation.run_button.idle}</span>
     `;
   }
 

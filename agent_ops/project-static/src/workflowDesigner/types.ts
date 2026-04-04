@@ -17,13 +17,206 @@ export type WorkflowNodeTemplateField = {
   visible_when?: Record<string, string[]>;
 };
 
-export type WorkflowNodeCatalogSection = 'triggers' | 'flow' | 'data' | 'apps';
+export type WorkflowNodeCatalogSection = string;
+export type WorkflowCatalogGroupId = string;
+
+export type WorkflowCatalogSection = {
+  description: string;
+  icon?: string;
+  id: WorkflowNodeCatalogSection;
+  label: string;
+};
+
+export type WorkflowCatalogGroup = {
+  description: string;
+  icon?: string;
+  id: WorkflowCatalogGroupId;
+  label: string;
+};
+
+export type WorkflowExecutionStatusPresentation = {
+  badge_class: string;
+  label: string;
+};
+
+export type WorkflowChromePresentation = {
+  browser: {
+    aria_label: string;
+    close_label: string;
+    default_title: string;
+    search_label: string;
+  };
+  canvas: {
+    controls_aria_label: string;
+    empty_state: {
+      action_aria_label: string;
+      action_caption: string;
+      action_label: string;
+    };
+    zoom: {
+      fit: string;
+      zoom_in: string;
+      zoom_out: string;
+    };
+  };
+  execution_panel: {
+    aria_label: string;
+    context_label: string;
+    description: string;
+    empty: string;
+    output_label: string;
+    title: string;
+    trace_label: string;
+  };
+  settings_panel: {
+    aria_label: string;
+    close_label: string;
+    title: string;
+  };
+  toolbar: {
+    add_node: string;
+    back_label: string;
+    run_workflow: string;
+    settings: string;
+  };
+};
+
+export type WorkflowExecutionPresentation = {
+  default_status: WorkflowExecutionStatusPresentation;
+  messages: {
+    execution_failed: string;
+    poll_timeout: string;
+    status_fetch_failed: string;
+  };
+  result_labels: {
+    node_run: string;
+    workflow_run: string;
+  };
+  run_button: {
+    idle: string;
+    running: string;
+  };
+  running_status: {
+    node: string;
+    workflow: string;
+  };
+  statuses: Record<string, WorkflowExecutionStatusPresentation>;
+};
+
+export type WorkflowSettingsGroupPresentation = {
+  description: string;
+  fields?: Record<string, string>;
+  title: string;
+};
+
+export type WorkflowSettingsPresentation = {
+  controls: {
+    expression_hint: string;
+    mode_expression: string;
+    mode_static: string;
+    mode_suffix: string;
+    select_placeholder: string;
+  };
+  empty: string;
+  groups: Record<string, WorkflowSettingsGroupPresentation>;
+};
+
+export type WorkflowNodeSelectionPresentation = {
+  app_actions: {
+    action_meta: string;
+    empty: string;
+    search_placeholder: string;
+    title: string;
+  };
+  app_details: {
+    default_title: string;
+    empty: string;
+    sections: {
+      actions: string;
+      triggers: string;
+    };
+  };
+  category_details: {
+    empty_template: string;
+    fallback_empty: string;
+    search_placeholder: string;
+  };
+  common: {
+    add_description: string;
+    connect_description: string;
+    default_empty: string;
+    default_search_placeholder: string;
+    default_title: string;
+  };
+  insert: {
+    model_provider: {
+      description: string;
+      empty: string;
+      search_placeholder: string;
+      title: string;
+    };
+    tool: {
+      description: string;
+      empty: string;
+      search_placeholder: string;
+      title: string;
+    };
+  };
+  next_step_root: {
+    empty: string;
+    items: {
+      app_action: {
+        description: string;
+        label: string;
+      };
+    };
+    search_placeholder: string;
+    title: string;
+  };
+  trigger_apps: {
+    empty: string;
+    search_placeholder: string;
+    title: string;
+    trigger_meta: string;
+  };
+  trigger_root: {
+    additional: {
+      description: string;
+      label: string;
+    };
+    empty: string;
+    initial: {
+      description: string;
+      title: string;
+    };
+    items: {
+      app_event: {
+        description: string;
+      };
+      manual: {
+        label: string;
+      };
+      schedule: {
+        label: string;
+      };
+    };
+    search_placeholder: string;
+  };
+};
+
+export type WorkflowCatalogPresentation = {
+  chrome: WorkflowChromePresentation;
+  execution: WorkflowExecutionPresentation;
+  node_selection: WorkflowNodeSelectionPresentation;
+  settings: WorkflowSettingsPresentation;
+};
 
 export type WorkflowNodeTemplate = {
   app_description?: string;
   app_icon?: string;
   app_id?: string;
   app_label?: string;
+  group?: WorkflowCatalogGroupId;
   catalog_section?: WorkflowNodeCatalogSection;
   category?: string;
   config?: Record<string, unknown>;
@@ -37,7 +230,10 @@ export type WorkflowNodeTemplate = {
 };
 
 export type WorkflowCatalogPayload = {
+  groups: WorkflowCatalogGroup[];
   definitions: WorkflowNodeDefinition[];
+  presentation: WorkflowCatalogPresentation;
+  sections: WorkflowCatalogSection[];
 };
 
 export type WorkflowConnection = {
@@ -76,6 +272,7 @@ export type WorkflowNodeDefinition = {
   app_icon?: string;
   app_id?: string;
   app_label?: string;
+  group?: WorkflowCatalogGroupId;
   capabilities?: string[];
   catalog_section?: WorkflowNodeCatalogSection;
   category: WorkflowNodeCategoryId;
