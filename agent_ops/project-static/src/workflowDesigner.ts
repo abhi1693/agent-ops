@@ -8,12 +8,6 @@ import {
   getExecutionElements,
 } from './workflowDesigner/dom';
 import {
-  renderEdgeRemoveButtonMarkup,
-  renderWorkflowEditorEdgesMarkup,
-  renderNodeContextMenuMarkup,
-  renderWorkflowEditorNodeMarkup,
-} from './workflowDesigner/markup';
-import {
   clampNodePosition,
   getConnectorPoint,
   getGraphBounds,
@@ -24,10 +18,7 @@ import {
   getSuggestedNodePosition,
 } from './workflowDesigner/geometry';
 import {
-  AGENT_AUXILIARY_PORTS,
   canNodeEmitConnections,
-  canNodeReceiveConnections,
-  getCompatibleAgentAuxiliaryPort,
   getHoveredTarget as getHoveredConnectionTarget,
   isValidConnection as validateConnection,
 } from './workflowDesigner/interactions/connections';
@@ -52,15 +43,14 @@ import {
   getAvailableInputPaths,
 } from './workflowDesigner/panels/settingsAssist';
 import {
-  buildWorkflowEditorNodePresentation,
   getFieldOptionsWithCurrentValue,
 } from './workflowDesigner/presenters/nodePresentation';
-import { buildWorkflowEditorEdgesPresentation } from './workflowDesigner/presenters/edgePresentation';
 import { buildNodeRegistry, getAvailablePaletteSections } from './workflowDesigner/registry/nodeRegistry';
 import { normalizeWorkflowDefinition, serializeWorkflowDefinition } from './workflowDesigner/schema/workflowSchema';
 import { createWorkflowDesignerGraphController } from './workflowDesigner/state/graphController';
 import { createGraphStore } from './workflowDesigner/state/graphStore';
 import { createWorkflowDesignerExecutionController } from './workflowDesigner/state/executionController';
+import { createWorkflowDesignerRenderController } from './workflowDesigner/state/renderController';
 import { createWorkflowDesignerSelectionController } from './workflowDesigner/state/selectionController';
 import type {
   AgentAuxiliaryPortId,
@@ -92,7 +82,6 @@ import {
 } from './workflowDesigner/utils';
 import { createViewportController } from './workflowDesigner/viewport/controller';
 
-const CONNECTOR_SIDES: ConnectorSide[] = ['top', 'right', 'bottom', 'left'];
 const NODE_CONTEXT_MENU_WIDTH = 224;
 const NODE_CONTEXT_MENU_HEIGHT = 142;
 const NODE_CONTEXT_MENU_MARGIN = 12;
@@ -216,6 +205,11 @@ export function initWorkflowDesigner(): void {
   });
   const workflowConnections = parseJsonScript<WorkflowConnection[]>('workflow-connections-data', []);
   const nodeRegistry = buildNodeRegistry(workflowCatalog.definitions, workflowConnections);
+  let renderCanvas = (): void => {};
+  let renderCanvasHud = (): void => {};
+  let renderEdges = (): void => {};
+  let renderNodeContextMenu = (): void => {};
+  let renderNodes = (): void => {};
   const viewportController = createViewportController({
     board: canvas.board,
     surface: canvas.surface,
@@ -412,54 +406,6 @@ export function initWorkflowDesigner(): void {
     };
   }
 
-  function renderNodeContextMenu(): void {
-    const contextMenuState = getContextMenuState();
-    if (!contextMenuState) {
-      canvas.nodeMenu.hidden = true;
-      canvas.nodeMenu.innerHTML = '';
-      return;
-    }
-
-    const node = getNode(contextMenuState.nodeId);
-    if (!node) {
-      clearContextMenuState();
-      canvas.nodeMenu.hidden = true;
-      canvas.nodeMenu.innerHTML = '';
-      return;
-    }
-
-    const title = node.label || formatKindLabel(node.kind) || node.type;
-    const nodeDefinition = getNodeDefinition(node);
-    const meta = [
-      formatKindLabel(node.kind),
-      nodeDefinition?.catalog_section === 'apps'
-      && getRealAppLabel(nodeDefinition)
-      && getRealAppLabel(nodeDefinition) !== 'Workflow'
-        ? getRealAppLabel(nodeDefinition)
-        : null,
-    ]
-      .filter((value): value is string => Boolean(value))
-      .join(' • ');
-    canvas.nodeMenu.hidden = false;
-    canvas.nodeMenu.style.left = `${contextMenuState.x}px`;
-    canvas.nodeMenu.style.top = `${contextMenuState.y}px`;
-    canvas.nodeMenu.innerHTML = renderNodeContextMenuMarkup({ meta, title });
-  }
-
-  function renderEmptyState(): void {
-    const emptyWorkflow = isEmptyWorkflow();
-    canvas.board.classList.toggle('is-empty-workflow', emptyWorkflow);
-    canvas.emptyState.hidden = !emptyWorkflow;
-  }
-
-  function renderCanvasHud(): void {
-    const viewport = viewportController.getViewport();
-    canvas.fitViewButton.disabled = workflowDefinition.nodes.length === 0;
-    canvas.zoomLabel.textContent = `${Math.round(viewport.zoom * 100)}%`;
-    canvas.zoomOutButton.disabled = viewport.zoom <= 0.46;
-    canvas.zoomInButton.disabled = viewport.zoom >= 1.79;
-  }
-
   function repositionGraph(anchorNodeId?: string): void {
     const graphBounds = getGraphBounds(workflowDefinition.nodes);
     if (!graphBounds) {
@@ -473,73 +419,6 @@ export function initWorkflowDesigner(): void {
     }
 
     viewportController.fitBounds(graphBounds, { padding: 104 });
-  }
-
-  function renderNodes(): void {
-    canvas.nodeLayer.innerHTML = workflowDefinition.nodes
-      .map((node) => {
-        const nodeDefinition = nodeRegistry.definitionMap.get(node.type);
-        return renderWorkflowEditorNodeMarkup(
-          buildWorkflowEditorNodePresentation({
-            activeExecutionNodeId: getActiveExecutionNodeId(),
-            auxiliaryPortDefinitions: AGENT_AUXILIARY_PORTS,
-            canNodeEmitConnections,
-            canNodeReceiveConnections,
-            connectionDraft,
-            connectorSides: CONNECTOR_SIDES,
-            executionActiveNodeIds: getExecutionActiveNodeIds(),
-            executionFailedNodeIds: getExecutionFailedNodeIds(),
-            executionSucceededNodeId: getExecutionSucceededNodeId(),
-            getCompatibleAgentAuxiliaryPort,
-            getNode,
-            getNodeDefinition,
-            isExecutionPending: getIsExecutionPending(),
-            isValidConnection,
-            node,
-            nodeDefinition,
-            selectedNodeId: getSelectedNodeId(),
-            workflowDefinition,
-          }),
-        );
-      })
-      .join('');
-
-    workflowDefinition.nodes.forEach((node) => {
-      const nodeElement = getNodeElement(canvas.nodeLayer, node.id);
-      if (nodeElement) {
-        setNodeElementPosition(nodeElement, node);
-      }
-    });
-  }
-
-  function renderEdges(): void {
-    canvas.edgeLayer.setAttribute(
-      'viewBox',
-      `0 0 ${Math.max(canvas.board.clientWidth, 1)} ${Math.max(canvas.board.clientHeight, 1)}`,
-    );
-    const edgePresentation = buildWorkflowEditorEdgesPresentation({
-      boardHeight: canvas.board.clientHeight,
-      boardWidth: canvas.board.clientWidth,
-      connectionDraft,
-      dragActive: Boolean(dragState),
-      getNode,
-      hoveredEdgeId,
-      viewportWorldToScreen: viewportController.worldToScreen,
-      workflowDefinition,
-    });
-
-    canvas.edgeLayer.innerHTML = renderWorkflowEditorEdgesMarkup(edgePresentation);
-    canvas.edgeControls.innerHTML = edgePresentation.hoveredControl
-      ? renderEdgeRemoveButtonMarkup(edgePresentation.hoveredControl)
-      : '';
-  }
-
-  function renderCanvas(): void {
-    renderNodes();
-    renderEdges();
-    renderEmptyState();
-    renderCanvasHud();
-    renderNodeContextMenu();
   }
 
   function cancelConnection(): void {
@@ -591,6 +470,35 @@ export function initWorkflowDesigner(): void {
     },
     openNodeSettings,
   });
+
+  ({
+    renderCanvas,
+    renderCanvasHud,
+    renderEdges,
+    renderNodeContextMenu,
+    renderNodes,
+  } = createWorkflowDesignerRenderController({
+    canvas,
+    clearContextMenuState,
+    getActiveExecutionNodeId,
+    getAppLabel: getRealAppLabel,
+    getConnectionDraft: () => connectionDraft,
+    getContextMenuState,
+    getExecutionActiveNodeIds,
+    getExecutionFailedNodeIds,
+    getExecutionSucceededNodeId,
+    getHoveredEdgeId: () => hoveredEdgeId,
+    getIsExecutionPending,
+    getNode: (nodeId) => getNode(nodeId ?? null),
+    getNodeDefinition,
+    getSelectedNodeId,
+    getViewportZoom: () => viewportController.getViewport().zoom,
+    getWorkflowDefinition: () => workflowDefinition,
+    isDragActive: () => Boolean(dragState),
+    isEmptyWorkflow,
+    isValidConnection,
+    viewportWorldToScreen: viewportController.worldToScreen,
+  }));
 
   const {
     closeBrowser,
