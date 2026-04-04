@@ -9,17 +9,12 @@ import {
 } from './workflowDesigner/dom';
 import {
   clampNodePosition,
-  getConnectorPoint,
-  getGraphBounds,
-  getNodeCenter,
   getNodeRenderHeight,
   getNodeRenderWidth,
-  getPreferredConnectorSide,
   getSuggestedNodePosition,
 } from './workflowDesigner/geometry';
 import {
   canNodeEmitConnections,
-  getHoveredTarget as getHoveredConnectionTarget,
   isValidConnection as validateConnection,
 } from './workflowDesigner/interactions/connections';
 import {
@@ -49,13 +44,12 @@ import { buildNodeRegistry, getAvailablePaletteSections } from './workflowDesign
 import { normalizeWorkflowDefinition, serializeWorkflowDefinition } from './workflowDesigner/schema/workflowSchema';
 import { createWorkflowDesignerGraphController } from './workflowDesigner/state/graphController';
 import { createGraphStore } from './workflowDesigner/state/graphStore';
+import { createWorkflowDesignerCanvasController } from './workflowDesigner/state/canvasController';
 import { createWorkflowDesignerExecutionController } from './workflowDesigner/state/executionController';
 import { createWorkflowDesignerRenderController } from './workflowDesigner/state/renderController';
 import { createWorkflowDesignerSelectionController } from './workflowDesigner/state/selectionController';
 import type {
   AgentAuxiliaryPortId,
-  ConnectorSide,
-  Point,
   WorkflowCatalogPayload,
   WorkflowConnection,
   WorkflowDefinition,
@@ -68,7 +62,6 @@ import type {
   WorkflowPersistedDefinition,
 } from './workflowDesigner/types';
 import {
-  clamp,
   cloneValue,
   createId,
   escapeHtml,
@@ -146,19 +139,6 @@ function createWorkflowNode(
     type: nodeDefinition.type,
     typeVersion: nodeDefinition.typeVersion,
   };
-}
-
-function getNodeElement(nodeLayer: HTMLElement, nodeId: string): HTMLElement | null {
-  return (
-    Array.from(nodeLayer.querySelectorAll<HTMLElement>('[data-workflow-node-id]')).find(
-      (element) => element.dataset.workflowNodeId === nodeId,
-    ) ?? null
-  );
-}
-
-function setNodeElementPosition(nodeElement: HTMLElement, node: WorkflowNode): void {
-  nodeElement.style.left = `${node.position.x}px`;
-  nodeElement.style.top = `${node.position.y}px`;
 }
 
 function getNodeTargetOptions(currentNode: WorkflowNode, definition: WorkflowDefinition): Array<{ label: string; value: string }> {
@@ -283,27 +263,6 @@ export function initWorkflowDesigner(): void {
     });
   }
 
-  function getPointFromClient(clientX: number, clientY: number): Point {
-    return viewportController.screenToWorld(clientX, clientY);
-  }
-
-  function getHoveredTarget(
-    clientX: number,
-    clientY: number,
-    sourceId: string,
-  ): { nodeId: string; side: ConnectorSide; targetPort: AgentAuxiliaryPortId | null } | null {
-    return getHoveredConnectionTarget({
-      clientX,
-      clientY,
-      getElementFromPoint: (nextClientX: number, nextClientY: number) =>
-        document.elementFromPoint(nextClientX, nextClientY) as HTMLElement | null,
-      getNode,
-      getPointFromClient,
-      isValidConnection,
-      sourceId,
-    });
-  }
-
   function getNodeDefinition(node: WorkflowNode | undefined): WorkflowNodeDefinition | undefined {
     if (!node) {
       return undefined;
@@ -385,41 +344,29 @@ export function initWorkflowDesigner(): void {
     renderExecutionNodeAction();
   }
 
-  function getNodeContextMenuPosition(clientX: number, clientY: number): { x: number; y: number } {
-    const localPoint = viewportController.getBoardLocalPoint(clientX, clientY);
-    const rawX = localPoint.x + NODE_CONTEXT_MENU_OFFSET_X;
-    const rawY = localPoint.y + NODE_CONTEXT_MENU_OFFSET_Y;
-    const minX = NODE_CONTEXT_MENU_MARGIN;
-    const minY = NODE_CONTEXT_MENU_MARGIN;
-    const maxX = Math.max(
-      minX,
-      canvas.board.clientWidth - NODE_CONTEXT_MENU_WIDTH - NODE_CONTEXT_MENU_MARGIN,
-    );
-    const maxY = Math.max(
-      minY,
-      canvas.board.clientHeight - NODE_CONTEXT_MENU_HEIGHT - NODE_CONTEXT_MENU_MARGIN,
-    );
-
-    return {
-      x: clamp(Math.round(rawX), minX, maxX),
-      y: clamp(Math.round(rawY), minY, maxY),
-    };
-  }
-
-  function repositionGraph(anchorNodeId?: string): void {
-    const graphBounds = getGraphBounds(workflowDefinition.nodes);
-    if (!graphBounds) {
-      return;
-    }
-
-    const anchorNode = anchorNodeId ? getNode(anchorNodeId) : null;
-    if (anchorNode) {
-      viewportController.focusPoint(getNodeCenter(anchorNode));
-      return;
-    }
-
-    viewportController.fitBounds(graphBounds, { padding: 104 });
-  }
+  const {
+    getHoveredTarget,
+    getNodeContextMenuPosition,
+    getNodeElement,
+    getPointFromClient,
+    repositionGraph,
+    updateNodePosition,
+  } = createWorkflowDesignerCanvasController({
+    board: canvas.board,
+    contextMenuHeight: NODE_CONTEXT_MENU_HEIGHT,
+    contextMenuMargin: NODE_CONTEXT_MENU_MARGIN,
+    contextMenuOffsetX: NODE_CONTEXT_MENU_OFFSET_X,
+    contextMenuOffsetY: NODE_CONTEXT_MENU_OFFSET_Y,
+    contextMenuWidth: NODE_CONTEXT_MENU_WIDTH,
+    getNode: (nodeId) => getNode(nodeId ?? null),
+    getNodeDefinition,
+    getWorkflowDefinition: () => workflowDefinition,
+    isValidConnection,
+    nodeLayer: canvas.nodeLayer,
+    renderEdges: () => renderEdges(),
+    syncDefinitionInput,
+    viewportController,
+  });
 
   function cancelConnection(): void {
     connectionDraft = null;
@@ -651,28 +598,6 @@ export function initWorkflowDesigner(): void {
     renderCanvas();
   }
 
-  function updateNodePosition(nodeId: string, position: { x: number; y: number }): void {
-    const node = workflowDefinition.nodes.find((item) => item.id === nodeId);
-    if (!node) {
-      return;
-    }
-
-    node.position = clampNodePosition(
-      canvas.board,
-      position,
-      getNodeRenderHeight(node),
-      getNodeRenderWidth(node),
-    );
-    syncDefinitionInput();
-
-    const nodeElement = getNodeElement(canvas.nodeLayer, nodeId);
-    if (nodeElement) {
-      setNodeElementPosition(nodeElement, node);
-    }
-
-    renderEdges();
-  }
-
   registerWorkflowDesignerPointerInteractions({
     addEdge,
     beginConnection,
@@ -683,7 +608,7 @@ export function initWorkflowDesigner(): void {
     getHoveredEdgeId: () => hoveredEdgeId,
     getHoveredTarget,
     getNode: (nodeId) => getNode(nodeId),
-    getNodeElement: (nodeId) => getNodeElement(canvas.nodeLayer, nodeId),
+    getNodeElement,
     getPanState: () => panState,
     getPointFromClient,
     getSelectedNodeId,
