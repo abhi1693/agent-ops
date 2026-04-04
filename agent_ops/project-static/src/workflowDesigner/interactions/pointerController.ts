@@ -42,6 +42,9 @@ function shouldIgnoreBoardPointerDown(target: HTMLElement): boolean {
     || target.closest('[data-workflow-node-menu]')
     || target.closest('[data-node-browser]')
     || target.closest('[data-open-node-browser]')
+    || target.closest(
+      'button, input, select, textarea, a, [role="button"], [contenteditable="true"]',
+    )
     || target.closest('[data-remove-edge]')
     || target.closest('[data-workflow-settings-panel]'),
   );
