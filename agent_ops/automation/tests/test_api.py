@@ -168,15 +168,18 @@ class WorkflowAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         node_types = {item["type"] for item in payload["definitions"]}
+        openai_definition = next(item for item in payload["definitions"] if item["type"] == "openai.model.chat")
         self.assertIn("core.manual_trigger", node_types)
         self.assertIn("github.trigger.webhook", node_types)
         self.assertIn("openai.model.chat", node_types)
-        self.assertIn("deepseek.model.chat", node_types)
-        self.assertIn("groq.model.chat", node_types)
-        self.assertIn("mistral.model.chat", node_types)
-        self.assertIn("openrouter.model.chat", node_types)
-        self.assertIn("xai.model.chat", node_types)
-        self.assertIn("fireworks.model.chat", node_types)
+        self.assertNotIn("deepseek.model.chat", node_types)
+        self.assertNotIn("groq.model.chat", node_types)
+        self.assertNotIn("mistral.model.chat", node_types)
+        self.assertNotIn("openrouter.model.chat", node_types)
+        self.assertNotIn("xai.model.chat", node_types)
+        self.assertNotIn("fireworks.model.chat", node_types)
+        self.assertEqual(openai_definition["connection_slots"][0]["key"], "connection_id")
+        self.assertEqual(openai_definition["connection_slots"][0]["allowed_connection_types"], ["openai.api"])
         self.assertEqual(
             [section["id"] for section in payload["sections"]],
             ["triggers", "flow", "data", "apps"],
@@ -242,9 +245,12 @@ class WorkflowAPITests(TestCase):
                 "name": "Primary OpenAI",
                 "description": "Main model connection",
                 "connection_type": "openai.api",
-                "credential_secret": secret.pk,
+                "secret_group": secret_group.pk,
                 "enabled": True,
-                "auth_config": {"base_url": "https://api.openai.com/v1"},
+                "field_values": {
+                    "base_url": "https://api.openai.com/v1",
+                    "api_key": {"source": "secret", "secret_name": secret.name},
+                },
                 "metadata": {"owner": "automation"},
             },
             content_type="application/json",
@@ -256,6 +262,47 @@ class WorkflowAPITests(TestCase):
         self.assertEqual(payload["workspace"]["id"], self.workspace.pk)
         self.assertEqual(payload["organization"]["id"], self.organization.pk)
         self.assertEqual(payload["integration_id"], "openai")
+        self.assertEqual(payload["secret_group"]["id"], secret_group.pk)
+
+    def test_workflow_connection_create_accepts_secret_group_and_field_values(self):
+        secret_group = SecretGroup.objects.create(
+            environment=self.environment,
+            name="Typed connection secrets",
+        )
+        secret = Secret.objects.create(
+            secret_group=secret_group,
+            provider="environment-variable",
+            name="OPENAI_API_KEY",
+            parameters={"variable": "OPENAI_API_KEY"},
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("api:automation-api:workflowconnection-list"),
+            {
+                "environment": self.environment.pk,
+                "name": "Typed OpenAI",
+                "description": "Main typed model connection",
+                "connection_type": "openai.api",
+                "secret_group": secret_group.pk,
+                "enabled": True,
+                "field_values": {
+                    "base_url": "https://api.openai.com/v1",
+                    "api_key": {"source": "secret", "secret_name": secret.name},
+                },
+                "metadata": {"owner": "automation"},
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertEqual(payload["secret_group"]["id"], secret_group.pk)
+        self.assertEqual(payload["field_values"]["base_url"], "https://api.openai.com/v1")
+        self.assertEqual(payload["field_values"]["api_key"]["secret_name"], secret.name)
+        connection = WorkflowConnection.objects.get(name="Typed OpenAI")
+        self.assertEqual(connection.secret_group_id, secret_group.pk)
+        self.assertEqual(connection.field_values["api_key"]["secret_name"], secret.name)
 
     def test_workflow_create_derives_scope_from_environment(self):
         self.client.force_login(self.staff_user)

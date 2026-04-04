@@ -9,6 +9,7 @@ from automation.catalog.capabilities import (
 )
 from automation.catalog.discovery import discover_integration_module_names
 from automation.catalog.loader import build_workflow_catalog, initialize_workflow_catalog, reset_workflow_catalog
+from automation.catalog.payloads import build_workflow_catalog_payload
 
 
 class WorkflowCatalogTests(SimpleTestCase):
@@ -72,3 +73,62 @@ class WorkflowCatalogTests(SimpleTestCase):
         self.assertFalse(hasattr(node_definition, "legacy_node_type"))
         self.assertNotIn("legacy_node_type", serialized)
         self.assertEqual(serialized["parameter_schema"][0]["key"], "model")
+        self.assertEqual(serialized["connection_slots"][0]["key"], "connection_id")
+        self.assertEqual(serialized["connection_slots"][0]["allowed_connection_types"], ["openai.api"])
+
+    def test_catalog_nodes_expose_explicit_connection_slots(self):
+        registry = build_workflow_catalog()
+
+        openai_node = registry["node_types"]["openai.model.chat"]
+        self.assertEqual(openai_node.connection_slots[0].key, "connection_id")
+        self.assertFalse(openai_node.connection_slots[0].required)
+        self.assertEqual(openai_node.connection_slots[0].allowed_connection_types, ("openai.api",))
+
+        prometheus_node = registry["node_types"]["prometheus.action.query"]
+        self.assertTrue(prometheus_node.connection_slots[0].required)
+        self.assertEqual(prometheus_node.connection_slots[0].allowed_connection_types, ("prometheus.api",))
+
+        github_node = registry["node_types"]["github.trigger.webhook"]
+        self.assertTrue(github_node.connection_slots[0].required)
+        self.assertEqual(github_node.connection_slots[0].allowed_connection_types, ("github.oauth2",))
+
+    def test_control_nodes_expose_named_output_ports(self):
+        registry = build_workflow_catalog()
+
+        if_node = registry["node_types"]["core.if"]
+        switch_node = registry["node_types"]["core.switch"]
+
+        self.assertEqual(tuple(port.key for port in if_node.output_ports), ("true", "false"))
+        self.assertEqual(tuple(port.key for port in switch_node.output_ports), ("case_1", "case_2", "fallback"))
+
+    def test_designer_catalog_payload_includes_typed_field_and_docs_metadata(self):
+        payload = build_workflow_catalog_payload()
+
+        openai_definition = next(
+            item for item in payload["definitions"] if item["type"] == "openai.model.chat"
+        )
+        model_field = next(field for field in openai_definition["fields"] if field["key"] == "model")
+        system_prompt_field = next(
+            field for field in openai_definition["fields"] if field["key"] == "system_prompt"
+        )
+
+        self.assertEqual(openai_definition["mode"], "action")
+        self.assertEqual(openai_definition["resource"], "chat")
+        self.assertEqual(openai_definition["operation"], "complete")
+        self.assertEqual(openai_definition["capabilities"], ["agent:model"])
+        self.assertEqual(
+            openai_definition["connection_slots"][0]["description"],
+            "Optional reusable OpenAI connection used for authenticated model requests.",
+        )
+        self.assertTrue(model_field["required"])
+        self.assertEqual(model_field["value_type"], "string")
+        self.assertEqual(model_field["description"], "OpenAI model identifier to execute.")
+        self.assertEqual(system_prompt_field["binding"], "template")
+        self.assertEqual(payload["presentation"]["settings"]["controls"]["required_badge"], "Required")
+        self.assertEqual(payload["presentation"]["settings"]["groups"]["connection"]["title"], "Connection")
+        self.assertEqual(payload["presentation"]["settings"]["groups"]["docs"]["fields"]["capabilities"], "Capabilities")
+        self.assertEqual(payload["presentation"]["execution"]["inspector"]["tabs"]["steps"], "Steps")
+        self.assertEqual(
+            payload["presentation"]["execution"]["inspector"]["overview"]["last_completed_node"],
+            "Last completed",
+        )

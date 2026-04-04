@@ -10,15 +10,16 @@ from django.utils import timezone
 
 from automation.catalog.runtime import execute_catalog_runtime_node
 from automation.catalog.services import get_catalog_node
-from automation.nodes.base import WorkflowNodeExecutionContext
 from automation.queue import (
     enqueue_workflow_run_job,
     ensure_workers_for_queue,
     get_workflow_queue_name,
 )
+from automation.runtime_types import WorkflowNodeExecutionContext
 from automation.auth import resolve_workflow_secret_ref
 from automation.workflow_connections import (
     build_auxiliary_connections_by_target,
+    get_edge_source_port,
     split_workflow_edges,
 )
 from automation.models.runs import WorkflowRun, WorkflowStepRun
@@ -36,6 +37,7 @@ _REDACTED_VALUE = "[redacted secret]"
 @dataclass
 class _NodeExecutionResult:
     next_node_id: str | None
+    next_port: str | None = None
     output: dict[str, Any] | None = None
     response: Any = None
     run_status: str | None = None
@@ -235,6 +237,7 @@ def _execute_node(
         raise ValidationError({"definition": f'Catalog node type "{node_type}" has no native runtime executor.'})
     return _NodeExecutionResult(
         next_node_id=catalog_node_output.next_node_id,
+        next_port=catalog_node_output.next_port,
         output=catalog_node_output.output,
         response=catalog_node_output.response,
         run_status=catalog_node_output.run_status,
@@ -259,6 +262,8 @@ def _build_step_output_snapshot(
 ) -> dict[str, Any]:
     snapshot = dict(result.output or {})
     snapshot["next_node_id"] = result.next_node_id
+    if result.next_port is not None:
+        snapshot["next_port"] = result.next_port
     snapshot["terminal"] = result.terminal
     if result.response is not None and "response" not in snapshot:
         snapshot["response"] = result.response
@@ -334,11 +339,18 @@ def _get_default_next_node_id(outgoing_targets: list[str]) -> str | None:
     return None
 
 
-def _resolve_selected_targets(*, result: _NodeExecutionResult, outgoing_targets: list[str]) -> list[str]:
+def _resolve_selected_targets(
+    *,
+    result: _NodeExecutionResult,
+    outgoing_targets: list[str],
+    outgoing_targets_by_source_port: dict[str, list[str]],
+) -> list[str]:
     if result.terminal:
         return []
     if result.next_node_id:
         return [result.next_node_id]
+    if result.next_port is not None:
+        return list(outgoing_targets_by_source_port.get(result.next_port, []))
     if outgoing_targets:
         return list(outgoing_targets)
     return []
@@ -371,20 +383,42 @@ def _initialize_workflow_run(
     )
 
 
-def _load_runtime_definition(run: WorkflowRun) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, list[str]], dict[str, dict[str, list[dict[str, Any]]]]]:
+def _load_runtime_definition(
+    run: WorkflowRun,
+) -> tuple[
+    dict[str, Any],
+    list[dict[str, Any]],
+    dict[str, dict[str, Any]],
+    dict[str, list[str]],
+    dict[str, dict[str, list[str]]],
+    dict[str, dict[str, list[dict[str, Any]]]],
+]:
     definition = normalize_workflow_definition_nodes(run.workflow_version.definition or {})
     nodes = definition.get("nodes", [])
     edges = definition.get("edges", [])
     nodes_by_id = {node["id"]: node for node in nodes}
     primary_edges, auxiliary_edges = split_workflow_edges(edges)
     adjacency: dict[str, list[str]] = {node["id"]: [] for node in nodes}
+    primary_targets_by_source_port: dict[str, dict[str, list[str]]] = {node["id"]: {} for node in nodes}
     for edge in primary_edges:
         adjacency.setdefault(edge["source"], []).append(edge["target"])
+        source_port = get_edge_source_port(edge)
+        if source_port is not None:
+            primary_targets_by_source_port.setdefault(edge["source"], {}).setdefault(source_port, []).append(
+                edge["target"]
+            )
     auxiliary_connections_by_target = build_auxiliary_connections_by_target(
         nodes_by_id=nodes_by_id,
         edges=auxiliary_edges,
     )
-    return definition, nodes, nodes_by_id, adjacency, auxiliary_connections_by_target
+    return (
+        definition,
+        nodes,
+        nodes_by_id,
+        adjacency,
+        primary_targets_by_source_port,
+        auxiliary_connections_by_target,
+    )
 
 
 def _record_step_failure(
@@ -460,6 +494,7 @@ def _build_node_response_payload(node: dict[str, Any], result: _NodeExecutionRes
         "response": result.response if result.response is not None else result.output or {},
         "output": result.output or {},
         "next_node_id": result.next_node_id,
+        "next_port": result.next_port,
         "terminal": result.terminal,
     }
 
@@ -565,7 +600,14 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
         run.workflow_version = ensure_workflow_version_snapshot(run.workflow)
         run.save(update_fields=("workflow_version", "last_updated"))
 
-    definition, nodes, nodes_by_id, adjacency, auxiliary_connections_by_target = _load_runtime_definition(run)
+    (
+        definition,
+        nodes,
+        nodes_by_id,
+        adjacency,
+        primary_targets_by_source_port,
+        auxiliary_connections_by_target,
+    ) = _load_runtime_definition(run)
     context = _build_execution_context(
         run.workflow,
         workflow_version=run.workflow_version,
@@ -845,6 +887,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                     for target_id in _resolve_selected_targets(
                         result=result,
                         outgoing_targets=outgoing_targets,
+                        outgoing_targets_by_source_port=primary_targets_by_source_port.get(current_node_id, {}),
                     )
                     if target_id in nodes_by_id
                 }

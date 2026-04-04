@@ -92,7 +92,7 @@ class WorkflowConnectionTable(AgentOpsTable):
     name = tables.Column(linkify=True)
     integration_id = tables.Column(verbose_name="Integration")
     connection_type = tables.Column(verbose_name="Connection Type")
-    credential_secret = tables.Column(linkify=True, verbose_name="Credential Secret")
+    secret_group = tables.Column(linkify=True, verbose_name="Secret Group")
     organization = tables.Column(linkify=True)
     workspace = tables.Column(linkify=True)
     environment = tables.Column(linkify=True)
@@ -105,7 +105,7 @@ class WorkflowConnectionTable(AgentOpsTable):
             "name",
             "integration_id",
             "connection_type",
-            "credential_secret",
+            "secret_group",
             "organization",
             "workspace",
             "environment",
@@ -114,7 +114,7 @@ class WorkflowConnectionTable(AgentOpsTable):
         )
         default_columns = fields
 
-    def render_credential_secret(self, value):
+    def render_secret_group(self, value):
         return value or "-"
 
     def render_organization(self, value):

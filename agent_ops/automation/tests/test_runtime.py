@@ -497,6 +497,8 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(WorkflowVersion.objects.count(), 1)
         self.assertEqual(run.workflow_version.workflow_id, workflow.id)
         self.assertEqual(run.workflow_version.version, 1)
+        self.assertEqual(run.workflow_version.definition["definition_version"], 2)
+        self.assertEqual(run.workflow_version.definition["nodes"][1]["name"], "Done")
 
         step_runs = list(run.step_runs.order_by("sequence"))
         self.assertEqual(WorkflowStepRun.objects.count(), 2)
@@ -723,8 +725,6 @@ class WorkflowRuntimeTests(TestCase):
                             "path": "context.value",
                             "operator": "equals",
                             "right_value": "hello",
-                            "true_target": "response-hello",
-                            "false_target": "response-other",
                         },
                         "position": {"x": 608, "y": 40},
                     },
@@ -752,8 +752,8 @@ class WorkflowRuntimeTests(TestCase):
                 "edges": [
                     {"id": "edge-1", "source": "trigger-1", "target": "set-1"},
                     {"id": "edge-2", "source": "set-1", "target": "if-1"},
-                    {"id": "edge-3", "source": "if-1", "target": "response-hello"},
-                    {"id": "edge-4", "source": "if-1", "target": "response-other"},
+                    {"id": "edge-3", "source": "if-1", "sourcePort": "true", "target": "response-hello"},
+                    {"id": "edge-4", "source": "if-1", "sourcePort": "false", "target": "response-other"},
                 ],
             },
         )
@@ -798,8 +798,6 @@ class WorkflowRuntimeTests(TestCase):
                             "path": "context.value",
                             "operator": "equals",
                             "right_value": "hello",
-                            "true_target": "response-hello",
-                            "false_target": "response-other",
                         },
                         "position": {"x": 608, "y": 40},
                     },
@@ -827,8 +825,8 @@ class WorkflowRuntimeTests(TestCase):
                 "edges": [
                     {"id": "edge-1", "source": "trigger-1", "target": "set-1"},
                     {"id": "edge-2", "source": "set-1", "target": "if-1"},
-                    {"id": "edge-3", "source": "if-1", "target": "response-hello"},
-                    {"id": "edge-4", "source": "if-1", "target": "response-other"},
+                    {"id": "edge-3", "source": "if-1", "sourcePort": "true", "target": "response-hello"},
+                    {"id": "edge-4", "source": "if-1", "sourcePort": "false", "target": "response-other"},
                 ],
             },
         )
@@ -859,7 +857,7 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "core.agent",
                         "label": "Draft",
                         "config": {
-                            "instructions": "Review {{ trigger.payload.ticket_id }}",
+                            "template": "Review {{ trigger.payload.ticket_id }}",
                             "output_key": "llm.response",
                         },
                         "position": {"x": 320, "y": 40},
@@ -908,8 +906,11 @@ class WorkflowRuntimeTests(TestCase):
             name="Primary OpenAI",
             integration_id="openai",
             connection_type="openai.api",
-            credential_secret=secret,
-            metadata={"base_url": "https://api.openai.com/v1"},
+            secret_group=secret.secret_group,
+            field_values={
+                "base_url": "https://api.openai.com/v1",
+                "api_key": {"source": "secret", "secret_name": secret.name},
+            },
         )
         workflow.definition["nodes"][2]["config"]["connection_id"] = str(connection.pk)
         workflow.save(update_fields=("definition",))
@@ -950,6 +951,172 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.output_data["response"], "Completed Review T-42")
         self.assertEqual(run.context_data["llm"]["response"]["text"], "Review T-42")
         self.assertEqual(run.step_count, 3)
+
+    def test_execute_workflow_runs_v2_catalog_agent_with_typed_openai_connection(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="v2 agent runtime typed connection",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.manual_trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "agent-1",
+                        "kind": "agent",
+                        "type": "core.agent",
+                        "label": "Draft",
+                        "config": {
+                            "template": "Review {{ trigger.payload.ticket_id }}",
+                            "output_key": "llm.response",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "model-1",
+                        "kind": "tool",
+                        "type": "openai.model.chat",
+                        "label": "OpenAI chat model",
+                        "config": {
+                            "connection_id": "",
+                            "model": "gpt-4.1-mini",
+                        },
+                        "position": {"x": 320, "y": 240},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "Completed {{ llm.response.text }}",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                    {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                    {
+                        "id": "edge-3",
+                        "source": "model-1",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
+                ],
+            },
+        )
+        secret = self._bind_secret(
+            workflow=workflow,
+            secret_name="OPENAI_API_KEY",
+        )
+        connection = WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="Typed OpenAI",
+            integration_id="openai",
+            connection_type="openai.api",
+            secret_group=secret.secret_group,
+            field_values={
+                "base_url": "https://api.openai.com/v1",
+                "api_key": {"source": "secret", "secret_name": secret.name},
+            },
+        )
+        workflow.definition["nodes"][2]["config"]["connection_id"] = str(connection.pk)
+        workflow.save(update_fields=("definition",))
+
+        def fake_urlopen(request, timeout=20):
+            self.assertEqual(timeout, 20)
+            self.assertEqual(request.full_url, "https://api.openai.com/v1/chat/completions")
+            self.assertEqual(request.headers["Authorization"], "Bearer sk-test-openai")
+            body = loads(request.data.decode("utf-8"))
+            self.assertEqual(body["model"], "gpt-4.1-mini")
+            self.assertEqual(body["messages"][0]["content"], "Review T-99")
+            return _FakeJsonResponse(
+                {
+                    "id": "chatcmpl-typed-101",
+                    "model": "gpt-4.1-mini",
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {
+                                "role": "assistant",
+                                "content": "Review T-99",
+                            },
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+                }
+            )
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai"}, clear=False):
+            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+                run = execute_workflow(
+                    workflow,
+                    input_data={"ticket_id": "T-99"},
+                )
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"], "Completed Review T-99")
+        self.assertEqual(run.context_data["llm"]["response"]["text"], "Review T-99")
+
+    def test_execute_workflow_rejects_legacy_agent_instructions_field(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="legacy agent instructions",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.manual_trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "agent-1",
+                        "kind": "agent",
+                        "type": "core.agent",
+                        "label": "Draft",
+                        "config": {
+                            "instructions": "Review {{ trigger.payload.ticket_id }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "model-1",
+                        "kind": "tool",
+                        "type": "openai.model.chat",
+                        "label": "OpenAI chat model",
+                        "config": {
+                            "base_url": "https://api.openai.com/v1",
+                            "model": "gpt-4.1-mini",
+                            "secret_name": "OPENAI_API_KEY",
+                        },
+                        "position": {"x": 320, "y": 240},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                    {
+                        "id": "edge-2",
+                        "source": "model-1",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow, input_data={"ticket_id": "T-42"})
+
+        self.assertEqual(run.status, "failed")
+        self.assertIn("config.template", run.error)
 
     def test_execute_workflow_runs_v2_prometheus_query_with_connection(self):
         workflow = Workflow.objects.create(
@@ -1003,8 +1170,11 @@ class WorkflowRuntimeTests(TestCase):
             name="Primary Prometheus",
             integration_id="prometheus",
             connection_type="prometheus.api",
-            credential_secret=secret,
-            metadata={"base_url": "https://prometheus.example.com"},
+            secret_group=secret.secret_group,
+            field_values={
+                "base_url": "https://prometheus.example.com",
+                "bearer_token": {"source": "secret", "secret_name": secret.name},
+            },
         )
         workflow.definition["nodes"][1]["config"]["connection_id"] = str(connection.pk)
         workflow.save(update_fields=("definition",))
@@ -1013,6 +1183,91 @@ class WorkflowRuntimeTests(TestCase):
             self.assertEqual(timeout, 20)
             self.assertIn("/api/v1/query?", request.full_url)
             self.assertIn("query=sum%28rate%28http_requests_total%7Bjob%3D%27api%27%7D%5B5m%5D%29%29", request.full_url)
+            self.assertIn("time=1711798200", request.full_url)
+            self.assertEqual(request.headers["Authorization"], "Bearer prom-secret")
+            return _FakeJsonResponse(
+                {
+                    "status": "success",
+                    "data": {
+                        "resultType": "vector",
+                        "result": [{"metric": {"job": "api"}, "value": [1711798200, "4.2"]}],
+                    },
+                }
+            )
+
+        with patch.dict(os.environ, {"PROMETHEUS_API_TOKEN": "prom-secret"}, clear=False):
+            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+                run = execute_workflow(workflow, input_data={"job": "api"})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.step_results[1]["result"]["tool_name"], "prometheus_query")
+        self.assertEqual(run.step_results[1]["result"]["result_count"], 1)
+        self.assertEqual(run.context_data["prometheus"]["query"]["status"], "success")
+
+    def test_execute_workflow_runs_v2_prometheus_query_with_typed_connection(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="v2 prometheus typed runtime",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.manual_trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "type": "prometheus.action.query",
+                        "label": "Prometheus query",
+                        "config": {
+                            "connection_id": "",
+                            "query": "sum(rate(http_requests_total{job='{{ trigger.payload.job }}'}[5m]))",
+                            "time": "1711798200",
+                            "output_key": "prometheus.query",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "prometheus.query",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
+                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
+                ],
+            },
+        )
+        secret = self._bind_secret(
+            workflow=workflow,
+            secret_name="PROMETHEUS_API_TOKEN",
+        )
+        connection = WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="Typed Prometheus",
+            integration_id="prometheus",
+            connection_type="prometheus.api",
+            secret_group=secret.secret_group,
+            field_values={
+                "base_url": "https://prometheus.example.com",
+                "bearer_token": {"source": "secret", "secret_name": secret.name},
+            },
+        )
+        workflow.definition["nodes"][1]["config"]["connection_id"] = str(connection.pk)
+        workflow.save(update_fields=("definition",))
+
+        def fake_urlopen(request, timeout=20):
+            self.assertEqual(timeout, 20)
+            self.assertIn("/api/v1/query?", request.full_url)
             self.assertIn("time=1711798200", request.full_url)
             self.assertEqual(request.headers["Authorization"], "Bearer prom-secret")
             return _FakeJsonResponse(
@@ -1088,8 +1343,11 @@ class WorkflowRuntimeTests(TestCase):
             name="Primary Elasticsearch",
             integration_id="elasticsearch",
             connection_type="elasticsearch.api",
-            credential_secret=secret,
-            metadata={"base_url": "https://elastic.example.com"},
+            secret_group=secret.secret_group,
+            field_values={
+                "base_url": "https://elastic.example.com",
+                "auth_token": {"source": "secret", "secret_name": secret.name},
+            },
         )
         workflow.definition["nodes"][1]["config"]["connection_id"] = str(connection.pk)
         workflow.save(update_fields=("definition",))
@@ -1216,10 +1474,7 @@ class WorkflowRuntimeTests(TestCase):
                         "config": {
                             "path": "trigger.payload.status",
                             "case_1_value": "queued",
-                            "case_1_target": "response-queued",
                             "case_2_value": "running",
-                            "case_2_target": "response-running",
-                            "fallback_target": "response-other",
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -1256,9 +1511,9 @@ class WorkflowRuntimeTests(TestCase):
                 ],
                 "edges": [
                     {"id": "edge-1", "source": "trigger-1", "target": "switch-1"},
-                    {"id": "edge-2", "source": "switch-1", "target": "response-queued"},
-                    {"id": "edge-3", "source": "switch-1", "target": "response-running"},
-                    {"id": "edge-4", "source": "switch-1", "target": "response-other"},
+                    {"id": "edge-2", "source": "switch-1", "sourcePort": "case_1", "target": "response-queued"},
+                    {"id": "edge-3", "source": "switch-1", "sourcePort": "case_2", "target": "response-running"},
+                    {"id": "edge-4", "source": "switch-1", "sourcePort": "fallback", "target": "response-other"},
                 ],
             },
         )

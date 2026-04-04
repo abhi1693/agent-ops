@@ -1,1 +1,0 @@
-"""xAI chat model node."""

@@ -1,10 +1,37 @@
 from automation.catalog.capabilities import CAPABILITY_AGENT_MODEL
 from automation.catalog.definitions import (
     CatalogNodeDefinition,
+    ConnectionSlotDefinition,
     ConnectionTypeDefinition,
     IntegrationApp,
     ParameterDefinition,
 )
+from automation.integrations.openai.client import (
+    resolve_openai_chat_model_config,
+    validate_openai_chat_model_config,
+)
+from automation.runtime_types import WorkflowNodeExecutionContext, WorkflowNodeExecutionResult
+
+
+def _validate_openai_runtime_config(*, config, node_id, **_) -> None:
+    validate_openai_chat_model_config(config, node_id)
+
+
+def _execute_openai_chat_model(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecutionResult:
+    resolved_config = resolve_openai_chat_model_config(
+        runtime,
+        node=runtime.node,
+        config=runtime.config,
+    )
+    return WorkflowNodeExecutionResult(
+        next_node_id=runtime.next_node_id,
+        output={
+            "model": resolved_config.model,
+            "base_url": resolved_config.base_url,
+            "api_type": "openai_compatible",
+            "connection_id": runtime.config.get("connection_id"),
+        },
+    )
 
 
 OPENAI_CONNECTION = ConnectionTypeDefinition(
@@ -13,6 +40,25 @@ OPENAI_CONNECTION = ConnectionTypeDefinition(
     label="OpenAI API",
     auth_kind="api_key",
     description="Reusable API connection for OpenAI and OpenAI-compatible model endpoints.",
+    field_schema=(
+        ParameterDefinition(
+            key="base_url",
+            label="API Base URL",
+            value_type="url",
+            required=True,
+            description="Base URL for the OpenAI-compatible API endpoint.",
+            default="https://api.openai.com/v1",
+            placeholder="https://api.openai.com/v1",
+        ),
+        ParameterDefinition(
+            key="api_key",
+            label="API Key Secret",
+            value_type="secret_ref",
+            required=True,
+            description="Secret reference containing the API key used for requests.",
+            placeholder="OPENAI_API_KEY",
+        ),
+    ),
 )
 
 
@@ -37,6 +83,17 @@ APP = IntegrationApp(
             group="Models",
             capabilities=frozenset({CAPABILITY_AGENT_MODEL}),
             connection_type=OPENAI_CONNECTION.id,
+            runtime_validator=_validate_openai_runtime_config,
+            runtime_executor=_execute_openai_chat_model,
+            connection_slots=(
+                ConnectionSlotDefinition(
+                    key="connection_id",
+                    label="Connection",
+                    allowed_connection_types=(OPENAI_CONNECTION.id,),
+                    required=False,
+                    description="Optional reusable OpenAI connection used for authenticated model requests.",
+                ),
+            ),
             parameter_schema=(
                 ParameterDefinition(
                     key="model",

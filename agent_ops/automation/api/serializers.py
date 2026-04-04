@@ -29,12 +29,6 @@ class NestedSecretGroupSerializer(serializers.ModelSerializer):
         fields = ("id", "name", "description", "organization", "workspace", "environment")
 
 
-class NestedSecretSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Secret
-        fields = ("id", "name", "provider", "enabled")
-
-
 class SecretSerializer(ValidatedModelSerializer):
     url = serializers.HyperlinkedIdentityField(view_name="api:automation-api:secret-detail")
     secret_group = SerializedPKRelatedField(
@@ -340,13 +334,12 @@ class WorkflowConnectionSerializer(ValidatedModelSerializer):
         required=False,
         allow_null=True,
     )
-    credential_secret = SerializedPKRelatedField(
-        serializer=NestedSecretSerializer,
-        queryset=Secret.objects.select_related("secret_group__organization", "secret_group__workspace", "secret_group__environment").order_by(
-            "secret_group__organization__name",
-            "secret_group__workspace__name",
-            "secret_group__environment__name",
-            "secret_group__name",
+    secret_group = SerializedPKRelatedField(
+        serializer=NestedSecretGroupSerializer,
+        queryset=SecretGroup.objects.select_related("organization", "workspace", "environment").order_by(
+            "organization__name",
+            "workspace__name",
+            "environment__name",
             "name",
         ),
         required=False,
@@ -365,9 +358,9 @@ class WorkflowConnectionSerializer(ValidatedModelSerializer):
             "organization",
             "workspace",
             "environment",
-            "credential_secret",
+            "secret_group",
             "enabled",
-            "auth_config",
+            "field_values",
             "metadata",
             "scope_label",
         )
@@ -380,6 +373,7 @@ class WorkflowConnectionSerializer(ValidatedModelSerializer):
             "organization",
             "workspace",
             "environment",
+            "secret_group",
             "enabled",
             "scope_label",
         )
@@ -397,15 +391,6 @@ class WorkflowConnectionSerializer(ValidatedModelSerializer):
             request=request,
             action="view",
         )
-
-    def validate(self, data):
-        attrs = data.copy()
-        connection_type = attrs.get("connection_type") or getattr(self.instance, "connection_type", None)
-        if connection_type and not attrs.get("integration_id"):
-            connection_definition = get_catalog_connection_type(connection_type)
-            if connection_definition is not None:
-                attrs["integration_id"] = connection_definition.integration_id
-        return super().validate(attrs)
         self.fields["workspace"].queryset = restrict_queryset(
             Workspace.objects.select_related("organization").order_by("organization__name", "name"),
             request=request,
@@ -420,17 +405,25 @@ class WorkflowConnectionSerializer(ValidatedModelSerializer):
             request=request,
             action="view",
         )
-        self.fields["credential_secret"].queryset = restrict_queryset(
-            Secret.objects.select_related("secret_group__organization", "secret_group__workspace", "secret_group__environment").order_by(
-                "secret_group__organization__name",
-                "secret_group__workspace__name",
-                "secret_group__environment__name",
-                "secret_group__name",
+        self.fields["secret_group"].queryset = restrict_queryset(
+            SecretGroup.objects.select_related("organization", "workspace", "environment").order_by(
+                "organization__name",
+                "workspace__name",
+                "environment__name",
                 "name",
             ),
             request=request,
             action="view",
         )
+
+    def validate(self, data):
+        attrs = data.copy()
+        connection_type = attrs.get("connection_type") or getattr(self.instance, "connection_type", None)
+        if connection_type and not attrs.get("integration_id"):
+            connection_definition = get_catalog_connection_type(connection_type)
+            if connection_definition is not None:
+                attrs["integration_id"] = connection_definition.integration_id
+        return super().validate(attrs)
 
 
 class WorkflowRunSerializer(serializers.ModelSerializer):

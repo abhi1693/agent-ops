@@ -26,6 +26,7 @@ import {
 import { createWorkflowDesignerBrowserController } from './workflowDesigner/panels/browserController';
 import {
   renderSettingsIdentitySection,
+  renderNodeConnectionSection,
   renderNodeSettingsFieldsMarkup,
   renderSettingsOverviewSection,
 } from './workflowDesigner/panels/settingsPanel';
@@ -156,18 +157,6 @@ export function initWorkflowDesigner(): void {
   const workflowNodeRunUrlTemplate = root.dataset.workflowNodeRunUrlTemplate ?? '';
   const csrfToken = root.querySelector<HTMLInputElement>('input[name="csrfmiddlewaretoken"]')?.value ?? '';
 
-  const fallbackDefinition = parseJsonScript<WorkflowPersistedDefinition>('workflow-definition-data', {
-    edges: [],
-    nodes: [],
-  });
-  const persistedDefinition = parsePersistedDefinition(canvas.definitionInput) ?? fallbackDefinition;
-  const graphStore = createGraphStore({
-    definition: normalizeWorkflowDefinition(persistedDefinition),
-    persist(definition) {
-      canvas.definitionInput.value = JSON.stringify(serializeWorkflowDefinition(definition));
-    },
-  });
-  const workflowDefinition = graphStore.definition;
   const workflowCatalog = parseJsonScript<WorkflowCatalogPayload>('workflow-catalog-data', {
     definitions: [],
     groups: [],
@@ -300,6 +289,33 @@ export function initWorkflowDesigner(): void {
           badge_class: 'text-bg-secondary',
           label: 'Idle',
         },
+        inspector: {
+          overview: {
+            active_nodes: 'Active nodes',
+            failed_nodes: 'Failed nodes',
+            idle_value: 'None',
+            last_completed_node: 'Last completed',
+            mode: 'Mode',
+            selected_node: 'Selected node',
+            step_count: 'Step count',
+            trigger_mode: 'Trigger mode',
+            workflow_version: 'Workflow version',
+          },
+          steps: {
+            empty: 'No completed steps yet.',
+            next_node_label: 'Next node',
+            result_label: 'Result',
+            title: 'Step details',
+          },
+          tabs: {
+            context: 'Context',
+            input: 'Input',
+            output: 'Output',
+            overview: 'Overview',
+            steps: 'Steps',
+            trace: 'Trace',
+          },
+        },
         messages: {
           execution_failed: 'Execution failed.',
           poll_timeout: 'Workflow run polling timed out.',
@@ -339,6 +355,7 @@ export function initWorkflowDesigner(): void {
       settings: {
         controls: {
           expression_hint: 'Use template syntax like {{ trigger.payload.ticket_id }} or {{ llm.response.text }}.',
+          required_badge: 'Required',
           mode_expression: 'Expression',
           mode_static: 'Static',
           mode_suffix: 'mode',
@@ -378,6 +395,28 @@ export function initWorkflowDesigner(): void {
     },
     sections: [],
   });
+  const workflowNodeKindsByType = workflowCatalog.definitions.reduce<Record<string, string>>(
+    (accumulator, definition) => {
+      accumulator[definition.type] = definition.kind;
+      return accumulator;
+    },
+    {},
+  );
+  const fallbackDefinition = parseJsonScript<WorkflowPersistedDefinition>('workflow-definition-data', {
+    definition_version: 2,
+    edges: [],
+    nodes: [],
+  });
+  const persistedDefinition = parsePersistedDefinition(canvas.definitionInput) ?? fallbackDefinition;
+  const graphStore = createGraphStore({
+    definition: normalizeWorkflowDefinition(persistedDefinition, {
+      kindByType: workflowNodeKindsByType,
+    }),
+    persist(definition) {
+      canvas.definitionInput.value = JSON.stringify(serializeWorkflowDefinition(definition));
+    },
+  });
+  const workflowDefinition = graphStore.definition;
   const workflowConnections = parseJsonScript<WorkflowConnection[]>('workflow-connections-data', []);
   const nodeRegistry = buildNodeRegistry(
     workflowCatalog.definitions,
@@ -521,6 +560,15 @@ export function initWorkflowDesigner(): void {
       nodeDefinition: activeNodeDefinition,
       presentation: workflowCatalog.presentation.settings,
     });
+    const connectionMarkup = renderNodeConnectionSection({
+      connections: workflowConnections,
+      node: activeSettingsNode,
+      nodeDefinition: activeNodeDefinition,
+      presentation: workflowCatalog.presentation.settings,
+    });
+    const settingsMarkup = [fieldMarkup, connectionMarkup]
+      .filter((sectionMarkup) => sectionMarkup.length > 0)
+      .join('');
 
     const description = nodeDefinition.description || nodeDefinition.label;
     canvas.settingsPanel.hidden = false;
@@ -537,7 +585,7 @@ export function initWorkflowDesigner(): void {
         nodeLabel: settingsNode.label,
         presentation: workflowCatalog.presentation.settings,
       })}
-      ${fieldMarkup || `<div class="workflow-editor-settings-empty">${workflowCatalog.presentation.settings.empty}</div>`}
+      ${settingsMarkup || `<div class="workflow-editor-settings-empty">${workflowCatalog.presentation.settings.empty}</div>`}
     `;
     renderExecutionNodeAction();
   }
@@ -599,6 +647,8 @@ export function initWorkflowDesigner(): void {
     getExecutionSucceededNodeId,
     getIsExecutionPending,
     renderExecutionNodeAction,
+    selectExecutionStep,
+    selectExecutionTab,
   } = createWorkflowDesignerExecutionController({
     buildExecutionRequestBody,
     csrfToken,
@@ -879,6 +929,8 @@ export function initWorkflowDesigner(): void {
     runWorkflow: () => {
       void executeDesignerRun(workflowRunUrl);
     },
+    selectExecutionStep,
+    selectExecutionTab,
     setSearchQuery,
     updateSelectedNodeField,
     updateSelectedNodeFieldMode,

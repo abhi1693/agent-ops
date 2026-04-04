@@ -1,27 +1,25 @@
 from __future__ import annotations
 
-from django.core.exceptions import ValidationError
-
+from automation.catalog.loader import initialize_workflow_catalog
 from automation.catalog.payloads import build_workflow_catalog_payload
+from automation.catalog.sections import WORKFLOW_NODE_CATALOG_SECTION_ORDER, WORKFLOW_NODE_CATALOG_SECTIONS
 from automation.catalog.services import get_catalog_node
-from automation.nodes.apps.openai.client import validate_openai_chat_model_config
-from automation.nodes.base import WORKFLOW_NODE_CATALOG_SECTION_ORDER, WORKFLOW_NODE_CATALOG_SECTIONS
-from automation.tools.base import (
-    SUPPORTED_WORKFLOW_FIELD_VALUE_MODES,
-    WORKFLOW_INPUT_MODES_CONFIG_KEY,
-    _coerce_csv_strings,
-    _coerce_optional_float,
-    _coerce_positive_int,
-    _validate_optional_json_template,
-    _validate_optional_string,
-    _validate_required_json_template,
-    _validate_required_string,
-)
+from automation.catalog.validation import raise_definition_error, validate_catalog_runtime_node
+from automation.tools.base import SUPPORTED_WORKFLOW_FIELD_VALUE_MODES, WORKFLOW_INPUT_MODES_CONFIG_KEY
 from automation.workflow_agents import AGENT_TOOL_INPUT_PORT, normalize_workflow_agent_config
-from automation.workflow_connections import split_workflow_edges, validate_agent_auxiliary_edges
+from automation.workflow_connections import get_edge_source_port, split_workflow_edges, validate_agent_auxiliary_edges
+
+
+WORKFLOW_DEFINITION_VERSION = 2
+
 
 def _build_template_registry() -> tuple[dict, ...]:
-    return tuple(build_workflow_catalog_payload()["definitions"])
+    catalog_node_types = set(initialize_workflow_catalog()["node_types"])
+    return tuple(
+        template
+        for template in build_workflow_catalog_payload()["definitions"]
+        if template.get("type") in catalog_node_types
+    )
 
 
 _WORKFLOW_REGISTRY_NODE_TEMPLATES = _build_template_registry()
@@ -87,6 +85,23 @@ WORKFLOW_NODE_TEMPLATE_MAP = {
 }
 
 
+def _kind_for_catalog_node(node_definition) -> str | None:
+    mode = getattr(node_definition, "mode", None)
+    kind = getattr(node_definition, "kind", None)
+
+    if mode == "trigger" or kind == "trigger":
+        return "trigger"
+    if kind == "agent":
+        return "agent"
+    if kind in {"output", "response"}:
+        return "response"
+    if kind in {"control", "condition"}:
+        return "condition"
+    if kind:
+        return "tool"
+    return None
+
+
 def resolve_workflow_node_template_type(*, node_type: str | None = None) -> str | None:
     if isinstance(node_type, str) and node_type.strip():
         normalized_type = node_type.strip()
@@ -146,29 +161,182 @@ def _normalize_input_modes(*, template: dict, config: dict) -> dict:
     return config
 
 
+def _normalize_edge_shape(edge: dict) -> dict:
+    normalized_edge = dict(edge)
+    if "sourcePort" not in normalized_edge and isinstance(normalized_edge.get("source_port"), str):
+        normalized_edge["sourcePort"] = normalized_edge["source_port"]
+    if "targetPort" not in normalized_edge and isinstance(normalized_edge.get("target_port"), str):
+        normalized_edge["targetPort"] = normalized_edge["target_port"]
+    return normalized_edge
+
+
+def _normalize_node_config(*, node: dict, template: dict | None) -> tuple[dict, str | int | None]:
+    raw_config = node.get("config")
+    normalized_config = dict(raw_config) if isinstance(raw_config, dict) else {}
+
+    raw_parameters = node.get("parameters")
+    if isinstance(raw_parameters, dict):
+        normalized_config.update(raw_parameters)
+
+    connection_id = node.get("connection_id")
+    if connection_id in (None, ""):
+        legacy_connection_id = normalized_config.pop("connection_id", None)
+        connection_id = legacy_connection_id if legacy_connection_id not in (None, "") else None
+    else:
+        normalized_config.pop("connection_id", None)
+
+    normalized_kind = node.get("kind")
+    if normalized_kind == "agent" or (template and template.get("kind") == "agent"):
+        normalized_config = normalize_workflow_agent_config(normalized_config)
+
+    return normalized_config, connection_id
+
+
+def _persisted_position(position: object) -> dict[str, int | float]:
+    if not isinstance(position, dict):
+        return {"x": 0, "y": 0}
+    return {
+        "x": position.get("x", 0) if isinstance(position.get("x"), int | float) else 0,
+        "y": position.get("y", 0) if isinstance(position.get("y"), int | float) else 0,
+    }
+
+
+def _trim_persisted_parameters(*, template: dict | None, parameters: dict) -> dict:
+    defaults = template.get("config") if isinstance(template, dict) and isinstance(template.get("config"), dict) else {}
+    trimmed: dict = {}
+    for key, value in parameters.items():
+        if key == "connection_id":
+            continue
+        if key == "instructions":
+            continue
+        if key == WORKFLOW_INPUT_MODES_CONFIG_KEY and value in ({}, None):
+            continue
+        if key in defaults and defaults[key] == value:
+            continue
+        trimmed[key] = value
+    return trimmed
+
+
+def canonicalize_workflow_definition(definition: dict | None) -> dict:
+    if not isinstance(definition, dict):
+        return {
+            "definition_version": WORKFLOW_DEFINITION_VERSION,
+            "nodes": [],
+            "edges": [],
+            "viewport": {"x": 0, "y": 0, "zoom": 1},
+        }
+
+    normalized_definition = dict(definition)
+    canonical_nodes = []
+    raw_nodes = definition.get("nodes", [])
+    if not isinstance(raw_nodes, list):
+        raw_nodes = None
+    for node in raw_nodes or []:
+        if not isinstance(node, dict):
+            continue
+
+        node_type = resolve_workflow_node_template_type(node_type=node.get("type")) or node.get("type")
+        if not isinstance(node_type, str) or not node_type.strip():
+            continue
+        node_type = node_type.strip()
+        node_template = get_workflow_node_template(node_type=node_type)
+        config, connection_id = _normalize_node_config(node=node, template=node_template)
+        parameters = _trim_persisted_parameters(template=node_template, parameters=config)
+        name = node.get("name")
+        if not isinstance(name, str) or not name.strip():
+            name = node.get("label")
+        if not isinstance(name, str) or not name.strip():
+            name = node_template.get("label") if isinstance(node_template, dict) else node_type
+
+        persisted_node = {
+            "id": node.get("id"),
+            "type": node_type,
+            "name": name.strip(),
+            "position": _persisted_position(node.get("position")),
+        }
+        if connection_id not in (None, ""):
+            persisted_node["connection_id"] = connection_id
+        if parameters:
+            persisted_node["parameters"] = parameters
+        raw_kind = node.get("kind")
+        if isinstance(raw_kind, str) and raw_kind.strip():
+            persisted_node["kind"] = raw_kind.strip()
+        if isinstance(node.get("notes"), str) and node["notes"].strip():
+            persisted_node["notes"] = node["notes"]
+        if isinstance(node.get("disabled"), bool):
+            persisted_node["disabled"] = node["disabled"]
+        if isinstance(node.get("ui"), dict) and node["ui"]:
+            persisted_node["ui"] = dict(node["ui"])
+        canonical_nodes.append(persisted_node)
+
+    canonical_edges = []
+    raw_edges = definition.get("edges", [])
+    if not isinstance(raw_edges, list):
+        raw_edges = None
+    for edge in raw_edges or []:
+        if not isinstance(edge, dict):
+            continue
+        normalized_edge = _normalize_edge_shape(edge)
+        persisted_edge = {
+            "id": normalized_edge.get("id"),
+            "source": normalized_edge.get("source"),
+            "target": normalized_edge.get("target"),
+        }
+        if isinstance(normalized_edge.get("sourcePort"), str) and normalized_edge["sourcePort"].strip():
+            persisted_edge["source_port"] = normalized_edge["sourcePort"].strip()
+        if isinstance(normalized_edge.get("targetPort"), str) and normalized_edge["targetPort"].strip():
+            persisted_edge["target_port"] = normalized_edge["targetPort"].strip()
+        if isinstance(normalized_edge.get("label"), str) and normalized_edge["label"].strip():
+            persisted_edge["label"] = normalized_edge["label"].strip()
+        canonical_edges.append(persisted_edge)
+
+    viewport = definition.get("viewport")
+    if not isinstance(viewport, dict):
+        viewport = {"x": 0, "y": 0, "zoom": 1}
+
+    return {
+        "definition_version": WORKFLOW_DEFINITION_VERSION,
+        "nodes": canonical_nodes if raw_nodes is not None else definition.get("nodes"),
+        "edges": canonical_edges if raw_edges is not None else definition.get("edges"),
+        "viewport": viewport,
+    }
+
+
 def normalize_workflow_definition_nodes(definition: dict | None) -> dict:
     if not isinstance(definition, dict):
         return {"nodes": [], "edges": []}
 
     normalized_definition = dict(definition)
     normalized_nodes = []
+    raw_nodes = definition.get("nodes", [])
+    if not isinstance(raw_nodes, list):
+        normalized_definition["nodes"] = raw_nodes
+        normalized_definition["edges"] = definition.get("edges", [])
+        return normalized_definition
 
-    for node in definition.get("nodes", []):
+    for node in raw_nodes:
         if not isinstance(node, dict):
             normalized_nodes.append(node)
             continue
 
         normalized_node = dict(node)
-        existing_config = normalized_node.get("config")
-        if not isinstance(existing_config, dict):
-            existing_config = {}
-        else:
-            existing_config = dict(existing_config)
-
-        if normalized_node.get("kind") == "agent":
-            existing_config = normalize_workflow_agent_config(existing_config)
-
         node_template = get_workflow_node_template(node_type=normalized_node.get("type"))
+        existing_config, _connection_id = _normalize_node_config(node=normalized_node, template=node_template)
+        if _connection_id not in (None, ""):
+            existing_config["connection_id"] = _connection_id
+
+        if not isinstance(normalized_node.get("label"), str) or not normalized_node["label"].strip():
+            if isinstance(normalized_node.get("name"), str) and normalized_node["name"].strip():
+                normalized_node["label"] = normalized_node["name"].strip()
+
+        if not isinstance(normalized_node.get("kind"), str) or not normalized_node["kind"].strip():
+            catalog_node = get_catalog_node(normalized_node.get("type"))
+            derived_kind = _kind_for_catalog_node(catalog_node)
+            if derived_kind is None and node_template is not None:
+                derived_kind = node_template.get("kind")
+            if isinstance(derived_kind, str) and derived_kind:
+                normalized_node["kind"] = derived_kind
+
         if node_template is not None:
             normalized_node["type"] = node_template["type"]
             normalized_node["typeVersion"] = 1
@@ -184,12 +352,17 @@ def normalize_workflow_definition_nodes(definition: dict | None) -> dict:
         normalized_nodes.append(normalized_node)
 
     normalized_definition["nodes"] = normalized_nodes
+    raw_edges = definition.get("edges", [])
+    if isinstance(raw_edges, list):
+        normalized_definition["edges"] = [
+            _normalize_edge_shape(edge)
+            if isinstance(edge, dict)
+            else edge
+            for edge in raw_edges
+        ]
+    else:
+        normalized_definition["edges"] = raw_edges
     return normalized_definition
-
-
-def _raise_definition_error(message: str) -> None:
-    raise ValidationError({"definition": message})
-
 
 def _validate_runtime_cycle_free(*, adjacency: dict[str, list[str]]) -> None:
     visited: set[str] = set()
@@ -199,7 +372,7 @@ def _validate_runtime_cycle_free(*, adjacency: dict[str, list[str]]) -> None:
         if node_id in visited:
             return
         if node_id in visiting:
-            _raise_definition_error("Workflow runtime does not support cycles yet.")
+            raise_definition_error("Workflow runtime does not support cycles yet.")
 
         visiting.add(node_id)
         for target_id in adjacency.get(node_id, []):
@@ -210,199 +383,57 @@ def _validate_runtime_cycle_free(*, adjacency: dict[str, list[str]]) -> None:
     for node_id in adjacency:
         visit(node_id)
 
-
-def _validate_terminal(node_id: str, outgoing_targets: list[str]) -> None:
-    if outgoing_targets:
-        _raise_definition_error(f'Node "{node_id}" is terminal and cannot have outgoing edges.')
-
-
-def _validate_target_exists_and_connected(
-    *,
-    node_id: str,
-    target_name: str,
-    target_id: str,
-    node_ids: set[str],
-    outgoing_targets: list[str],
-) -> None:
-    if target_id not in node_ids:
-        _raise_definition_error(f'Node "{node_id}" {target_name} "{target_id}" does not exist.')
-    if target_id not in outgoing_targets:
-        _raise_definition_error(
-            f'Node "{node_id}" {target_name} "{target_id}" must also be represented by a graph edge.'
-        )
-
-
 def _validate_catalog_runtime_node(
     *,
     node: dict,
     node_ids: set[str],
     outgoing_targets: list[str],
+    outgoing_targets_by_source_port: dict[str, list[str]],
+    untyped_outgoing_targets: list[str],
     attached_agent_tool_node_ids: set[str],
 ) -> None:
     node_id = node["id"]
     node_type = node.get("type")
     node_definition = get_catalog_node(node_type)
     if node_definition is None:
-        _raise_definition_error(f'Node "{node_id}" type "{node_type}" is not supported.')
+        raise_definition_error(f'Node "{node_id}" type "{node_type}" is not supported.')
 
     config = node.get("config") or {}
     if not isinstance(config, dict):
-        _raise_definition_error(f'Node "{node_id}" config must be a JSON object.')
-
-    if node_type == "core.manual_trigger":
-        return
-
-    if node_type == "core.schedule_trigger":
-        _validate_required_string(config, "cron", node_id=node_id)
-        return
-
-    if node_type == "core.agent":
-        _validate_optional_string(config, "template", node_id=node_id)
-        _validate_optional_string(config, "instructions", node_id=node_id)
-        _validate_optional_string(config, "system_prompt", node_id=node_id)
-        _validate_optional_string(config, "output_key", node_id=node_id)
-        return
-
-    if node_type == "core.set":
-        _validate_required_string(config, "output_key", node_id=node_id)
-        if "value_json" in config:
-            _validate_required_json_template(config, "value_json", node_id=node_id)
-        elif "value" in config:
-            _validate_optional_string(config, "value", node_id=node_id)
-        return
-
-    if node_type == "core.if":
-        _validate_required_string(config, "operator", node_id=node_id)
-        operator = config["operator"]
-        if operator not in {"equals", "not_equals", "contains", "exists", "truthy"}:
-            _raise_definition_error(
-                f'Node "{node_id}" config.operator must be one of: contains, equals, exists, not_equals, truthy.'
-            )
-        _validate_optional_string(config, "path", node_id=node_id)
-        if operator not in {"exists", "truthy"} and "right_value" not in config:
-            _raise_definition_error(f'Node "{node_id}" must define config.right_value for operator "{operator}".')
-        true_target = _validate_required_string(config, "true_target", node_id=node_id)
-        false_target = _validate_required_string(config, "false_target", node_id=node_id)
-        if true_target == false_target:
-            _raise_definition_error(f'Node "{node_id}" true_target and false_target must be different.')
-        _validate_target_exists_and_connected(
-            node_id=node_id,
-            target_name="true_target",
-            target_id=true_target,
-            node_ids=node_ids,
-            outgoing_targets=outgoing_targets,
-        )
-        _validate_target_exists_and_connected(
-            node_id=node_id,
-            target_name="false_target",
-            target_id=false_target,
-            node_ids=node_ids,
-            outgoing_targets=outgoing_targets,
-        )
-        return
-
-    if node_type == "core.switch":
-        _validate_required_string(config, "path", node_id=node_id)
-        _validate_required_string(config, "case_1_value", node_id=node_id)
-        case_1_target = _validate_required_string(config, "case_1_target", node_id=node_id)
-        _validate_required_string(config, "case_2_value", node_id=node_id)
-        case_2_target = _validate_required_string(config, "case_2_target", node_id=node_id)
-        fallback_target = _validate_required_string(config, "fallback_target", node_id=node_id)
-        target_ids = [case_1_target, case_2_target, fallback_target]
-        if len(set(target_ids)) != len(target_ids):
-            _raise_definition_error(f'Node "{node_id}" switch targets must be different.')
-        for target_name, target_id in (
-            ("case_1_target", case_1_target),
-            ("case_2_target", case_2_target),
-            ("fallback_target", fallback_target),
-        ):
-            _validate_target_exists_and_connected(
-                node_id=node_id,
-                target_name=target_name,
-                target_id=target_id,
-                node_ids=node_ids,
-                outgoing_targets=outgoing_targets,
-            )
-        return
-
-    if node_type == "core.response":
-        _validate_terminal(node_id, outgoing_targets)
-        _validate_optional_string(config, "template", node_id=node_id)
-        _validate_optional_string(config, "value_path", node_id=node_id)
-        status = config.get("status", "succeeded")
-        if status not in {"succeeded", "failed"}:
-            _raise_definition_error(f'Node "{node_id}" config.status must be one of: failed, succeeded.')
-        return
-
-    if node_type == "core.stop_and_error":
-        _validate_terminal(node_id, outgoing_targets)
-        _validate_required_string(config, "message", node_id=node_id)
-        return
-
-    if node_type == "openai.model.chat":
-        validate_openai_chat_model_config(config, node_id)
-        return
-
-    if node_type == "prometheus.action.query":
-        _validate_required_string(config, "query", node_id=node_id)
-        _validate_optional_string(config, "connection_id", node_id=node_id)
-        _validate_optional_string(config, "time", node_id=node_id)
-        _validate_optional_string(config, "output_key", node_id=node_id)
-        instant = config.get("instant")
-        if instant not in (None, ""):
-            normalized = str(instant).strip().lower()
-            if normalized not in {"true", "false"}:
-                _raise_definition_error(f'Node "{node_id}" config.instant must be true or false.')
-        return
-
-    if node_type == "elasticsearch.action.search":
-        _validate_required_string(config, "index", node_id=node_id)
-        _validate_required_json_template(config, "query_json", node_id=node_id)
-        _validate_optional_string(config, "connection_id", node_id=node_id)
-        _validate_optional_string(config, "auth_scheme", node_id=node_id)
-        _validate_optional_string(config, "output_key", node_id=node_id)
-        if config.get("size") not in (None, ""):
-            _coerce_positive_int(config.get("size"), field_name="size", node_id=node_id, default=1)
-        return
-
-    if node_type == "github.trigger.webhook":
-        _validate_required_string(config, "owner", node_id=node_id)
-        _validate_required_string(config, "repository", node_id=node_id)
-        _validate_required_string(config, "connection_id", node_id=node_id)
-        _coerce_csv_strings(config.get("events"), field_name="events", node_id=node_id, default=[])
-        return
+        raise_definition_error(f'Node "{node_id}" config must be a JSON object.')
 
     if node_id in attached_agent_tool_node_ids and node_definition.kind in {"action", "model"}:
         # Agent-attached catalog tools may omit optional prompt values; only schema/runtime validity matters.
         return
 
-    # Fall back to schema-level checks for any future catalog node that is added before a dedicated validator.
-    for parameter in node_definition.parameter_schema:
-        value = config.get(parameter.key)
-        if parameter.required and value in (None, "", [], {}):
-            _raise_definition_error(f'Node "{node_id}" must define config.{parameter.key}.')
-        if parameter.value_type in {"string", "text", "node_ref"} and value not in (None, ""):
-            _validate_required_string(config, parameter.key, node_id=node_id)
-        elif parameter.value_type == "json" and value not in (None, ""):
-            _validate_required_json_template(config, parameter.key, node_id=node_id)
-        elif parameter.value_type == "string[]" and value not in (None, ""):
-            _coerce_csv_strings(value, field_name=parameter.key, node_id=node_id, default=[])
-        elif parameter.value_type == "number" and value not in (None, ""):
-            _coerce_optional_float(value, field_name=parameter.key, node_id=node_id)
-        elif parameter.value_type == "integer" and value not in (None, ""):
-            _coerce_positive_int(value, field_name=parameter.key, node_id=node_id, default=1)
+    validate_catalog_runtime_node(
+        node_definition=node_definition,
+        config=config,
+        node_id=node_id,
+        node_ids=node_ids,
+        outgoing_targets=outgoing_targets,
+        outgoing_targets_by_source_port=outgoing_targets_by_source_port,
+        untyped_outgoing_targets=untyped_outgoing_targets,
+    )
 
 
 def validate_workflow_runtime_definition(*, nodes: list[dict], edges: list[dict]) -> None:
     nodes_by_id = {node["id"]: node for node in nodes}
     primary_edges, auxiliary_edges = split_workflow_edges(edges)
     adjacency: dict[str, list[str]] = {node_id: [] for node_id in nodes_by_id}
+    primary_targets_by_source_port: dict[str, dict[str, list[str]]] = {node_id: {} for node_id in nodes_by_id}
+    untyped_primary_targets: dict[str, list[str]] = {node_id: [] for node_id in nodes_by_id}
     for edge in primary_edges:
         adjacency.setdefault(edge["source"], []).append(edge["target"])
+        source_port = get_edge_source_port(edge)
+        if source_port is None:
+            untyped_primary_targets.setdefault(edge["source"], []).append(edge["target"])
+            continue
+        primary_targets_by_source_port.setdefault(edge["source"], {}).setdefault(source_port, []).append(edge["target"])
 
     trigger_nodes = [node for node in nodes if node["kind"] == "trigger"]
     if len(trigger_nodes) != 1:
-        _raise_definition_error("Workflow runtime requires exactly one trigger node.")
+        raise_definition_error("Workflow runtime requires exactly one trigger node.")
 
     _validate_runtime_cycle_free(adjacency=adjacency)
     validate_agent_auxiliary_edges(nodes_by_id=nodes_by_id, edges=auxiliary_edges)
@@ -417,5 +448,7 @@ def validate_workflow_runtime_definition(*, nodes: list[dict], edges: list[dict]
             node=node,
             node_ids=set(nodes_by_id),
             outgoing_targets=adjacency.get(node["id"], []),
+            outgoing_targets_by_source_port=primary_targets_by_source_port.get(node["id"], {}),
+            untyped_outgoing_targets=untyped_primary_targets.get(node["id"], []),
             attached_agent_tool_node_ids=attached_agent_tool_node_ids,
         )

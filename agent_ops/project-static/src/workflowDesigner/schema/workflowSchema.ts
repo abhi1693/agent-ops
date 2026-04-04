@@ -7,7 +7,13 @@ import type {
   WorkflowPersistedNode,
 } from '../types';
 
-function normalizeNode(value: unknown): WorkflowNode | null {
+const WORKFLOW_DEFINITION_VERSION = 2;
+
+type WorkflowSchemaOptions = {
+  kindByType?: Record<string, string>;
+};
+
+function normalizeNode(value: unknown, options?: WorkflowSchemaOptions): WorkflowNode | null {
   if (!value || typeof value !== 'object') {
     return null;
   }
@@ -17,21 +23,41 @@ function normalizeNode(value: unknown): WorkflowNode | null {
     node.position && typeof node.position === 'object'
       ? (node.position as Partial<{ x: number; y: number }>)
       : {};
-  const kind = typeof node.kind === 'string' && node.kind.trim() ? node.kind.trim() : '';
+  const kind =
+    typeof node.kind === 'string' && node.kind.trim()
+      ? node.kind.trim()
+      : typeof options?.kindByType?.[typeof node.type === 'string' ? node.type : ''] === 'string' &&
+          options.kindByType[typeof node.type === 'string' ? node.type : ''].trim()
+        ? options.kindByType[typeof node.type === 'string' ? node.type : ''].trim()
+        : '';
   const type = typeof node.type === 'string' && node.type.trim() ? node.type.trim() : '';
 
   if (!kind || !type || typeof node.id !== 'string' || !node.id.trim()) {
     return null;
   }
 
+  const persistedConfig =
+    node.config && typeof node.config === 'object' && !Array.isArray(node.config) ? node.config : {};
+  const persistedParameters =
+    node.parameters && typeof node.parameters === 'object' && !Array.isArray(node.parameters) ? node.parameters : {};
+  const config: Record<string, unknown> = {
+    ...persistedConfig,
+    ...persistedParameters,
+  };
+  if (node.connection_id !== undefined && node.connection_id !== null && node.connection_id !== '') {
+    config.connection_id = node.connection_id;
+  }
+
   return {
-    config:
-      node.config && typeof node.config === 'object' && !Array.isArray(node.config)
-        ? node.config
-        : {},
+    config,
     id: node.id,
     kind,
-    label: typeof node.label === 'string' ? node.label : '',
+    label:
+      typeof node.name === 'string' && node.name.trim()
+        ? node.name
+        : typeof node.label === 'string'
+          ? node.label
+          : '',
     position: {
       x: typeof position.x === 'number' ? position.x : 0,
       y: typeof position.y === 'number' ? position.y : 0,
@@ -66,14 +92,25 @@ function normalizeEdge(value: unknown): WorkflowEdge | null {
     label: typeof edge.label === 'string' && edge.label.trim() ? edge.label : undefined,
     source: edge.source,
     sourcePort:
-      typeof edge.sourcePort === 'string' && edge.sourcePort.trim() ? edge.sourcePort : undefined,
+      typeof edge.sourcePort === 'string' && edge.sourcePort.trim()
+        ? edge.sourcePort
+        : typeof edge.source_port === 'string' && edge.source_port.trim()
+          ? edge.source_port
+          : undefined,
     target: edge.target,
     targetPort:
-      typeof edge.targetPort === 'string' && edge.targetPort.trim() ? edge.targetPort : undefined,
+      typeof edge.targetPort === 'string' && edge.targetPort.trim()
+        ? edge.targetPort
+        : typeof edge.target_port === 'string' && edge.target_port.trim()
+          ? edge.target_port
+          : undefined,
   };
 }
 
-export function normalizeWorkflowDefinition(value: unknown): WorkflowDefinition {
+export function normalizeWorkflowDefinition(
+  value: unknown,
+  options?: WorkflowSchemaOptions,
+): WorkflowDefinition {
   if (!value || typeof value !== 'object') {
     return { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
   }
@@ -82,7 +119,9 @@ export function normalizeWorkflowDefinition(value: unknown): WorkflowDefinition 
 
   return {
     nodes: Array.isArray(definition.nodes)
-      ? definition.nodes.map(normalizeNode).filter((node): node is WorkflowNode => node !== null)
+      ? definition.nodes
+          .map((node) => normalizeNode(node, options))
+          .filter((node): node is WorkflowNode => node !== null)
       : [],
     edges: Array.isArray(definition.edges)
       ? definition.edges.map(normalizeEdge).filter((edge): edge is WorkflowEdge => edge !== null)
@@ -95,7 +134,7 @@ function serializeWorkflowNode(node: WorkflowNode): WorkflowPersistedNode {
   const payload: WorkflowPersistedNode = {
     id: node.id,
     kind: node.kind,
-    label: node.label,
+    name: node.label,
     position: {
       x: node.position.x,
       y: node.position.y,
@@ -103,8 +142,16 @@ function serializeWorkflowNode(node: WorkflowNode): WorkflowPersistedNode {
     type: node.type,
   };
 
-  if (node.config && Object.keys(node.config).length > 0) {
-    payload.config = node.config;
+  if (node.config) {
+    const parameters: Record<string, unknown> = { ...node.config };
+    const connectionId = parameters.connection_id;
+    delete parameters.connection_id;
+    if (connectionId !== undefined && connectionId !== null && connectionId !== '') {
+      payload.connection_id = connectionId as string | number;
+    }
+    if (Object.keys(parameters).length > 0) {
+      payload.parameters = parameters;
+    }
   }
   if (node.typeVersion > 1) {
     payload.typeVersion = node.typeVersion;
@@ -118,14 +165,15 @@ function serializeWorkflowEdge(edge: WorkflowEdge): WorkflowPersistedEdge {
     id: edge.id,
     ...(edge.label ? { label: edge.label } : {}),
     source: edge.source,
-    ...(edge.sourcePort ? { sourcePort: edge.sourcePort } : {}),
+    ...(edge.sourcePort ? { source_port: edge.sourcePort } : {}),
     target: edge.target,
-    ...(edge.targetPort ? { targetPort: edge.targetPort } : {}),
+    ...(edge.targetPort ? { target_port: edge.targetPort } : {}),
   };
 }
 
 export function serializeWorkflowDefinition(definition: WorkflowDefinition): WorkflowPersistedDefinition {
   return {
+    definition_version: WORKFLOW_DEFINITION_VERSION,
     nodes: definition.nodes.map(serializeWorkflowNode),
     edges: definition.edges.map(serializeWorkflowEdge),
     viewport: definition.viewport ?? { x: 0, y: 0, zoom: 1 },

@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 
 from automation.primitives import (
     WORKFLOW_NODE_TEMPLATE_MAP,
+    canonicalize_workflow_definition,
     normalize_workflow_definition_nodes,
     validate_workflow_runtime_definition,
 )
@@ -118,6 +119,62 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
                 "output_key": "expression",
             },
         )
+
+    def test_canonicalize_workflow_definition_writes_v2_shape(self):
+        definition = {
+            "nodes": [
+                {
+                    "id": "agent-1",
+                    "kind": "agent",
+                    "label": "Planner",
+                    "type": "core.agent",
+                    "config": {
+                        "template": "Plan {{ trigger.payload.ticket_id }}",
+                        "output_key": "llm.response",
+                    },
+                    "position": {"x": 320, "y": 80},
+                },
+                {
+                    "id": "model-1",
+                    "kind": "tool",
+                    "label": "OpenAI chat model",
+                    "type": "openai.model.chat",
+                    "config": {
+                        "connection_id": "42",
+                        "model": "gpt-4.1-mini",
+                        "base_url": "https://api.openai.com/v1",
+                    },
+                    "position": {"x": 320, "y": 240},
+                },
+            ],
+            "edges": [
+                {
+                    "id": "edge-1",
+                    "source": "model-1",
+                    "sourcePort": "ai_languageModel",
+                    "target": "agent-1",
+                    "targetPort": "ai_languageModel",
+                },
+            ],
+        }
+
+        canonical = canonicalize_workflow_definition(definition)
+
+        self.assertEqual(canonical["definition_version"], 2)
+        self.assertEqual(canonical["nodes"][0]["kind"], "agent")
+        self.assertEqual(canonical["nodes"][0]["name"], "Planner")
+        self.assertEqual(
+            canonical["nodes"][0]["parameters"],
+            {"template": "Plan {{ trigger.payload.ticket_id }}"},
+        )
+        self.assertEqual(canonical["nodes"][1]["kind"], "tool")
+        self.assertEqual(canonical["nodes"][1]["connection_id"], "42")
+        self.assertEqual(
+            canonical["nodes"][1]["parameters"],
+            {"model": "gpt-4.1-mini", "base_url": "https://api.openai.com/v1"},
+        )
+        self.assertEqual(canonical["edges"][0]["source_port"], "ai_languageModel")
+        self.assertEqual(canonical["edges"][0]["target_port"], "ai_languageModel")
 
     def test_runtime_validation_allows_agent_auxiliary_model_and_tool_edges(self):
         definition = normalize_workflow_definition_nodes(

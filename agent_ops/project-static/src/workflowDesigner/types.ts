@@ -5,15 +5,18 @@ export type WorkflowNodeTemplateOption = {
 
 export type WorkflowNodeTemplateField = {
   binding?: 'literal' | 'path' | 'template';
+  description?: string;
   help_text?: string;
   key: string;
   label: string;
   options?: WorkflowNodeTemplateOption[];
   options_by_field?: Record<string, Record<string, WorkflowNodeTemplateOption[]>>;
   placeholder?: string;
+  required?: boolean;
   rows?: number;
   type: 'text' | 'textarea' | 'select' | 'node_target';
   ui_group?: 'advanced' | 'input' | 'result';
+  value_type?: string;
   visible_when?: Record<string, string[]>;
 };
 
@@ -83,6 +86,33 @@ export type WorkflowChromePresentation = {
 
 export type WorkflowExecutionPresentation = {
   default_status: WorkflowExecutionStatusPresentation;
+  inspector: {
+    overview: {
+      active_nodes: string;
+      failed_nodes: string;
+      idle_value: string;
+      last_completed_node: string;
+      mode: string;
+      selected_node: string;
+      step_count: string;
+      trigger_mode: string;
+      workflow_version: string;
+    };
+    steps: {
+      empty: string;
+      next_node_label: string;
+      result_label: string;
+      title: string;
+    };
+    tabs: {
+      context: string;
+      input: string;
+      output: string;
+      overview: string;
+      steps: string;
+      trace: string;
+    };
+  };
   messages: {
     execution_failed: string;
     poll_timeout: string;
@@ -112,6 +142,7 @@ export type WorkflowSettingsGroupPresentation = {
 export type WorkflowSettingsPresentation = {
   controls: {
     expression_hint: string;
+    required_badge: string;
     mode_expression: string;
     mode_static: string;
     mode_suffix: string;
@@ -277,6 +308,14 @@ export type WorkflowNodeDefinition = {
   catalog_section?: WorkflowNodeCatalogSection;
   category: WorkflowNodeCategoryId;
   config?: Record<string, unknown>;
+  connection_slots?: Array<{
+    allowed_connection_types: string[];
+    description?: string;
+    key: string;
+    label: string;
+    multiple?: boolean;
+    required?: boolean;
+  }>;
   connection_type?: string | null;
   description: string;
   fields: WorkflowNodeTemplateField[];
@@ -284,6 +323,9 @@ export type WorkflowNodeDefinition = {
   is_model?: boolean;
   kind: WorkflowNodeKind | string;
   label: string;
+  mode?: string;
+  operation?: string;
+  resource?: string;
   tags?: string[];
   type: string;
   typeVersion: number;
@@ -300,8 +342,14 @@ export type WorkflowPaletteSection = {
 export type WorkflowPersistedNode = {
   config?: Record<string, unknown>;
   id: string;
-  kind: string;
-  label: string;
+  kind?: string;
+  label?: string;
+  name?: string;
+  connection_id?: string | number;
+  parameters?: Record<string, unknown>;
+  notes?: string;
+  disabled?: boolean;
+  ui?: Record<string, unknown>;
   position: {
     x: number;
     y: number;
@@ -310,7 +358,10 @@ export type WorkflowPersistedNode = {
   typeVersion?: number;
 };
 
-export type WorkflowNode = WorkflowPersistedNode & {
+export type WorkflowNode = Omit<WorkflowPersistedNode, 'kind' | 'label' | 'name' | 'parameters' | 'connection_id'> & {
+  config: Record<string, unknown>;
+  kind: string;
+  label: string;
   type: string;
   typeVersion: number;
 };
@@ -390,14 +441,17 @@ export type WorkflowPersistedEdge = {
   id: string;
   label?: string;
   source: string;
+  source_port?: string;
   sourcePort?: string;
   target: string;
+  target_port?: string;
   targetPort?: string;
 };
 
 export type WorkflowEdge = WorkflowPersistedEdge;
 
 export type WorkflowPersistedDefinition = {
+  definition_version?: number;
   edges: WorkflowPersistedEdge[];
   nodes: WorkflowPersistedNode[];
   viewport?: {

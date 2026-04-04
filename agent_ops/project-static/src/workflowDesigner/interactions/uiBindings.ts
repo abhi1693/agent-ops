@@ -1,5 +1,6 @@
 import type { BrowserElements, CanvasElements } from '../dom';
 import type { AgentAuxiliaryPortId } from '../types';
+import type { ExecutionInspectorTab } from '../state/executionController';
 
 export function registerWorkflowDesignerUiBindings(params: {
   addNode: (nodeType: string) => void;
@@ -33,6 +34,8 @@ export function registerWorkflowDesignerUiBindings(params: {
   runNode: (nodeId: string) => void;
   runSelectedNode: () => void;
   runWorkflow: () => void;
+  selectExecutionStep: (stepIndex: number) => void;
+  selectExecutionTab: (tab: ExecutionInspectorTab) => void;
   setSearchQuery: (value: string) => void;
   updateSelectedNodeField: (
     key: string,
@@ -75,6 +78,8 @@ export function registerWorkflowDesignerUiBindings(params: {
     runNode,
     runSelectedNode,
     runWorkflow,
+    selectExecutionStep,
+    selectExecutionTab,
     setSearchQuery,
     updateSelectedNodeField,
     updateSelectedNodeFieldMode,
@@ -121,6 +126,31 @@ export function registerWorkflowDesignerUiBindings(params: {
 
     if (target.closest('[data-workflow-run-selected-node]')) {
       runSelectedNode();
+      return;
+    }
+
+    const executionTab = target.closest<HTMLElement>('[data-workflow-execution-tab]');
+    if (executionTab?.dataset.workflowExecutionTab) {
+      const tab = executionTab.dataset.workflowExecutionTab;
+      if (
+        tab === 'overview' ||
+        tab === 'output' ||
+        tab === 'input' ||
+        tab === 'context' ||
+        tab === 'steps' ||
+        tab === 'trace'
+      ) {
+        selectExecutionTab(tab);
+      }
+      return;
+    }
+
+    const executionStep = target.closest<HTMLElement>('[data-workflow-execution-step-index]');
+    if (executionStep?.dataset.workflowExecutionStepIndex) {
+      const stepIndex = Number.parseInt(executionStep.dataset.workflowExecutionStepIndex, 10);
+      if (!Number.isNaN(stepIndex)) {
+        selectExecutionStep(stepIndex);
+      }
       return;
     }
 

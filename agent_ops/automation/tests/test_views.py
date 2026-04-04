@@ -252,6 +252,7 @@ class WorkflowViewTests(TestCase):
         )
 
         workflow = Workflow.objects.get(name="Draft workflow")
+        self.assertEqual(workflow.definition["definition_version"], 2)
         self.assertRedirects(response, workflow.get_absolute_url())
         self.assertEqual(workflow.definition["nodes"], [])
         self.assertEqual(workflow.definition["edges"], [])
@@ -283,12 +284,6 @@ class WorkflowViewTests(TestCase):
         self.assertContains(response, '"app_label": "Prometheus"')
         self.assertContains(response, '"app_label": "Elasticsearch"')
         self.assertContains(response, '"app_label": "OpenAI"')
-        self.assertContains(response, '"app_label": "DeepSeek"')
-        self.assertContains(response, '"app_label": "Groq"')
-        self.assertContains(response, '"app_label": "Mistral"')
-        self.assertContains(response, '"app_label": "OpenRouter"')
-        self.assertContains(response, '"app_label": "xAI"')
-        self.assertContains(response, '"app_label": "Fireworks"')
         self.assertContains(response, '"type": "core.manual_trigger"')
         self.assertContains(response, '"type": "core.schedule_trigger"')
         self.assertContains(response, '"type": "core.agent"')
@@ -301,20 +296,20 @@ class WorkflowViewTests(TestCase):
         self.assertContains(response, '"type": "prometheus.action.query"')
         self.assertContains(response, '"type": "elasticsearch.action.search"')
         self.assertContains(response, '"type": "openai.model.chat"')
-        self.assertContains(response, '"type": "deepseek.model.chat"')
-        self.assertContains(response, '"type": "groq.model.chat"')
-        self.assertContains(response, '"type": "mistral.model.chat"')
-        self.assertContains(response, '"type": "openrouter.model.chat"')
-        self.assertContains(response, '"type": "xai.model.chat"')
-        self.assertContains(response, '"type": "fireworks.model.chat"')
-        self.assertContains(response, '"label": "New task"')
-        self.assertContains(response, '"label": "Return result"')
+        self.assertNotContains(response, '"type": "deepseek.model.chat"')
+        self.assertNotContains(response, '"type": "groq.model.chat"')
+        self.assertNotContains(response, '"type": "mistral.model.chat"')
+        self.assertNotContains(response, '"type": "openrouter.model.chat"')
+        self.assertNotContains(response, '"type": "xai.model.chat"')
+        self.assertNotContains(response, '"type": "fireworks.model.chat"')
+        self.assertContains(response, '"name": "New task"')
+        self.assertContains(response, '"name": "Return result"')
         self.assertContains(response, 'data-workflow-run')
         self.assertContains(response, 'data-workflow-execution-status')
         self.assertContains(response, reverse("workflow_designer_run", args=[self.workflow.pk]))
         self.assertContains(response, reverse("workflow_designer_node_run", args=[self.workflow.pk, "__node_id__"]))
 
-    def test_workflow_designer_accepts_native_model_provider_nodes(self):
+    def test_workflow_designer_rejects_legacy_native_model_provider_nodes(self):
         self.workflow.definition = {
             "nodes": [
                 {
@@ -359,8 +354,12 @@ class WorkflowViewTests(TestCase):
 
         response = self.client.get(reverse("workflow_designer", args=[self.workflow.pk]))
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, '"type": "deepseek.model.chat"')
+        self.assertRedirects(response, self.workflow.get_absolute_url())
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertTrue(
+            any("only supports v2 catalog nodes" in message for message in messages),
+            messages,
+        )
 
     def test_workflow_designer_redirects_unsupported_workflow_to_detail(self):
         self.workflow.definition = _unsupported_definition("Unsupported task")
@@ -438,6 +437,8 @@ class WorkflowViewTests(TestCase):
             "Node settings",
         )
         self.assertEqual(catalog_definition["connection_type"], "openai.api")
+        self.assertEqual(catalog_definition["connection_slots"][0]["key"], "connection_id")
+        self.assertEqual(catalog_definition["connection_slots"][0]["allowed_connection_types"], ["openai.api"])
         self.assertEqual(catalog_definition["app_label"], "OpenAI")
         self.assertEqual(catalog_definition["group"], "app_action")
 
@@ -476,9 +477,14 @@ class WorkflowViewTests(TestCase):
                 "name": "Primary OpenAI",
                 "description": "Main model connection",
                 "connection_type": "openai.api",
-                "credential_secret": secret.pk,
+                "secret_group": secret.secret_group.pk,
                 "enabled": "on",
-                "auth_config": json.dumps({"base_url": "https://api.openai.com/v1"}),
+                "field_values": json.dumps(
+                    {
+                        "base_url": "https://api.openai.com/v1",
+                        "api_key": {"source": "secret", "secret_name": secret.name},
+                    }
+                ),
                 "metadata": json.dumps({"owner": "automation"}),
             },
         )
@@ -489,7 +495,8 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(connection.workspace_id, self.workspace.pk)
         self.assertEqual(connection.organization_id, self.organization.pk)
         self.assertEqual(connection.integration_id, "openai")
-        self.assertEqual(connection.credential_secret_id, secret.pk)
+        self.assertEqual(connection.secret_group_id, secret.secret_group_id)
+        self.assertEqual(connection.field_values["api_key"]["secret_name"], secret.name)
 
     def test_workflow_detail_renders_scoped_connections_card(self):
         connection = WorkflowConnection.objects.create(
@@ -577,11 +584,19 @@ class WorkflowViewTests(TestCase):
         self.workflow.refresh_from_db()
         self.assertEqual(self.workflow.node_count, 4)
         self.assertEqual(self.workflow.edge_count, 3)
+        self.assertEqual(self.workflow.definition["definition_version"], 2)
         self.assertEqual(self.workflow.definition["nodes"][0]["type"], "core.manual_trigger")
         self.assertEqual(self.workflow.definition["nodes"][1]["type"], "core.agent")
-        self.assertEqual(self.workflow.definition["nodes"][1]["label"], "Planner")
+        self.assertEqual(self.workflow.definition["nodes"][1]["name"], "Planner")
+        self.assertEqual(
+            self.workflow.definition["nodes"][1]["parameters"],
+            {"template": "Plan work for {{ trigger.payload.ticket_id }}", "output_key": "plan"},
+        )
         self.assertEqual(self.workflow.definition["nodes"][2]["type"], "openai.model.chat")
+        self.assertEqual(self.workflow.definition["nodes"][2]["name"], "OpenAI chat model")
         self.assertEqual(self.workflow.definition["nodes"][3]["type"], "core.response")
+        self.assertEqual(self.workflow.definition["edges"][2]["source_port"], "ai_languageModel")
+        self.assertEqual(self.workflow.definition["edges"][2]["target_port"], "ai_languageModel")
 
     def test_workflow_designer_rejects_unsupported_definition_submission(self):
         self.client.force_login(self.staff_user)
@@ -641,7 +656,12 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(response.status_code, 202)
         payload = response.json()
         self.workflow.refresh_from_db()
-        self.assertEqual(self.workflow.definition["nodes"][1]["label"], "Reply")
+        self.assertEqual(self.workflow.definition["definition_version"], 2)
+        self.assertEqual(self.workflow.definition["nodes"][1]["name"], "Reply")
+        self.assertEqual(
+            self.workflow.definition["nodes"][1]["parameters"],
+            {"template": "Completed {{ trigger.payload.ticket_id }}"},
+        )
         self.assertEqual(payload["mode"], "workflow")
         self.assertEqual(payload["run"]["status"], "pending")
         run = WorkflowRun.objects.get(pk=payload["run"]["id"])
@@ -1048,7 +1068,10 @@ class WorkflowViewTests(TestCase):
             name="Primary GitHub",
             integration_id="github",
             connection_type="github.oauth2",
-            credential_secret=secret,
+            secret_group=secret.secret_group,
+            field_values={
+                "webhook_secret": {"source": "secret", "secret_name": secret.name},
+            },
         )
         workflow.definition["nodes"][0]["config"]["connection_id"] = str(connection.pk)
         workflow.save(update_fields=("definition",))
@@ -1120,7 +1143,10 @@ class WorkflowViewTests(TestCase):
             name="Primary GitHub",
             integration_id="github",
             connection_type="github.oauth2",
-            credential_secret=secret,
+            secret_group=secret.secret_group,
+            field_values={
+                "webhook_secret": {"source": "secret", "secret_name": secret.name},
+            },
         )
         workflow.definition["nodes"][0]["config"]["connection_id"] = str(connection.pk)
         workflow.save(update_fields=("definition",))
@@ -1196,7 +1222,86 @@ class WorkflowViewTests(TestCase):
             name="Primary GitHub",
             integration_id="github",
             connection_type="github.oauth2",
-            credential_secret=secret,
+            secret_group=secret.secret_group,
+            field_values={
+                "webhook_secret": {"source": "secret", "secret_name": secret.name},
+            },
+        )
+        workflow.definition["nodes"][0]["config"]["connection_id"] = str(connection.pk)
+        workflow.save(update_fields=("definition",))
+        body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
+
+        with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "github-secret"}, clear=False):
+            signature = "sha256=" + hmac.new(
+                b"github-secret",
+                body,
+                hashlib.sha256,
+            ).hexdigest()
+            response = self.client.post(
+                reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                data=body,
+                content_type="application/json",
+                HTTP_X_HUB_SIGNATURE_256=signature,
+                HTTP_X_GITHUB_EVENT="push",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "succeeded")
+        self.assertEqual(payload["output_data"]["response"], "push:acme/platform")
+
+    def test_workflow_webhook_trigger_accepts_typed_connection_secret_field(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="GitHub webhook typed connection",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "github.trigger.webhook",
+                        "label": "GitHub",
+                        "config": {
+                            "connection_id": "",
+                            "owner": "acme",
+                            "repository": "platform",
+                            "events": ["push"],
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.meta.event }}:{{ trigger.payload.repository.full_name }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+        )
+        secret = Secret.objects.create(
+            secret_group=self._create_secret_group(name="GitHub typed auth"),
+            provider="environment-variable",
+            name="GITHUB_WEBHOOK_SECRET",
+            parameters={"variable": "GITHUB_WEBHOOK_SECRET"},
+        )
+        workflow.secret_group = secret.secret_group
+        workflow.save(update_fields=("secret_group",))
+        connection = WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="Typed GitHub",
+            integration_id="github",
+            connection_type="github.oauth2",
+            secret_group=secret.secret_group,
+            field_values={
+                "webhook_secret": {"source": "secret", "secret_name": secret.name},
+            },
         )
         workflow.definition["nodes"][0]["config"]["connection_id"] = str(connection.pk)
         workflow.save(update_fields=("definition",))
@@ -1262,7 +1367,10 @@ class WorkflowViewTests(TestCase):
             name="Primary GitHub",
             integration_id="github",
             connection_type="github.oauth2",
-            credential_secret=secret,
+            secret_group=secret.secret_group,
+            field_values={
+                "webhook_secret": {"source": "secret", "secret_name": secret.name},
+            },
         )
         workflow.definition["nodes"][0]["config"]["connection_id"] = str(connection.pk)
         workflow.save(update_fields=("definition",))

@@ -28,7 +28,7 @@ from automation.forms import (
     WorkflowRunForm,
 )
 from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowRun, WorkflowStepRun, WorkflowVersion
-from automation.primitives import normalize_workflow_definition_nodes
+from automation.primitives import canonicalize_workflow_definition, normalize_workflow_definition_nodes
 from automation.runtime import enqueue_workflow, execute_workflow
 from automation.workflow_connections import split_workflow_edges
 from core.generic_views import (
@@ -353,7 +353,7 @@ def _get_workflow_connection_queryset(workflow):
         "organization",
         "workspace",
         "environment",
-        "credential_secret",
+        "secret_group",
     ).filter(organization=workflow.organization, enabled=True)
 
     if workflow.environment_id:
@@ -414,8 +414,7 @@ class WorkflowConnectionListView(RestrictedObjectListMixin, ObjectListView):
         "organization",
         "workspace",
         "environment",
-        "credential_secret",
-        "credential_secret__secret_group",
+        "secret_group",
     )
     table = tables.WorkflowConnectionTable
     filterset = filtersets.WorkflowConnectionFilterSet
@@ -429,8 +428,7 @@ class WorkflowConnectionListView(RestrictedObjectListMixin, ObjectListView):
                 "organization",
                 "workspace",
                 "environment",
-                "credential_secret",
-                "credential_secret__secret_group",
+                "secret_group",
             )
             .order_by("organization__name", "workspace__name", "environment__name", "integration_id", "name")
         )
@@ -445,15 +443,14 @@ class WorkflowConnectionDetailView(RestrictedObjectViewMixin, ObjectView):
             "organization",
             "workspace",
             "environment",
-            "credential_secret",
-            "credential_secret__secret_group",
+            "secret_group",
         )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         connection_definition = get_catalog_connection_type(self.object.connection_type)
         context["connection_definition"] = connection_definition
-        context["auth_config_json"] = _pretty_json(self.object.auth_config)
+        context["field_values_json"] = _pretty_json(self.object.field_values)
         context["metadata_json"] = _pretty_json(self.object.metadata)
         return context
 
@@ -464,8 +461,7 @@ class WorkflowConnectionChangelogView(RestrictedObjectChangeLogMixin, ObjectChan
         "organization",
         "workspace",
         "environment",
-        "credential_secret",
-        "credential_secret__secret_group",
+        "secret_group",
     ).order_by(
         "organization__name",
         "workspace__name",
@@ -602,7 +598,7 @@ class WorkflowDesignerView(RestrictedObjectEditMixin, ObjectEditView):
             {
                 "can_execute": True,
                 "run_form": WorkflowRunForm(initial={"input_data": {}}),
-                "workflow_definition": normalized_definition,
+                "workflow_definition": canonicalize_workflow_definition(self.object.definition),
                 "workflow_catalog": build_workflow_catalog_payload(),
                 "workflow_connections": _serialize_workflow_connections_for_designer(self.object),
                 "workflow_nodes": normalized_definition.get("nodes", []),

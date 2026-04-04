@@ -1,1 +1,0 @@
-"""Mistral chat model node."""

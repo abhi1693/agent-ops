@@ -34,13 +34,11 @@ export type ExecutionElements = {
   nodeRunButton: HTMLButtonElement | null;
   result: HTMLElement;
   resultBadge: HTMLElement;
-  resultContext: HTMLElement;
+  resultBody: HTMLElement;
   resultEmpty: HTMLElement;
   resultError: HTMLElement;
-  resultOutput: HTMLElement;
   resultSummary: HTMLElement;
   resultTitle: HTMLElement;
-  resultTrace: HTMLElement;
   runButton: HTMLButtonElement;
   status: HTMLElement;
 };
@@ -148,13 +146,11 @@ export function getExecutionElements(root: ParentNode): ExecutionElements | null
   const error = root.querySelector<HTMLElement>('[data-workflow-execution-error]');
   const result = root.querySelector<HTMLElement>('[data-workflow-execution-result]');
   const resultBadge = root.querySelector<HTMLElement>('[data-workflow-execution-badge]');
-  const resultContext = root.querySelector<HTMLElement>('[data-workflow-execution-context]');
+  const resultBody = root.querySelector<HTMLElement>('[data-workflow-execution-body]');
   const resultEmpty = root.querySelector<HTMLElement>('[data-workflow-execution-empty]');
   const resultError = root.querySelector<HTMLElement>('[data-workflow-execution-run-error]');
-  const resultOutput = root.querySelector<HTMLElement>('[data-workflow-execution-output]');
   const resultSummary = root.querySelector<HTMLElement>('[data-workflow-execution-summary]');
   const resultTitle = root.querySelector<HTMLElement>('[data-workflow-execution-title]');
-  const resultTrace = root.querySelector<HTMLElement>('[data-workflow-execution-trace]');
   const status = root.querySelector<HTMLElement>('[data-workflow-execution-status]');
 
   if (
@@ -162,13 +158,11 @@ export function getExecutionElements(root: ParentNode): ExecutionElements | null
     !error ||
     !result ||
     !resultBadge ||
-    !resultContext ||
+    !resultBody ||
     !resultEmpty ||
     !resultError ||
-    !resultOutput ||
     !resultSummary ||
     !resultTitle ||
-    !resultTrace ||
     !status
   ) {
     return null;
@@ -179,13 +173,11 @@ export function getExecutionElements(root: ParentNode): ExecutionElements | null
     nodeRunButton,
     result,
     resultBadge,
-    resultContext,
+    resultBody,
     resultEmpty,
     resultError,
-    resultOutput,
     resultSummary,
     resultTitle,
-    resultTrace,
     runButton,
     status,
   };

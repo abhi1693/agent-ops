@@ -197,20 +197,7 @@
 
                           <div class="alert alert-danger mb-3" role="alert" data-workflow-execution-run-error hidden></div>
 
-                          <div class="mb-3">
-                            <div class="text-secondary mb-1">{{ workflow_catalog.presentation.chrome.execution_panel.output_label }}</div>
-                            <pre class="workflow-json-preview mb-0" data-workflow-execution-output></pre>
-                          </div>
-
-                          <div class="mb-3">
-                            <div class="text-secondary mb-1">{{ workflow_catalog.presentation.chrome.execution_panel.trace_label }}</div>
-                            <pre class="workflow-json-preview mb-0" data-workflow-execution-trace></pre>
-                          </div>
-
-                          <div>
-                            <div class="text-secondary mb-1">{{ workflow_catalog.presentation.chrome.execution_panel.context_label }}</div>
-                            <pre class="workflow-json-preview mb-0" data-workflow-execution-context></pre>
-                          </div>
+                          <div class="workflow-editor-execution-inspector" data-workflow-execution-body></div>
                         </div>
                       </div>
                     </div>

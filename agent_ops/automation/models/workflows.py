@@ -6,6 +6,7 @@ from django.urls import reverse
 
 from automation.catalog.services import get_catalog_node
 from automation.primitives import (
+    WORKFLOW_DEFINITION_VERSION,
     normalize_workflow_definition_nodes,
     validate_workflow_runtime_definition,
 )
@@ -15,6 +16,7 @@ from core.models import PrimaryModel
 
 def _default_definition():
     return {
+        "definition_version": WORKFLOW_DEFINITION_VERSION,
         "nodes": [],
         "edges": [],
         "viewport": {

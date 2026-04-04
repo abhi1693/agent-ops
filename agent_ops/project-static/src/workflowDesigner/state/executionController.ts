@@ -1,5 +1,6 @@
 import type { ExecutionElements } from '../dom';
 import type { WorkflowExecutionPresentation, WorkflowNode } from '../types';
+import { escapeHtml, formatKindLabel } from '../utils';
 
 type DesignerRunResponse = {
   message: string;
@@ -29,6 +30,16 @@ type DesignerRunResponse = {
   };
 };
 
+export type ExecutionInspectorTab = 'overview' | 'output' | 'input' | 'context' | 'steps' | 'trace';
+
+type DesignerRunStep = {
+  kind?: string;
+  label?: string;
+  node_id?: string;
+  result?: unknown;
+  type?: string;
+};
+
 export function createWorkflowDesignerExecutionController(params: {
   buildExecutionRequestBody: (inputData: Record<string, unknown>) => string;
   csrfToken: string;
@@ -54,6 +65,8 @@ export function createWorkflowDesignerExecutionController(params: {
   getExecutionSucceededNodeId: () => string | null;
   getIsExecutionPending: () => boolean;
   renderExecutionNodeAction: () => void;
+  selectExecutionStep: (stepIndex: number) => void;
+  selectExecutionTab: (tab: ExecutionInspectorTab) => void;
 } {
   const {
     buildExecutionRequestBody,
@@ -74,6 +87,39 @@ export function createWorkflowDesignerExecutionController(params: {
   let executionActiveNodeIds: string[] = [];
   let executionFailedNodeIds: string[] = [];
   let executionSucceededNodeId: string | null = null;
+  let selectedExecutionTab: ExecutionInspectorTab = 'overview';
+  let selectedExecutionStepIndex = 0;
+  let lastExecutionPayload: DesignerRunResponse | null = null;
+
+  function parseJsonValue<T>(value: string | null): T | null {
+    if (!value) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(value) as T;
+    } catch (error) {
+      console.error(error);
+      return null;
+    }
+  }
+
+  function formatJsonValue(value: unknown, fallback: string): string {
+    if (value === undefined || value === null || value === '') {
+      return fallback;
+    }
+
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch (error) {
+      console.error(error);
+      return fallback;
+    }
+  }
 
   function setExecutionStatus(label: string, badgeClass = 'text-bg-secondary'): void {
     if (!execution) {
@@ -111,11 +157,227 @@ export function createWorkflowDesignerExecutionController(params: {
     return {};
   }
 
+  function getNodeLabel(nodeId: string | null | undefined): string {
+    if (!nodeId) {
+      return executionPresentation.inspector.overview.idle_value;
+    }
+
+    const node = getNode(nodeId);
+    return node?.label || nodeId;
+  }
+
+  function getNodeListLabel(nodeIds: string[]): string {
+    if (nodeIds.length === 0) {
+      return executionPresentation.inspector.overview.idle_value;
+    }
+
+    return nodeIds.map((nodeId) => getNodeLabel(nodeId)).join(', ');
+  }
+
+  function resolveDefaultExecutionTab(payload: DesignerRunResponse): ExecutionInspectorTab {
+    const parsedSteps = parseJsonValue<DesignerRunStep[]>(payload.run.steps_json);
+    if (Array.isArray(parsedSteps) && parsedSteps.length > 0) {
+      return 'steps';
+    }
+
+    if (parseJsonValue(payload.run.output_json) !== null) {
+      return 'output';
+    }
+
+    return 'overview';
+  }
+
+  function renderExecutionInspector(): void {
+    if (!execution || !lastExecutionPayload) {
+      return;
+    }
+
+    const payload = lastExecutionPayload;
+    const parsedInput = parseJsonValue<Record<string, unknown>>(payload.run.input_json) ?? {};
+    const parsedOutput = parseJsonValue(payload.run.output_json);
+    const parsedContext = parseJsonValue<Record<string, unknown>>(payload.run.context_json) ?? {};
+    const parsedSteps = parseJsonValue<DesignerRunStep[]>(payload.run.steps_json);
+    const steps = Array.isArray(parsedSteps) ? parsedSteps : [];
+    const tabs = executionPresentation.inspector.tabs;
+    const overviewLabels = executionPresentation.inspector.overview;
+    const selectedStep = steps[selectedExecutionStepIndex] ?? null;
+
+    const stepListMarkup = steps.length > 0
+      ? `
+          <div class="workflow-editor-execution-step-list">
+            ${steps
+              .map((step, index) => {
+                const isSelected = index === selectedExecutionStepIndex;
+                const title = step.label || step.node_id || `Step ${index + 1}`;
+                const meta = [step.kind ? formatKindLabel(step.kind) : '', step.type || '']
+                  .filter((part) => part)
+                  .join(' · ');
+
+                return `
+                  <button
+                    type="button"
+                    class="workflow-editor-execution-step-item${isSelected ? ' is-active' : ''}"
+                    data-workflow-execution-step-index="${index}"
+                  >
+                    <span class="workflow-editor-execution-step-index">${index + 1}</span>
+                    <span class="workflow-editor-execution-step-copy">
+                      <span class="workflow-editor-execution-step-title">${escapeHtml(title)}</span>
+                      <span class="workflow-editor-execution-step-meta">${escapeHtml(meta)}</span>
+                    </span>
+                  </button>
+                `;
+              })
+              .join('')}
+          </div>
+        `
+      : `<div class="workflow-editor-settings-empty">${escapeHtml(executionPresentation.inspector.steps.empty)}</div>`;
+
+    const stepDetailMarkup = selectedStep
+      ? `
+          <div class="workflow-editor-execution-step-detail-head">
+            <div class="workflow-editor-execution-step-detail-title">
+              ${escapeHtml(selectedStep.label || selectedStep.node_id || executionPresentation.inspector.steps.title)}
+            </div>
+            <div class="workflow-editor-execution-step-detail-meta">
+              ${escapeHtml(
+                [selectedStep.kind ? formatKindLabel(selectedStep.kind) : '', selectedStep.type || '']
+                  .filter((part) => part)
+                  .join(' · '),
+              )}
+            </div>
+          </div>
+          <div class="workflow-editor-execution-group">
+            <div class="text-secondary mb-1">${escapeHtml(executionPresentation.inspector.steps.result_label)}</div>
+            <pre class="workflow-json-preview mb-0">${escapeHtml(formatJsonValue(selectedStep.result ?? {}, '{}'))}</pre>
+          </div>
+        `
+      : `<div class="workflow-editor-settings-empty">${escapeHtml(executionPresentation.inspector.steps.empty)}</div>`;
+
+    const panes: Record<ExecutionInspectorTab, string> = {
+      overview: `
+        <div class="workflow-editor-execution-overview-grid">
+          <div class="workflow-editor-execution-stat">
+            <div class="workflow-editor-execution-stat-label">${escapeHtml(overviewLabels.mode)}</div>
+            <div class="workflow-editor-execution-stat-value">${escapeHtml(payload.mode)}</div>
+          </div>
+          <div class="workflow-editor-execution-stat">
+            <div class="workflow-editor-execution-stat-label">${escapeHtml(overviewLabels.selected_node)}</div>
+            <div class="workflow-editor-execution-stat-value">${escapeHtml(payload.node?.label || overviewLabels.idle_value)}</div>
+          </div>
+          <div class="workflow-editor-execution-stat">
+            <div class="workflow-editor-execution-stat-label">${escapeHtml(overviewLabels.trigger_mode)}</div>
+            <div class="workflow-editor-execution-stat-value">${escapeHtml(payload.run.trigger_mode || overviewLabels.idle_value)}</div>
+          </div>
+          <div class="workflow-editor-execution-stat">
+            <div class="workflow-editor-execution-stat-label">${escapeHtml(overviewLabels.workflow_version)}</div>
+            <div class="workflow-editor-execution-stat-value">${escapeHtml(`v${payload.run.workflow_version}`)}</div>
+          </div>
+          <div class="workflow-editor-execution-stat">
+            <div class="workflow-editor-execution-stat-label">${escapeHtml(overviewLabels.step_count)}</div>
+            <div class="workflow-editor-execution-stat-value">${escapeHtml(String(payload.run.step_count))}</div>
+          </div>
+          <div class="workflow-editor-execution-stat">
+            <div class="workflow-editor-execution-stat-label">${escapeHtml(overviewLabels.last_completed_node)}</div>
+            <div class="workflow-editor-execution-stat-value">${escapeHtml(getNodeLabel(payload.run.last_completed_node_id))}</div>
+          </div>
+          <div class="workflow-editor-execution-stat">
+            <div class="workflow-editor-execution-stat-label">${escapeHtml(overviewLabels.active_nodes)}</div>
+            <div class="workflow-editor-execution-stat-value">${escapeHtml(getNodeListLabel(payload.run.active_node_ids ?? []))}</div>
+          </div>
+          <div class="workflow-editor-execution-stat">
+            <div class="workflow-editor-execution-stat-label">${escapeHtml(overviewLabels.failed_nodes)}</div>
+            <div class="workflow-editor-execution-stat-value">${escapeHtml(getNodeListLabel(payload.run.failed_node_ids ?? []))}</div>
+          </div>
+        </div>
+      `,
+      output: `
+        <div class="workflow-editor-execution-group">
+          <div class="text-secondary mb-1">${escapeHtml(tabs.output)}</div>
+          <pre class="workflow-json-preview mb-0">${escapeHtml(formatJsonValue(parsedOutput ?? {}, '{}'))}</pre>
+        </div>
+      `,
+      input: `
+        <div class="workflow-editor-execution-group">
+          <div class="text-secondary mb-1">${escapeHtml(tabs.input)}</div>
+          <pre class="workflow-json-preview mb-0">${escapeHtml(formatJsonValue(parsedInput, '{}'))}</pre>
+        </div>
+      `,
+      context: `
+        <div class="workflow-editor-execution-group">
+          <div class="text-secondary mb-1">${escapeHtml(tabs.context)}</div>
+          <pre class="workflow-json-preview mb-0">${escapeHtml(formatJsonValue(parsedContext, '{}'))}</pre>
+        </div>
+      `,
+      steps: `
+        <div class="workflow-editor-execution-steps-layout">
+          ${stepListMarkup}
+          <div class="workflow-editor-execution-step-detail">
+            ${stepDetailMarkup}
+          </div>
+        </div>
+      `,
+      trace: `
+        <div class="workflow-editor-execution-group">
+          <div class="text-secondary mb-1">${escapeHtml(tabs.trace)}</div>
+          <pre class="workflow-json-preview mb-0">${escapeHtml(payload.run.steps_json ?? '[]')}</pre>
+        </div>
+      `,
+    };
+
+    execution.resultBody.innerHTML = `
+      <div class="workflow-editor-execution-tab-list" role="tablist" aria-label="Execution inspector">
+        ${(Object.keys(tabs) as ExecutionInspectorTab[])
+          .map(
+            (tabKey) => `
+              <button
+                type="button"
+                class="workflow-editor-execution-tab${selectedExecutionTab === tabKey ? ' is-active' : ''}"
+                data-workflow-execution-tab="${tabKey}"
+                role="tab"
+                aria-selected="${selectedExecutionTab === tabKey ? 'true' : 'false'}"
+              >
+                ${escapeHtml(tabs[tabKey])}
+              </button>
+            `,
+          )
+          .join('')}
+      </div>
+      <div class="workflow-editor-execution-pane">
+        ${panes[selectedExecutionTab]}
+      </div>
+    `;
+  }
+
+  function selectExecutionTab(tab: ExecutionInspectorTab): void {
+    if (!lastExecutionPayload) {
+      return;
+    }
+
+    selectedExecutionTab = tab;
+    renderExecutionInspector();
+  }
+
+  function selectExecutionStep(stepIndex: number): void {
+    if (!lastExecutionPayload) {
+      return;
+    }
+
+    const parsedSteps = parseJsonValue<DesignerRunStep[]>(lastExecutionPayload.run.steps_json);
+    if (!Array.isArray(parsedSteps) || stepIndex < 0 || stepIndex >= parsedSteps.length) {
+      return;
+    }
+
+    selectedExecutionStepIndex = stepIndex;
+    selectedExecutionTab = 'steps';
+    renderExecutionInspector();
+  }
+
   function renderExecutionResult(payload: DesignerRunResponse): void {
     if (!execution) {
       return;
     }
 
+    lastExecutionPayload = payload;
     const statusPresentation = executionPresentation.statuses[payload.run.status] ?? {
       badge_class: executionPresentation.default_status.badge_class,
       label: payload.run.status,
@@ -133,6 +395,7 @@ export function createWorkflowDesignerExecutionController(params: {
       executionActiveNodeIds = [];
       executionFailedNodeIds = [];
     }
+
     const modeLabel = payload.mode.startsWith('node')
       ? payload.node?.label ?? executionPresentation.result_labels.node_run
       : executionPresentation.result_labels.workflow_run;
@@ -151,9 +414,12 @@ export function createWorkflowDesignerExecutionController(params: {
     execution.resultSummary.textContent = summaryParts.join(' · ');
     execution.resultBadge.className = `badge ${payload.run.badge_class}`;
     execution.resultBadge.textContent = payload.run.status;
-    execution.resultOutput.textContent = payload.run.output_json ?? '{}';
-    execution.resultTrace.textContent = payload.run.steps_json ?? '[]';
-    execution.resultContext.textContent = payload.run.context_json ?? '{}';
+    selectedExecutionTab = resolveDefaultExecutionTab(payload);
+    const parsedSteps = parseJsonValue<DesignerRunStep[]>(payload.run.steps_json);
+    selectedExecutionStepIndex = Array.isArray(parsedSteps) && parsedSteps.length > 0
+      ? parsedSteps.length - 1
+      : 0;
+    renderExecutionInspector();
     if (payload.run.error) {
       execution.resultError.hidden = false;
       execution.resultError.textContent = payload.run.error;
@@ -313,5 +579,7 @@ export function createWorkflowDesignerExecutionController(params: {
     getExecutionSucceededNodeId: () => executionSucceededNodeId,
     getIsExecutionPending: () => isExecutionPending,
     renderExecutionNodeAction,
+    selectExecutionStep,
+    selectExecutionTab,
   };
 }

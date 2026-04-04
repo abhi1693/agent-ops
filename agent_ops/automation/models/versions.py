@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import IntegrityError, models, transaction
 
-from automation.primitives import normalize_workflow_definition_nodes
+from automation.primitives import canonicalize_workflow_definition
 from core.models import ChangeLoggedModel
 
 from .workflows import _get_scope_related_object, _validate_json_object
@@ -76,7 +76,7 @@ class WorkflowVersion(ChangeLoggedModel):
 
 
 def ensure_workflow_version_snapshot(workflow) -> WorkflowVersion:
-    normalized_definition = normalize_workflow_definition_nodes(workflow.definition or {})
+    normalized_definition = canonicalize_workflow_definition(workflow.definition or {})
     definition_checksum = _build_snapshot_checksum(
         definition=normalized_definition,
     )

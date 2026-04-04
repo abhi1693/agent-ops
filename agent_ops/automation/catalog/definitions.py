@@ -1,9 +1,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from automation.catalog.registry import WorkflowCatalogRegistry
+
+
+CatalogNodeRuntimeValidator = Callable[..., None]
+CatalogNodeRuntimeExecutor = Callable[..., Any]
+CatalogWebhookRequestPreparer = Callable[..., tuple[str, dict[str, Any], dict[str, Any]]]
+
+
+@dataclass(frozen=True)
+class OutputPortDefinition:
+    key: str
+    label: str
+    description: str = ""
+
+    def serialize(self) -> dict[str, str]:
+        return {
+            "key": self.key,
+            "label": self.label,
+            "description": self.description,
+        }
+
 
 @dataclass(frozen=True)
 class ParameterOptionDefinition:
@@ -24,6 +44,7 @@ class ParameterDefinition:
     key: str
     label: str
     value_type: str
+    field_type: str | None = None
     required: bool = False
     description: str = ""
     default: Any | None = None
@@ -31,18 +52,55 @@ class ParameterDefinition:
     help_text: str = ""
     options: tuple[ParameterOptionDefinition, ...] = ()
     show_if: tuple[dict[str, Any], ...] = ()
+    ui_group: str | None = None
+    binding: str | None = None
+    rows: int | None = None
+    options_by_field: dict[str, dict[str, tuple[ParameterOptionDefinition, ...]]] = field(default_factory=dict)
 
     def serialize(self) -> dict[str, Any]:
         return {
             "key": self.key,
             "label": self.label,
             "value_type": self.value_type,
+            "field_type": self.field_type,
             "required": self.required,
             "description": self.description,
             "default": self.default,
             "placeholder": self.placeholder,
             "help_text": self.help_text,
             "options": [option.serialize() for option in self.options],
+            "show_if": [dict(condition) for condition in self.show_if],
+            "ui_group": self.ui_group,
+            "binding": self.binding,
+            "rows": self.rows,
+            "options_by_field": {
+                config_key: {
+                    config_value: [option.serialize() for option in options]
+                    for config_value, options in option_map.items()
+                }
+                for config_key, option_map in self.options_by_field.items()
+            },
+        }
+
+
+@dataclass(frozen=True)
+class ConnectionSlotDefinition:
+    key: str
+    label: str
+    allowed_connection_types: tuple[str, ...]
+    required: bool = False
+    description: str = ""
+    multiple: bool = False
+    show_if: tuple[dict[str, Any], ...] = ()
+
+    def serialize(self) -> dict[str, Any]:
+        return {
+            "key": self.key,
+            "label": self.label,
+            "allowed_connection_types": list(self.allowed_connection_types),
+            "required": self.required,
+            "description": self.description,
+            "multiple": self.multiple,
             "show_if": [dict(condition) for condition in self.show_if],
         }
 
@@ -55,6 +113,7 @@ class ConnectionTypeDefinition:
     auth_kind: str = "none"
     description: str = ""
     parameter_schema: tuple[ParameterDefinition, ...] = ()
+    field_schema: tuple[ParameterDefinition, ...] = ()
 
     def register(self, registry: WorkflowCatalogRegistry) -> None:
         if self.id in registry["connection_types"]:
@@ -69,6 +128,7 @@ class ConnectionTypeDefinition:
             "auth_kind": self.auth_kind,
             "description": self.description,
             "parameter_schema": [item.serialize() for item in self.parameter_schema],
+            "field_schema": [item.serialize() for item in self.field_schema],
         }
 
 
@@ -81,12 +141,23 @@ class CatalogNodeDefinition:
     label: str
     description: str
     icon: str
+    app_id: str | None = None
+    app_label: str | None = None
+    app_description: str | None = None
+    app_icon: str | None = None
     resource: str | None = None
     operation: str | None = None
     group: str | None = None
+    catalog_section: str | None = None
     capabilities: frozenset[str] = field(default_factory=frozenset)
+    output_ports: tuple[OutputPortDefinition, ...] = ()
     connection_type: str | None = None
+    connection_slots: tuple[ConnectionSlotDefinition, ...] = ()
+    config_defaults: dict[str, Any] = field(default_factory=dict)
     parameter_schema: tuple[ParameterDefinition, ...] = ()
+    runtime_validator: CatalogNodeRuntimeValidator | None = None
+    runtime_executor: CatalogNodeRuntimeExecutor | None = None
+    webhook_request_preparer: CatalogWebhookRequestPreparer | None = None
     tags: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -100,6 +171,20 @@ class CatalogNodeDefinition:
                 f'Workflow node "{self.id}" must use the "{expected_prefix}" prefix for integration '
                 f'"{self.integration_id}".'
             )
+
+        if len({slot.key for slot in self.connection_slots}) != len(self.connection_slots):
+            raise ValueError(f'Workflow node "{self.id}" defines duplicate connection slot keys.')
+
+        if len({port.key for port in self.output_ports}) != len(self.output_ports):
+            raise ValueError(f'Workflow node "{self.id}" defines duplicate output port keys.')
+
+        if self.connection_type is not None and self.connection_slots:
+            primary_slot = self.connection_slots[0]
+            if self.connection_type not in primary_slot.allowed_connection_types:
+                raise ValueError(
+                    f'Workflow node "{self.id}" connection_type "{self.connection_type}" must be allowed by '
+                    f'primary connection slot "{primary_slot.key}".'
+                )
 
     def register(self, registry: WorkflowCatalogRegistry) -> None:
         if self.id in registry["node_types"]:
@@ -117,11 +202,19 @@ class CatalogNodeDefinition:
             "label": self.label,
             "description": self.description,
             "icon": self.icon,
+            "app_id": self.app_id,
+            "app_label": self.app_label,
+            "app_description": self.app_description,
+            "app_icon": self.app_icon,
             "resource": self.resource,
             "operation": self.operation,
             "group": self.group,
+            "catalog_section": self.catalog_section,
             "capabilities": sorted(self.capabilities),
+            "output_ports": [port.serialize() for port in self.output_ports],
             "connection_type": self.connection_type,
+            "connection_slots": [slot.serialize() for slot in self.connection_slots],
+            "config_defaults": dict(self.config_defaults),
             "parameter_schema": [item.serialize() for item in self.parameter_schema],
             "tags": list(self.tags),
         }
@@ -180,8 +273,10 @@ class IntegrationApp:
 
 __all__ = (
     "CatalogNodeDefinition",
+    "ConnectionSlotDefinition",
     "ConnectionTypeDefinition",
     "IntegrationApp",
+    "OutputPortDefinition",
     "ParameterDefinition",
     "ParameterOptionDefinition",
 )

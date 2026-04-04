@@ -134,8 +134,7 @@ class WorkflowConnectionViewSet(RestrictedAutomationViewSet):
             "organization",
             "workspace",
             "environment",
-            "credential_secret",
-            "credential_secret__secret_group",
+            "secret_group",
         ).order_by(
             "organization__name",
             "workspace__name",

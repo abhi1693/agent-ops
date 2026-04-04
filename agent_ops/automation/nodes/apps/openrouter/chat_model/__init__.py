@@ -1,1 +1,0 @@
-"""OpenRouter chat model node."""

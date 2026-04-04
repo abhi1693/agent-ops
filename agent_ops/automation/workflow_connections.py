@@ -24,6 +24,10 @@ def get_edge_target_port(edge: dict[str, Any]) -> str | None:
     return _normalized_port(edge.get("targetPort"))
 
 
+def get_edge_source_port(edge: dict[str, Any]) -> str | None:
+    return _normalized_port(edge.get("sourcePort"))
+
+
 def is_auxiliary_edge(edge: dict[str, Any]) -> bool:
     target_port = get_edge_target_port(edge)
     return target_port in SUPPORTED_AGENT_AUXILIARY_PORTS

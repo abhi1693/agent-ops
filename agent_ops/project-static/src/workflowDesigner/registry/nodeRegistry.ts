@@ -7,7 +7,6 @@ import type {
   WorkflowNode,
   WorkflowNodeDefinition,
   WorkflowPaletteSection,
-  WorkflowNodeTemplateField,
 } from '../types';
 
 export type WorkflowNodeRegistry = {
@@ -20,54 +19,10 @@ type WorkflowPaletteSectionAccumulator = WorkflowCatalogSection & {
   definitions: WorkflowNodeDefinition[];
 };
 
-function buildConnectionField(
-  definition: WorkflowNodeDefinition,
-  connections: WorkflowConnection[],
-): WorkflowNodeTemplateField | null {
-  if (!definition.connection_type) {
-    return null;
-  }
-
-  const options = connections
-    .filter(
-      (connection) =>
-        connection.enabled && connection.connection_type === definition.connection_type,
-    )
-    .map((connection) => ({
-      label: connection.label,
-      value: String(connection.id),
-    }));
-
-  return {
-    help_text:
-      options.length > 0
-        ? 'Select a reusable connection for this node.'
-        : 'No reusable connections are available for this app and scope yet.',
-    key: 'connection_id',
-    label: 'Connection',
-    options: [
-      {
-        label: options.length > 0 ? 'Select a connection' : 'No connections available',
-        value: '',
-      },
-      ...options,
-    ],
-    type: 'select',
-  };
-}
-
 function enhanceDefinition(
   definition: WorkflowNodeDefinition,
   connections: WorkflowConnection[],
 ): WorkflowNodeDefinition {
-  const fields = [...definition.fields];
-  if (!fields.some((field) => field.key === 'connection_id')) {
-    const connectionField = buildConnectionField(definition, connections);
-    if (connectionField) {
-      fields.unshift(connectionField);
-    }
-  }
-
   const config = { ...(definition.config ?? {}) };
   if (definition.connection_type && !Object.prototype.hasOwnProperty.call(config, 'connection_id')) {
     config.connection_id = '';
@@ -77,7 +32,7 @@ function enhanceDefinition(
     ...definition,
     category: definition.category || getNodeCategoryForKind(definition.kind),
     config,
-    fields,
+    fields: [...definition.fields],
     typeVersion: definition.typeVersion ?? 1,
   };
 }

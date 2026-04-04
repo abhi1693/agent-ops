@@ -4,12 +4,8 @@ from typing import Any
 
 from automation.catalog.capabilities import CAPABILITY_AGENT_MODEL
 from automation.catalog.definitions import CatalogNodeDefinition, ParameterDefinition, ParameterOptionDefinition
+from automation.catalog.sections import WORKFLOW_NODE_CATALOG_SECTION_ORDER, WORKFLOW_NODE_CATALOG_SECTIONS
 from automation.catalog.services import get_workflow_catalog
-from automation.nodes.base import (
-    WORKFLOW_NODE_CATALOG_SECTION_ORDER,
-    WORKFLOW_NODE_CATALOG_SECTIONS,
-    WorkflowNodeDefinition,
-)
 
 WORKFLOW_CATALOG_GROUPS: tuple[dict[str, str], ...] = (
     {
@@ -174,6 +170,33 @@ WORKFLOW_DESIGNER_PRESENTATION: dict[str, Any] = {
             "badge_class": "text-bg-secondary",
             "label": "Idle",
         },
+        "inspector": {
+            "overview": {
+                "active_nodes": "Active nodes",
+                "failed_nodes": "Failed nodes",
+                "idle_value": "None",
+                "last_completed_node": "Last completed",
+                "mode": "Mode",
+                "selected_node": "Selected node",
+                "step_count": "Step count",
+                "trigger_mode": "Trigger mode",
+                "workflow_version": "Workflow version",
+            },
+            "steps": {
+                "empty": "No completed steps yet.",
+                "next_node_label": "Next node",
+                "result_label": "Result",
+                "title": "Step details",
+            },
+            "tabs": {
+                "context": "Context",
+                "input": "Input",
+                "output": "Output",
+                "overview": "Overview",
+                "steps": "Steps",
+                "trace": "Trace",
+            },
+        },
         "messages": {
             "execution_failed": "Execution failed.",
             "poll_timeout": "Workflow run polling timed out.",
@@ -216,6 +239,7 @@ WORKFLOW_DESIGNER_PRESENTATION: dict[str, Any] = {
                 "Use template syntax like {{ trigger.payload.ticket_id }} or "
                 "{{ llm.response.text }}."
             ),
+            "required_badge": "Required",
             "mode_expression": "Expression",
             "mode_static": "Static",
             "mode_suffix": "mode",
@@ -241,6 +265,10 @@ WORKFLOW_DESIGNER_PRESENTATION: dict[str, Any] = {
                 ),
                 "title": "Pass data in",
             },
+            "connection": {
+                "description": "Choose which reusable connection this node should use.",
+                "title": "Connection",
+            },
             "overview": {
                 "description": (
                     "Keep the graph readable and make the node’s role obvious at a glance."
@@ -254,6 +282,19 @@ WORKFLOW_DESIGNER_PRESENTATION: dict[str, Any] = {
             "result": {
                 "description": "Choose where this node should read or write workflow context values.",
                 "title": "Save result",
+            },
+            "docs": {
+                "description": "Review the node contract, app ownership, and compatibility details.",
+                "fields": {
+                    "app": "App",
+                    "capabilities": "Capabilities",
+                    "connection_type": "Connection type",
+                    "kind": "Kind",
+                    "operation": "Operation",
+                    "resource": "Resource",
+                    "type": "Type",
+                },
+                "title": "Docs",
             },
         },
     },
@@ -295,6 +336,8 @@ def _build_visible_when(parameter: ParameterDefinition) -> dict[str, list[str]] 
 
 
 def _field_type_for_parameter(parameter: ParameterDefinition) -> str:
+    if isinstance(parameter.field_type, str) and parameter.field_type.strip():
+        return parameter.field_type.strip()
     if parameter.value_type == "node_ref":
         return "node_target"
     if parameter.options or parameter.value_type == "boolean":
@@ -312,20 +355,39 @@ def _serialize_parameter(parameter: ParameterDefinition) -> dict[str, Any]:
     payload = {
         "key": parameter.key,
         "label": parameter.label,
+        "description": parameter.description,
+        "required": parameter.required,
         "type": _field_type_for_parameter(parameter),
         "help_text": parameter.help_text or parameter.description,
         "placeholder": parameter.placeholder,
+        "value_type": parameter.value_type,
     }
-    if parameter.value_type == "node_ref":
-        payload["binding"] = "path"
-    elif parameter.value_type in {"text", "json"}:
-        payload["binding"] = "template"
+    binding = parameter.binding
+    if binding is None:
+        if parameter.value_type == "node_ref":
+            binding = "path"
+        elif parameter.value_type in {"text", "json"}:
+            binding = "template"
+    if binding is not None:
+        payload["binding"] = binding
     visible_when = _build_visible_when(parameter)
     if visible_when:
         payload["visible_when"] = visible_when
     if options:
         payload["options"] = options
-    if parameter.value_type in {"json", "text"}:
+    if parameter.ui_group is not None:
+        payload["ui_group"] = parameter.ui_group
+    if parameter.options_by_field:
+        payload["options_by_field"] = {
+            config_key: {
+                config_value: [_serialize_field_option(option) for option in options]
+                for config_value, options in option_map.items()
+            }
+            for config_key, option_map in parameter.options_by_field.items()
+        }
+    if parameter.rows is not None:
+        payload["rows"] = parameter.rows
+    elif parameter.value_type in {"json", "text"}:
         payload["rows"] = 4
     return payload
 
@@ -335,7 +397,9 @@ def _serialize_default_value(value: Any) -> Any:
 
 
 def _default_config_for_node(node: CatalogNodeDefinition) -> dict[str, Any]:
-    config: dict[str, Any] = {}
+    config: dict[str, Any] = dict(node.config_defaults)
+    for connection_slot in node.connection_slots:
+        config[connection_slot.key] = ""
     for parameter in node.parameter_schema:
         if parameter.default is not None:
             config[parameter.key] = _serialize_default_value(parameter.default)
@@ -343,6 +407,8 @@ def _default_config_for_node(node: CatalogNodeDefinition) -> dict[str, Any]:
 
 
 def _catalog_section_for_node(node: CatalogNodeDefinition) -> str:
+    if isinstance(node.catalog_section, str) and node.catalog_section.strip():
+        return node.catalog_section.strip()
     if node.mode == "trigger" or node.kind == "trigger":
         return "triggers"
     if node.integration_id == "core" and node.id == "core.set":
@@ -392,6 +458,17 @@ def _group_for_node(*, app_id: str | None, catalog_section: str, ui_kind: str) -
 
 
 def _app_metadata_for_node(node: CatalogNodeDefinition) -> dict[str, str]:
+    if all(
+        isinstance(value, str) and value.strip()
+        for value in (node.app_id, node.app_label, node.app_description, node.app_icon)
+    ):
+        return {
+            "app_description": node.app_description.strip(),
+            "app_icon": node.app_icon.strip(),
+            "app_id": node.app_id.strip(),
+            "app_label": node.app_label.strip(),
+        }
+
     if node.integration_id == "core":
         return {
             "app_description": "Core workflow control and orchestration nodes.",
@@ -412,10 +489,11 @@ def _app_metadata_for_node(node: CatalogNodeDefinition) -> dict[str, str]:
 def serialize_catalog_node_for_designer(node: CatalogNodeDefinition) -> dict[str, Any]:
     ui_kind = _ui_kind_for_node(node)
     catalog_section = _catalog_section_for_node(node)
+    app_metadata = _app_metadata_for_node(node)
     payload = {
-        **_app_metadata_for_node(node),
+        **app_metadata,
         "group": _group_for_node(
-            app_id=node.integration_id,
+            app_id=app_metadata["app_id"],
             catalog_section=catalog_section,
             ui_kind=ui_kind,
         ),
@@ -423,12 +501,17 @@ def serialize_catalog_node_for_designer(node: CatalogNodeDefinition) -> dict[str
         "catalog_section": catalog_section,
         "category": _category_for_ui_kind(ui_kind),
         "config": _default_config_for_node(node),
+        "connection_slots": [slot.serialize() for slot in node.connection_slots],
         "connection_type": node.connection_type,
+        "output_ports": [port.serialize() for port in node.output_ports],
         "description": node.description,
         "fields": [_serialize_parameter(parameter) for parameter in node.parameter_schema],
         "icon": node.icon,
         "kind": ui_kind,
         "label": node.label,
+        "mode": node.mode,
+        "operation": node.operation,
+        "resource": node.resource,
         "tags": list(node.tags),
         "type": node.id,
         "typeVersion": 1,
@@ -437,55 +520,13 @@ def serialize_catalog_node_for_designer(node: CatalogNodeDefinition) -> dict[str
         payload["is_model"] = True
     return payload
 
-
-def _ui_kind_for_native_node(node: WorkflowNodeDefinition) -> str:
-    if node.kind == "trigger":
-        return "trigger"
-    if node.kind == "agent":
-        return "agent"
-    if node.kind == "response":
-        return "response"
-    if node.kind == "condition":
-        return "condition"
-    return "tool"
-
-
-def serialize_native_node_for_designer(node: WorkflowNodeDefinition) -> dict[str, Any]:
-    ui_kind = _ui_kind_for_native_node(node)
-    catalog_section = node.catalog_section or "apps"
-    payload = {
-        "app_description": node.app_description,
-        "app_icon": node.app_icon,
-        "app_id": node.app_id,
-        "app_label": node.app_label,
-        "group": _group_for_node(
-            app_id=node.app_id,
-            catalog_section=catalog_section,
-            ui_kind=ui_kind,
-        ),
-        "capabilities": [CAPABILITY_AGENT_MODEL] if node.type.endswith(".model.chat") else [],
-        "catalog_section": catalog_section,
-        "category": _category_for_ui_kind(ui_kind),
-        "config": node.config,
-        "connection_type": None,
-        "description": node.description,
-        "fields": [field.serialize() for field in node.fields],
-        "icon": node.icon,
-        "kind": ui_kind,
-        "label": node.display_name,
-        "tags": list(node.categories),
-        "type": node.type,
-        "typeVersion": 1,
-    }
-    if node.type.endswith(".model.chat"):
-        payload["is_model"] = True
-    return payload
-
-
 def build_workflow_catalog_payload() -> dict[str, Any]:
-    from automation.nodes import WORKFLOW_NODE_DEFINITIONS
-
     registry = get_workflow_catalog()
+    integration_node_ids = {
+        node.id
+        for app in registry["integration_apps"].values()
+        for node in app.nodes
+    }
     ordered_nodes: list[CatalogNodeDefinition] = [
         *registry["core_nodes"].values(),
         *(
@@ -493,18 +534,23 @@ def build_workflow_catalog_payload() -> dict[str, Any]:
             for app in sorted(registry["integration_apps"].values(), key=lambda item: (item.sort_order, item.id))
             for node in app.nodes
         ),
-    ]
-    native_nodes = [
-        node
-        for node in WORKFLOW_NODE_DEFINITIONS
-        if node.type not in registry["node_types"]
+        *sorted(
+            (
+                node
+                for node_id, node in registry["node_types"].items()
+                if node_id not in registry["core_nodes"]
+                and node_id not in integration_node_ids
+            ),
+            key=lambda node: (
+                _catalog_section_for_node(node),
+                (node.app_id or node.integration_id),
+                node.id,
+            ),
+        ),
     ]
     return {
         "groups": [dict(item) for item in WORKFLOW_CATALOG_GROUPS],
-        "definitions": [
-            *[serialize_catalog_node_for_designer(node) for node in ordered_nodes],
-            *[serialize_native_node_for_designer(node) for node in native_nodes],
-        ],
+        "definitions": [serialize_catalog_node_for_designer(node) for node in ordered_nodes],
         "presentation": WORKFLOW_DESIGNER_PRESENTATION,
         "sections": [WORKFLOW_NODE_CATALOG_SECTIONS[section_id] for section_id in WORKFLOW_NODE_CATALOG_SECTION_ORDER],
     }
