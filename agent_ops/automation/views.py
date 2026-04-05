@@ -1,10 +1,16 @@
+import base64
+import hashlib
 import json
+import secrets
+import time
+from datetime import datetime, timezone as datetime_timezone
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -27,9 +33,19 @@ from automation.forms import (
     WorkflowForm,
     WorkflowRunForm,
 )
-from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowRun, WorkflowStepRun, WorkflowVersion
+from automation.integrations.openai.app import (
+    OPENAI_AUTH_USER_AGENT,
+    OPENAI_CODEX_OAUTH_CLIENT_ID,
+    OPENAI_DEVICE_AUTH_CALLBACK_URL,
+    OPENAI_DEVICE_AUTH_TOKEN_URL,
+    OPENAI_DEVICE_AUTH_USERCODE_URL,
+    OPENAI_DEVICE_AUTH_VERIFICATION_URL,
+    OPENAI_OAUTH_TOKEN_URL,
+)
+from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowConnectionState, WorkflowRun, WorkflowStepRun, WorkflowVersion
 from automation.primitives import canonicalize_workflow_definition, normalize_workflow_definition_nodes
 from automation.runtime import enqueue_workflow, execute_workflow
+from automation.tools.base import _http_json_request
 from automation.workflow_connections import split_workflow_edges
 from core.generic_views import (
     ObjectChangeLogView,
@@ -45,7 +61,17 @@ from tenancy.mixins import (
     RestrictedObjectListMixin,
     RestrictedObjectViewMixin,
 )
-from users.restrictions import assert_object_action_allowed
+from users.restrictions import assert_object_action_allowed, restrict_queryset
+
+
+WORKFLOW_CONNECTION_OPENAI_OAUTH_SESSION_PREFIX = "workflow_connection_openai_oauth"
+
+
+def _openai_auth_headers() -> dict[str, str]:
+    return {
+        "Accept": "application/json",
+        "User-Agent": OPENAI_AUTH_USER_AGENT,
+    }
 
 
 def _pretty_json(value):
@@ -61,6 +87,262 @@ def _flatten_validation_error(error: ValidationError) -> str:
             parts.append(f"{field}: {' '.join(messages_for_field)}")
         return " ".join(parts)
     return " ".join(error.messages)
+
+
+def _workflow_connection_popup_requested(request) -> bool:
+    return (request.GET.get("popup") or request.POST.get("popup")) == "1"
+
+
+def _workflow_connection_return_url(request) -> str | None:
+    raw_value = request.POST.get("return_url") or request.GET.get("return_url")
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        return None
+    return raw_value.strip()
+
+
+def _build_workflow_connection_url(url_name: str, connection: WorkflowConnection, *, popup: bool, return_url: str | None) -> str:
+    url = reverse(url_name, args=[connection.pk])
+    query_params: dict[str, str] = {}
+    if popup:
+        query_params["popup"] = "1"
+    if return_url:
+        query_params["return_url"] = return_url
+    if query_params:
+        return f"{url}?{urlencode(query_params)}"
+    return url
+
+
+def _connection_field_value(connection: WorkflowConnection, field_key: str, default: str | None = None) -> str | None:
+    raw_value = (connection.field_values or {}).get(field_key)
+    if isinstance(raw_value, str) and raw_value.strip():
+        return raw_value.strip()
+    return default
+
+
+def _connection_secret_value(connection: WorkflowConnection, field_key: str) -> str | None:
+    raw_value = (connection.field_values or {}).get(field_key)
+    if not isinstance(raw_value, dict) or connection.secret_group is None:
+        return None
+    secret_name = raw_value.get("secret_name")
+    if not isinstance(secret_name, str) or not secret_name.strip():
+        return None
+    secret = connection.secret_group.get_secret(name=secret_name.strip())
+    if secret is None or not secret.enabled:
+        return None
+    try:
+        resolved = secret.get_value(obj=connection)
+    except ValidationError:
+        return None
+    if not isinstance(resolved, str) or not resolved.strip():
+        return None
+    return resolved.strip()
+
+
+def _connection_supports_oauth(connection: WorkflowConnection) -> bool:
+    connection_definition = get_catalog_connection_type(connection.connection_type)
+    return bool(connection_definition and connection_definition.oauth2)
+
+
+def _connection_oauth_is_connected(connection: WorkflowConnection) -> bool:
+    state = getattr(connection, "state", None)
+    if state is None:
+        return False
+    refresh_token = (state.state_values or {}).get("refresh_token")
+    return isinstance(refresh_token, str) and bool(refresh_token.strip())
+
+
+def _serialize_workflow_connection_for_designer(connection: WorkflowConnection) -> dict:
+    supports_oauth = _connection_supports_oauth(connection)
+    oauth_connected = _connection_oauth_is_connected(connection)
+    return {
+        "connection_type": connection.connection_type,
+        "edit_url": reverse("workflowconnection_edit", args=[connection.pk]),
+        "enabled": connection.enabled,
+        "id": connection.pk,
+        "integration_id": connection.integration_id,
+        "label": (
+            f"{connection.name} ({connection.scope_label})"
+            if connection.scope_label
+            else connection.name
+        ),
+        "name": connection.name,
+        "oauth_connect_url": reverse("workflowconnection_openai_oauth_start", args=[connection.pk]) if supports_oauth else "",
+        "oauth_connected": oauth_connected,
+        "scope_label": connection.scope_label,
+        "supports_oauth": supports_oauth,
+    }
+
+
+def _build_workflow_connection_popup_response(request, connection: WorkflowConnection, *, action: str) -> JsonResponse:
+    popup_complete_url = _build_workflow_connection_url(
+        "workflowconnection_popup_complete",
+        connection,
+        popup=True,
+        return_url=_workflow_connection_return_url(request),
+    )
+    popup_complete_url = f"{popup_complete_url}&action={action}" if "?" in popup_complete_url else f"{popup_complete_url}?action={action}"
+    return redirect(popup_complete_url)
+
+
+def _build_workflow_connection_oauth_session_key(state_token: str) -> str:
+    return f"{WORKFLOW_CONNECTION_OPENAI_OAUTH_SESSION_PREFIX}:{state_token}"
+
+
+def _generate_pkce_pair() -> tuple[str, str]:
+    verifier = secrets.token_urlsafe(64)
+    digest = hashlib.sha256(verifier.encode("utf-8")).digest()
+    challenge = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return verifier, challenge
+
+
+def _resolve_openai_oauth_client_id(connection: WorkflowConnection) -> str:
+    return _connection_field_value(connection, "oauth_client_id", default=OPENAI_CODEX_OAUTH_CLIENT_ID) or OPENAI_CODEX_OAUTH_CLIENT_ID
+
+
+def _decode_jwt_payload(token: str) -> dict | None:
+    if not isinstance(token, str) or not token.strip():
+        return None
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    payload = parts[1]
+    payload += "=" * (-len(payload) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(payload.encode("ascii")).decode("utf-8")
+        parsed = json.loads(decoded)
+    except (ValueError, json.JSONDecodeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _extract_openai_account_id(*tokens: str | None) -> str | None:
+    for token in tokens:
+        payload = _decode_jwt_payload(token or "")
+        if not payload:
+            continue
+        claim = payload.get("https://api.openai.com/auth")
+        if isinstance(claim, dict):
+            account_id = claim.get("chatgpt_account_id")
+            if isinstance(account_id, str) and account_id.strip():
+                return account_id.strip()
+        account_id = payload.get("chatgpt_account_id")
+        if isinstance(account_id, str) and account_id.strip():
+            return account_id.strip()
+        organizations = payload.get("organizations")
+        if isinstance(organizations, list):
+            for organization in organizations:
+                if isinstance(organization, dict):
+                    organization_id = organization.get("id")
+                    if isinstance(organization_id, str) and organization_id.strip():
+                        return organization_id.strip()
+    return None
+
+
+def _exchange_openai_device_authorization_code(
+    *,
+    client_id: str,
+    token_url: str,
+    authorization_code: str,
+    code_verifier: str,
+    client_secret: str | None = None,
+) -> dict[str, object]:
+    exchange_payload = {
+        "grant_type": "authorization_code",
+        "client_id": client_id,
+        "code": authorization_code,
+        "code_verifier": code_verifier,
+        "redirect_uri": OPENAI_DEVICE_AUTH_CALLBACK_URL,
+    }
+    if client_secret:
+        exchange_payload["client_secret"] = client_secret
+    exchange_response, _ = _http_json_request(
+        method="POST",
+        url=token_url,
+        headers=_openai_auth_headers(),
+        form_body=exchange_payload,
+    )
+    if not isinstance(exchange_response, dict):
+        raise ValidationError({"definition": "OpenAI device-login token exchange returned an unexpected response."})
+    access_token = exchange_response.get("access_token")
+    refresh_token = exchange_response.get("refresh_token")
+    if (
+        not isinstance(access_token, str)
+        or not access_token.strip()
+        or not isinstance(refresh_token, str)
+        or not refresh_token.strip()
+    ):
+        raise ValidationError({"definition": "OpenAI device-login token exchange did not return the required tokens."})
+    return exchange_response
+
+
+def _parse_openai_device_auth_expiry(raw_value) -> int | None:
+    if isinstance(raw_value, str) and raw_value.strip():
+        try:
+            return int(datetime.fromisoformat(raw_value.strip()).timestamp())
+        except ValueError:
+            return None
+    if raw_value not in (None, ""):
+        try:
+            return int(raw_value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _get_allowed_workflow_connection(request, *, pk: int, action: str = "change") -> WorkflowConnection:
+    queryset = restrict_queryset(
+        WorkflowConnection.objects.select_related(
+            "organization",
+            "workspace",
+            "environment",
+            "secret_group",
+            "state",
+        ),
+        request=request,
+        action=action,
+    )
+    connection = queryset.filter(pk=pk).first()
+    if connection is None:
+        raise Http404("Workflow connection not found.")
+    assert_object_action_allowed(connection, request=request, action=action)
+    return connection
+
+
+def _build_openai_oauth_context(request, connection: WorkflowConnection | None) -> dict:
+    popup = _workflow_connection_popup_requested(request)
+    return_url = _workflow_connection_return_url(request)
+    if connection is None or connection.connection_type != "openai.api":
+        return {
+            "available": False,
+            "verification_url": OPENAI_DEVICE_AUTH_VERIFICATION_URL,
+        }
+
+    auth_mode = _connection_field_value(connection, "auth_mode", default="api_key")
+    client_id = _resolve_openai_oauth_client_id(connection)
+    state = getattr(connection, "state", None)
+    state_values = state.state_values if state is not None else {}
+    refresh_token = state_values.get("refresh_token")
+    account_id = state_values.get("account_id")
+    connected = isinstance(refresh_token, str) and bool(refresh_token.strip())
+    can_start = bool(connection.pk and auth_mode == "oauth2_authorization_code" and client_id)
+
+    return {
+        "account_id": account_id if isinstance(account_id, str) and account_id.strip() else None,
+        "auth_mode": auth_mode,
+        "available": True,
+        "can_start": can_start,
+        "client_id": client_id,
+        "connected": connected,
+        "popup": popup,
+        "start_url": _build_workflow_connection_url(
+            "workflowconnection_openai_oauth_start",
+            connection,
+            popup=popup,
+            return_url=return_url,
+        ) if can_start else None,
+        "verification_url": OPENAI_DEVICE_AUTH_VERIFICATION_URL,
+        "status_label": "Connected" if connected else "Authorization required",
+    }
 
 
 class SecretListView(RestrictedObjectListMixin, ObjectListView):
@@ -356,6 +638,7 @@ def _get_workflow_connection_queryset(workflow):
         "workspace",
         "environment",
         "secret_group",
+        "state",
     ).filter(organization=workflow.organization, enabled=True)
 
     if workflow.environment_id:
@@ -378,22 +661,7 @@ def _get_workflow_connection_queryset(workflow):
 
 
 def _serialize_workflow_connections_for_designer(workflow) -> list[dict]:
-    return [
-        {
-            "connection_type": connection.connection_type,
-            "enabled": connection.enabled,
-            "id": connection.pk,
-            "integration_id": connection.integration_id,
-            "label": (
-                f"{connection.name} ({connection.scope_label})"
-                if connection.scope_label
-                else connection.name
-            ),
-            "name": connection.name,
-            "scope_label": connection.scope_label,
-        }
-        for connection in _get_workflow_connection_queryset(workflow)
-    ]
+    return [_serialize_workflow_connection_for_designer(connection) for connection in _get_workflow_connection_queryset(workflow)]
 
 
 class WorkflowListView(RestrictedObjectListMixin, ObjectListView):
@@ -446,6 +714,7 @@ class WorkflowConnectionDetailView(RestrictedObjectViewMixin, ObjectView):
             "workspace",
             "environment",
             "secret_group",
+            "state",
         )
 
     def get_context_data(self, **kwargs):
@@ -453,7 +722,9 @@ class WorkflowConnectionDetailView(RestrictedObjectViewMixin, ObjectView):
         connection_definition = get_catalog_connection_type(self.object.connection_type)
         context["connection_definition"] = connection_definition
         context["field_values_json"] = _pretty_json(self.object.field_values)
+        context["state_summary_json"] = _pretty_json(getattr(getattr(self.object, "state", None), "summary", None))
         context["metadata_json"] = _pretty_json(self.object.metadata)
+        context["workflow_connection_oauth"] = _build_openai_oauth_context(self.request, self.object)
         return context
 
 
@@ -464,6 +735,7 @@ class WorkflowConnectionChangelogView(RestrictedObjectChangeLogMixin, ObjectChan
         "workspace",
         "environment",
         "secret_group",
+        "state",
     ).order_by(
         "organization__name",
         "workspace__name",
@@ -473,16 +745,412 @@ class WorkflowConnectionChangelogView(RestrictedObjectChangeLogMixin, ObjectChan
     )
 
 
-class WorkflowConnectionCreateView(RestrictedObjectEditMixin, ObjectEditView):
+class WorkflowConnectionEditViewMixin:
+    template_name = "automation/workflowconnection_form.html"
+
+    def get_context_data(self, request, form):
+        context = super().get_context_data(request, form)
+        connection = self.object if getattr(self.object, "pk", None) else None
+        context["workflow_connection_popup"] = _workflow_connection_popup_requested(request)
+        context["workflow_connection_oauth"] = _build_openai_oauth_context(request, connection)
+        return context
+
+    def post(self, request, *args, **kwargs):
+        form = self.get_form(data=request.POST, files=request.FILES)
+        if form.is_valid():
+            created = self.object.pk is None
+            self.object = self.form_save(form)
+            success_message = self.get_success_message(self.object, created)
+            if success_message:
+                messages.success(request, success_message)
+
+            if _workflow_connection_popup_requested(request):
+                return _build_workflow_connection_popup_response(request, self.object, action="saved")
+
+            return redirect(self.get_return_url(request, self.object))
+
+        return render(request, self.template_name, self.get_context_data(request, form))
+
+
+class WorkflowConnectionCreateView(RestrictedObjectEditMixin, WorkflowConnectionEditViewMixin, ObjectEditView):
     model = WorkflowConnection
     form_class = WorkflowConnectionForm
     success_message = "Workflow connection created."
 
 
-class WorkflowConnectionUpdateView(RestrictedObjectEditMixin, ObjectEditView):
+class WorkflowConnectionUpdateView(RestrictedObjectEditMixin, WorkflowConnectionEditViewMixin, ObjectEditView):
     model = WorkflowConnection
     form_class = WorkflowConnectionForm
     success_message = "Workflow connection updated."
+
+
+class WorkflowConnectionPopupCompleteView(RestrictedObjectViewMixin, ObjectView):
+    model = WorkflowConnection
+    template_name = "automation/workflowconnection_popup_complete.html"
+
+    def get_queryset(self):
+        return super().get_queryset().select_related(
+            "organization",
+            "workspace",
+            "environment",
+            "secret_group",
+            "state",
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["popup_action"] = self.request.GET.get("action") or "saved"
+        context["popup_return_url"] = _workflow_connection_return_url(self.request)
+        return context
+
+
+class WorkflowConnectionOpenAIOAuthStartView(View):
+    http_method_names = ["get"]
+
+    def get(self, request, *args, **kwargs):
+        connection = _get_allowed_workflow_connection(request, pk=kwargs["pk"], action="change")
+        if connection.connection_type != "openai.api":
+            messages.error(request, "This connection type does not support the OpenAI OAuth flow.")
+            return redirect(connection.get_absolute_url())
+
+        auth_mode = _connection_field_value(connection, "auth_mode", default="api_key")
+        if auth_mode != "oauth2_authorization_code":
+            messages.error(request, "Switch this connection to OAuth mode before connecting an account.")
+            return redirect(
+                _build_workflow_connection_url(
+                    "workflowconnection_edit",
+                    connection,
+                    popup=_workflow_connection_popup_requested(request),
+                    return_url=_workflow_connection_return_url(request),
+                )
+            )
+
+        client_id = _resolve_openai_oauth_client_id(connection)
+        # Codex device auth works with the minimal client_id payload.
+        # Avoid undocumented extras here because Cloudflare/OpenAI routing is
+        # stricter than the browser login flow and can fail unexpectedly.
+        start_payload = {"client_id": client_id}
+        try:
+            response_body, _ = _http_json_request(
+                method="POST",
+                url=OPENAI_DEVICE_AUTH_USERCODE_URL,
+                headers=_openai_auth_headers(),
+                json_body=start_payload,
+            )
+        except ValidationError as exc:
+            messages.error(request, _flatten_validation_error(exc))
+            return redirect(
+                _build_workflow_connection_url(
+                    "workflowconnection_edit",
+                    connection,
+                    popup=_workflow_connection_popup_requested(request),
+                    return_url=_workflow_connection_return_url(request),
+                )
+            )
+
+        if not isinstance(response_body, dict):
+            messages.error(request, "OpenAI device login returned an unexpected response.")
+            return redirect(
+                _build_workflow_connection_url(
+                    "workflowconnection_edit",
+                    connection,
+                    popup=_workflow_connection_popup_requested(request),
+                    return_url=_workflow_connection_return_url(request),
+                )
+            )
+
+        device_auth_id = response_body.get("device_auth_id")
+        user_code = response_body.get("user_code")
+        if not isinstance(device_auth_id, str) or not device_auth_id.strip() or not isinstance(user_code, str) or not user_code.strip():
+            messages.error(request, "OpenAI device login did not return a device code.")
+            return redirect(
+                _build_workflow_connection_url(
+                    "workflowconnection_edit",
+                    connection,
+                    popup=_workflow_connection_popup_requested(request),
+                    return_url=_workflow_connection_return_url(request),
+                )
+            )
+
+        session_token = secrets.token_urlsafe(24)
+        expires_at = _parse_openai_device_auth_expiry(response_body.get("expires_at"))
+        interval_value = response_body.get("interval")
+        try:
+            poll_interval_seconds = max(1, int(interval_value))
+        except (TypeError, ValueError):
+            poll_interval_seconds = 5
+        request.session[_build_workflow_connection_oauth_session_key(session_token)] = {
+            "client_id": client_id,
+            "connection_id": connection.pk,
+            "device_auth_id": device_auth_id.strip(),
+            "expires_at": expires_at,
+            "popup": _workflow_connection_popup_requested(request),
+            "poll_interval_seconds": poll_interval_seconds,
+            "return_url": _workflow_connection_return_url(request),
+            "user_code": user_code.strip(),
+        }
+        request.session.modified = True
+
+        context = {
+            "connection": connection,
+            "expires_at": datetime.fromtimestamp(expires_at, tz=datetime_timezone.utc) if expires_at else None,
+            "poll_interval_ms": poll_interval_seconds * 1000,
+            "poll_url": reverse("workflowconnection_openai_oauth_poll", args=[session_token]),
+            "verification_url": OPENAI_DEVICE_AUTH_VERIFICATION_URL,
+            "workflow_connection_popup": _workflow_connection_popup_requested(request),
+            "workflow_connection_return_url": _workflow_connection_return_url(request),
+            "user_code": user_code.strip(),
+        }
+        return render(request, "automation/workflowconnection_openai_device_authorize.html", context)
+
+
+class WorkflowConnectionOpenAIOAuthPollView(View):
+    http_method_names = ["get"]
+
+    def get(self, request, *args, **kwargs):
+        session_key = _build_workflow_connection_oauth_session_key(kwargs["session_token"])
+        session_data = request.session.get(session_key)
+        if not isinstance(session_data, dict):
+            return JsonResponse({"message": "Authorization session expired.", "status": "expired"}, status=410)
+
+        expires_at = session_data.get("expires_at")
+        try:
+            expired = int(expires_at) <= int(time.time())
+        except (TypeError, ValueError):
+            expired = False
+        if expired:
+            request.session.pop(session_key, None)
+            request.session.modified = True
+            return JsonResponse({"message": "Authorization session expired.", "status": "expired"}, status=410)
+
+        connection = _get_allowed_workflow_connection(request, pk=int(session_data["connection_id"]), action="change")
+        popup = bool(session_data.get("popup"))
+        return_url = session_data.get("return_url") if isinstance(session_data.get("return_url"), str) else None
+        edit_url = _build_workflow_connection_url(
+            "workflowconnection_edit",
+            connection,
+            popup=popup,
+            return_url=return_url,
+        )
+        poll_payload = {
+            "device_auth_id": str(session_data.get("device_auth_id") or ""),
+            "user_code": str(session_data.get("user_code") or ""),
+        }
+
+        try:
+            response_body, _ = _http_json_request(
+                method="POST",
+                url=OPENAI_DEVICE_AUTH_TOKEN_URL,
+                headers=_openai_auth_headers(),
+                json_body=poll_payload,
+            )
+        except ValidationError as exc:
+            message = _flatten_validation_error(exc)
+            lowered = message.lower()
+            if (
+                "failed with 403" in lowered
+                or "failed with 404" in lowered
+                or "authorization_pending" in lowered
+                or '"pending"' in lowered
+                or "not yet authorized" in lowered
+            ):
+                return JsonResponse({"message": "Waiting for authorization.", "status": "pending"})
+            if "slow_down" in lowered:
+                return JsonResponse({"message": "OpenAI asked to slow down polling.", "status": "pending"})
+            if "expired" in lowered:
+                request.session.pop(session_key, None)
+                request.session.modified = True
+                return JsonResponse({"message": "Authorization session expired.", "status": "expired"}, status=410)
+            return JsonResponse({"message": message, "status": "error"}, status=502)
+
+        if not isinstance(response_body, dict):
+            return JsonResponse({"message": "OpenAI device login returned an unexpected response.", "status": "error"}, status=502)
+
+        oauth_error = response_body.get("error")
+        if isinstance(oauth_error, str) and oauth_error.strip():
+            lowered = oauth_error.strip().lower()
+            if lowered in {"authorization_pending", "pending", "slow_down"}:
+                return JsonResponse({"message": "Waiting for authorization.", "status": "pending"})
+            if "expired" in lowered:
+                request.session.pop(session_key, None)
+                request.session.modified = True
+                return JsonResponse({"message": "Authorization session expired.", "status": "expired"}, status=410)
+            return JsonResponse({"message": oauth_error.strip(), "status": "error"}, status=502)
+
+        authorization_code = response_body.get("authorization_code")
+        code_verifier = response_body.get("code_verifier")
+        if (
+            not isinstance(authorization_code, str)
+            or not authorization_code.strip()
+            or not isinstance(code_verifier, str)
+            or not code_verifier.strip()
+        ):
+            return JsonResponse(
+                {"message": "OpenAI device login did not return an authorization code.", "status": "error"},
+                status=502,
+            )
+
+        client_secret = _connection_secret_value(connection, "oauth_client_secret")
+        token_url = _connection_field_value(connection, "oauth_token_url", default=OPENAI_OAUTH_TOKEN_URL) or OPENAI_OAUTH_TOKEN_URL
+        try:
+            token_response = _exchange_openai_device_authorization_code(
+                client_id=str(session_data.get("client_id") or _resolve_openai_oauth_client_id(connection)),
+                token_url=token_url,
+                authorization_code=authorization_code.strip(),
+                code_verifier=code_verifier.strip(),
+                client_secret=client_secret,
+            )
+        except ValidationError as exc:
+            return JsonResponse({"message": _flatten_validation_error(exc), "status": "error"}, status=502)
+
+        access_token = str(token_response.get("access_token") or "").strip()
+        refresh_token = str(token_response.get("refresh_token") or "").strip()
+        expires_in = token_response.get("expires_in")
+        id_token = token_response.get("id_token") if isinstance(token_response.get("id_token"), str) else None
+        connection_state = getattr(connection, "state", None)
+        if connection_state is None:
+            connection_state, _ = WorkflowConnectionState.objects.get_or_create(connection=connection)
+            connection.state = connection_state
+        state_values = connection_state.state_values or {}
+        state_values["access_token"] = access_token
+        state_values["refresh_token"] = refresh_token
+        if expires_in not in (None, ""):
+            try:
+                state_values["expires_at"] = int(time.time()) + int(expires_in)
+            except (TypeError, ValueError):
+                state_values.pop("expires_at", None)
+        account_id = _extract_openai_account_id(
+            id_token,
+            access_token,
+        )
+        if account_id:
+            state_values["account_id"] = account_id
+        connection_state.state_values = state_values
+        connection_state.mark_refreshed()
+        connection_state.full_clean()
+        connection_state.save()
+
+        request.session.pop(session_key, None)
+        request.session.modified = True
+        messages.success(request, f'Connected OpenAI account for "{connection.name}".')
+        redirect_url = (
+            _build_workflow_connection_url(
+                "workflowconnection_popup_complete",
+                connection,
+                popup=True,
+                return_url=return_url,
+            ) + "&action=oauth_connected"
+            if popup
+            else edit_url
+        )
+        return JsonResponse({"redirect_url": redirect_url, "status": "authorized"})
+
+
+class WorkflowConnectionOpenAIOAuthCallbackView(View):
+    http_method_names = ["get"]
+
+    def get(self, request, *args, **kwargs):
+        state_token = request.GET.get("state")
+        if not isinstance(state_token, str) or not state_token.strip():
+            messages.error(request, "Missing OAuth state.")
+            return redirect(reverse("workflowconnection_list"))
+
+        session_key = _build_workflow_connection_oauth_session_key(state_token.strip())
+        session_data = request.session.pop(session_key, None)
+        request.session.modified = True
+        if not isinstance(session_data, dict):
+            messages.error(request, "OAuth session expired. Start the connection flow again.")
+            return redirect(reverse("workflowconnection_list"))
+
+        connection = _get_allowed_workflow_connection(request, pk=int(session_data["connection_id"]), action="change")
+        popup = bool(session_data.get("popup"))
+        return_url = session_data.get("return_url") if isinstance(session_data.get("return_url"), str) else None
+        edit_url = _build_workflow_connection_url(
+            "workflowconnection_edit",
+            connection,
+            popup=popup,
+            return_url=return_url,
+        )
+
+        oauth_error = request.GET.get("error")
+        if isinstance(oauth_error, str) and oauth_error.strip():
+            messages.error(request, f"OpenAI OAuth failed: {oauth_error.strip()}")
+            return redirect(edit_url)
+
+        code = request.GET.get("code")
+        if not isinstance(code, str) or not code.strip():
+            messages.error(request, "OpenAI OAuth did not return an authorization code.")
+            return redirect(edit_url)
+
+        client_id = _resolve_openai_oauth_client_id(connection)
+        token_url = _connection_field_value(connection, "oauth_token_url", default=OPENAI_OAUTH_TOKEN_URL)
+        if not client_id or not token_url:
+            messages.error(request, "Connection is missing OAuth client settings.")
+            return redirect(edit_url)
+
+        redirect_uri = request.build_absolute_uri(reverse("workflowconnection_openai_oauth_callback"))
+        token_payload = {
+            "grant_type": "authorization_code",
+            "client_id": client_id,
+            "code": code.strip(),
+            "code_verifier": str(session_data.get("verifier") or ""),
+            "redirect_uri": redirect_uri,
+        }
+        client_secret = _connection_secret_value(connection, "oauth_client_secret")
+        if client_secret:
+            token_payload["client_secret"] = client_secret
+
+        try:
+            response_body, _ = _http_json_request(
+                method="POST",
+                url=token_url,
+                headers=_openai_auth_headers(),
+                form_body=token_payload,
+            )
+        except ValidationError as exc:
+            messages.error(request, _flatten_validation_error(exc))
+            return redirect(edit_url)
+
+        if not isinstance(response_body, dict):
+            messages.error(request, "OpenAI OAuth token exchange returned an unexpected response.")
+            return redirect(edit_url)
+
+        access_token = response_body.get("access_token")
+        refresh_token = response_body.get("refresh_token")
+        expires_in = response_body.get("expires_in")
+        if (
+            not isinstance(access_token, str)
+            or not access_token.strip()
+            or not isinstance(refresh_token, str)
+            or not refresh_token.strip()
+        ):
+            messages.error(request, "OpenAI OAuth token exchange did not return the required tokens.")
+            return redirect(edit_url)
+
+        connection_state = getattr(connection, "state", None)
+        if connection_state is None:
+            connection_state, _ = WorkflowConnectionState.objects.get_or_create(connection=connection)
+            connection.state = connection_state
+        state_values = connection_state.state_values or {}
+        state_values["access_token"] = access_token.strip()
+        state_values["refresh_token"] = refresh_token.strip()
+        if expires_in not in (None, ""):
+            try:
+                state_values["expires_at"] = int(time.time()) + int(expires_in)
+            except (TypeError, ValueError):
+                pass
+        account_id = response_body.get("account_id")
+        if isinstance(account_id, str) and account_id.strip():
+            state_values["account_id"] = account_id.strip()
+        connection_state.state_values = state_values
+        connection_state.mark_refreshed()
+        connection_state.full_clean()
+        connection_state.save()
+
+        messages.success(request, f'Connected OpenAI OAuth account for "{connection.name}".')
+        if popup:
+            return _build_workflow_connection_popup_response(request, connection, action="oauth_connected")
+        return redirect(edit_url)
 
 
 class WorkflowConnectionDeleteView(RestrictedObjectDeleteMixin, ObjectDeleteView):
@@ -602,7 +1270,13 @@ class WorkflowDesignerView(RestrictedObjectEditMixin, ObjectEditView):
                 "run_form": WorkflowRunForm(initial={"input_data": {}}),
                 "workflow_definition": canonicalize_workflow_definition(self.object.definition),
                 "workflow_catalog": build_workflow_catalog_payload(),
+                "workflow_connection_add_url": (
+                    f'{reverse("workflowconnection_add")}?environment={self.object.environment_id}'
+                    if self.object.environment_id
+                    else reverse("workflowconnection_add")
+                ),
                 "workflow_connections": _serialize_workflow_connections_for_designer(self.object),
+                "workflow_designer_connections_url": reverse("workflow_designer_connections", args=[self.object.pk]),
                 "workflow_nodes": normalized_definition.get("nodes", []),
                 "workflow_list_url": reverse("workflow_list"),
                 "workflow_detail_url": self.object.get_absolute_url(),
@@ -616,6 +1290,22 @@ class WorkflowDesignerView(RestrictedObjectEditMixin, ObjectEditView):
             }
         )
         return context
+
+
+class WorkflowDesignerConnectionsView(View):
+    http_method_names = ["get"]
+
+    def get(self, request, *args, **kwargs):
+        workflow = (
+            Workflow.objects.select_related("organization", "workspace", "environment")
+            .filter(pk=kwargs["pk"])
+            .first()
+        )
+        if workflow is None:
+            return JsonResponse({"detail": "Workflow not found."}, status=404)
+
+        assert_object_action_allowed(workflow, request=request, action="change")
+        return JsonResponse({"connections": _serialize_workflow_connections_for_designer(workflow)})
 
 
 class WorkflowDesignerRunView(View):

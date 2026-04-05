@@ -4,6 +4,7 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 
+from automation.catalog.connections import get_connection_slot_value
 from automation.catalog.definitions import CatalogNodeDefinition, ParameterDefinition
 from automation.tools.base import (
     _coerce_csv_strings,
@@ -47,10 +48,29 @@ def validate_connection_slots(
     node_id: str,
 ) -> None:
     for connection_slot in node_definition.connection_slots:
+        slot_value = get_connection_slot_value(
+            config,
+            slot_key=connection_slot.key,
+            multiple=connection_slot.multiple,
+        )
+        if connection_slot.multiple:
+            if connection_slot.required and not slot_value:
+                raise_definition_error(f'Node "{node_id}" must define config.{connection_slot.key}.')
+            if not isinstance(slot_value, list):
+                raise_definition_error(
+                    f'Node "{node_id}" config.{connection_slot.key} must be a list of connection IDs.'
+                )
+            for item in slot_value:
+                if item in (None, ""):
+                    raise_definition_error(
+                        f'Node "{node_id}" config.{connection_slot.key} cannot contain empty connection IDs.'
+                    )
+            continue
+
         if connection_slot.required:
             _validate_required_string(config, connection_slot.key, node_id=node_id)
             continue
-        if config.get(connection_slot.key) not in (None, ""):
+        if slot_value not in (None, ""):
             _validate_optional_string(config, connection_slot.key, node_id=node_id)
 
 

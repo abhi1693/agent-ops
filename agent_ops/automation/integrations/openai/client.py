@@ -5,7 +5,11 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 
-from automation.catalog.connections import resolve_workflow_connection_fields
+from automation.catalog.connections import (
+    get_connection_slot_value,
+    resolve_connection_request_auth,
+    resolve_workflow_connection_fields,
+)
 from automation.runtime_types import WorkflowNodeExecutionContext
 from automation.tools.base import (
     _coerce_optional_float,
@@ -27,7 +31,7 @@ from automation.tools.base import (
 
 @dataclass(frozen=True)
 class OpenAICompatibleRequestConfig:
-    api_key: str
+    auth_headers: dict[str, str]
     base_url: str
     model: str
     temperature: float | None
@@ -85,7 +89,7 @@ def resolve_openai_chat_model_config(
     config: dict[str, Any],
 ) -> OpenAICompatibleRequestConfig:
     runtime_view = _build_runtime_view(runtime, node=node, config=config)
-    connection_id = _render_runtime_string(runtime_view, "connection_id", default_mode="static")
+    connection_id = get_connection_slot_value(runtime_view.config, slot_key="connection_id")
     if connection_id:
         resolved_connection = resolve_workflow_connection_fields(
             runtime_view,
@@ -93,13 +97,24 @@ def resolve_openai_chat_model_config(
             expected_connection_type="openai.api",
         )
         base_url = str(resolved_connection.values.get("base_url") or "https://api.openai.com/v1").strip().rstrip("/")
-        api_key = resolved_connection.values.get("api_key")
+        auth_headers = resolve_connection_request_auth(runtime_view, resolved_connection=resolved_connection).headers
+        auth_mode = resolved_connection.values.get("auth_mode") or "api_key"
         secret_meta = resolved_connection.secret_metas.get("api_key")
-        if not isinstance(api_key, str) or not api_key:
+        if auth_mode == "oauth2_authorization_code":
+            connection_state = getattr(resolved_connection.connection, "state", None)
+            if connection_state is not None and connection_state.state_values.get("account_id") not in (None, ""):
+                secret_meta = {
+                    "name": "oauth_account",
+                    "provider": "oauth2",
+                    "secret_group": resolved_connection.connection.secret_group.name
+                    if resolved_connection.connection.secret_group_id
+                    else None,
+                }
+        if not isinstance(auth_headers.get("Authorization"), str) or not auth_headers["Authorization"]:
             raise ValidationError(
                 {
                     "definition": (
-                        f'Connection "{resolved_connection.connection.name}" must provide field "api_key" '
+                        f'Connection "{resolved_connection.connection.name}" must provide an Authorization header '
                         "for OpenAI requests."
                     )
                 }
@@ -116,6 +131,7 @@ def resolve_openai_chat_model_config(
             secret_name=secret_name,
             secret_group_id=runtime_view.config.get("secret_group_id"),
         )
+        auth_headers = {"Authorization": f"Bearer {api_key}"}
     custom_model = _render_runtime_string(runtime_view, "custom_model", default_mode="static")
     model = custom_model or _render_runtime_string(runtime_view, "model", required=True, default_mode="static")
     temperature = _coerce_optional_float(
@@ -140,7 +156,7 @@ def resolve_openai_chat_model_config(
         )
 
     return OpenAICompatibleRequestConfig(
-        api_key=api_key,
+        auth_headers=auth_headers,
         base_url=base_url,
         model=model,
         temperature=temperature,
@@ -183,7 +199,7 @@ def execute_openai_chat_completion(
         url=f"{resolved_config.base_url}/chat/completions",
         headers={
             "Accept": "application/json",
-            "Authorization": f"Bearer {resolved_config.api_key}",
+            **resolved_config.auth_headers,
         },
         json_body=body,
     )

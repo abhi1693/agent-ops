@@ -6,7 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.urls import reverse
 
-from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowRun
+from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowConnectionState, WorkflowRun
 from automation.runtime import execute_workflow_run
 from tenancy.models import Environment, Organization, Workspace
 from users.models import Membership, ObjectPermission, User
@@ -303,6 +303,74 @@ class WorkflowAPITests(TestCase):
         connection = WorkflowConnection.objects.get(name="Typed OpenAI")
         self.assertEqual(connection.secret_group_id, secret_group.pk)
         self.assertEqual(connection.field_values["api_key"]["secret_name"], secret.name)
+
+    def test_workflow_connection_create_accepts_openai_oauth_state_values(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("api:automation-api:workflowconnection-list"),
+            {
+                "environment": self.environment.pk,
+                "name": "OAuth OpenAI",
+                "description": "OpenAI via OAuth refresh flow",
+                "connection_type": "openai.api",
+                "enabled": True,
+                "field_values": {
+                    "auth_mode": "oauth2_authorization_code",
+                    "base_url": "https://api.openai.com/v1",
+                    "oauth_client_id": "client-openai-123",
+                    "oauth_token_url": "https://auth.openai.com/oauth/token",
+                },
+                "state_values": {
+                    "refresh_token": "oauth-refresh-live",
+                    "access_token": "oauth-access-live",
+                    "expires_at": 4102444800,
+                    "account_id": "acct_live",
+                },
+                "metadata": {"owner": "automation"},
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertNotIn("state_values", payload)
+        self.assertEqual(payload["state_summary"]["account_id"], "acct_live")
+        self.assertTrue(payload["state_summary"]["has_access_token"])
+        self.assertTrue(payload["state_summary"]["has_refresh_token"])
+        connection = WorkflowConnection.objects.get(name="OAuth OpenAI")
+        state = WorkflowConnectionState.objects.get(connection=connection)
+        self.assertEqual(state.state_values["refresh_token"], "oauth-refresh-live")
+        self.assertEqual(state.state_values["account_id"], "acct_live")
+
+    def test_workflow_connection_create_allows_openai_oauth_without_refresh_token(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("api:automation-api:workflowconnection-list"),
+            {
+                "environment": self.environment.pk,
+                "name": "Broken OAuth OpenAI",
+                "description": "Missing refresh token",
+                "connection_type": "openai.api",
+                "enabled": True,
+                "field_values": {
+                    "auth_mode": "oauth2_authorization_code",
+                    "base_url": "https://api.openai.com/v1",
+                    "oauth_client_id": "client-openai-123",
+                    "oauth_token_url": "https://auth.openai.com/oauth/token",
+                },
+                "state_values": {
+                    "access_token": "oauth-access-live",
+                },
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertIsNotNone(payload["state_summary"])
+        self.assertFalse(payload["state_summary"]["has_refresh_token"])
 
     def test_workflow_create_derives_scope_from_environment(self):
         self.client.force_login(self.staff_user)

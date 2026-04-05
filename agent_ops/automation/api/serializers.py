@@ -4,7 +4,7 @@ from rest_framework.reverse import reverse
 from agent_ops.api.fields import SerializedPKRelatedField
 from agent_ops.api.serializers import ValidatedModelSerializer
 from automation.catalog.services import get_catalog_connection_type
-from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowRun
+from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowConnectionState, WorkflowRun
 from tenancy.api.serializers import NestedOrganizationSerializer, NestedWorkspaceSerializer
 from tenancy.models import Environment, Organization, Workspace
 from users.restrictions import restrict_queryset
@@ -346,6 +346,8 @@ class WorkflowConnectionSerializer(ValidatedModelSerializer):
         allow_null=True,
     )
     scope_label = serializers.CharField(read_only=True)
+    state_values = serializers.JSONField(write_only=True, required=False)
+    state_summary = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = WorkflowConnection
@@ -361,6 +363,8 @@ class WorkflowConnectionSerializer(ValidatedModelSerializer):
             "secret_group",
             "enabled",
             "field_values",
+            "state_values",
+            "state_summary",
             "metadata",
             "scope_label",
         )
@@ -375,6 +379,7 @@ class WorkflowConnectionSerializer(ValidatedModelSerializer):
             "environment",
             "secret_group",
             "enabled",
+            "state_summary",
             "scope_label",
         )
         extra_kwargs = {
@@ -423,7 +428,34 @@ class WorkflowConnectionSerializer(ValidatedModelSerializer):
             connection_definition = get_catalog_connection_type(connection_type)
             if connection_definition is not None:
                 attrs["integration_id"] = connection_definition.integration_id
-        return super().validate(attrs)
+        model_attrs = attrs.copy()
+        model_attrs.pop("state_values", None)
+        super().validate(model_attrs)
+        return attrs
+
+    def get_state_summary(self, obj):
+        state = getattr(obj, "state", None)
+        return state.summary if state is not None else None
+
+    def create(self, validated_data):
+        state_values = validated_data.pop("state_values", None)
+        connection = super().create(validated_data)
+        self._save_state_values(connection, state_values)
+        return connection
+
+    def update(self, instance, validated_data):
+        state_values = validated_data.pop("state_values", None)
+        connection = super().update(instance, validated_data)
+        self._save_state_values(connection, state_values)
+        return connection
+
+    def _save_state_values(self, connection, state_values):
+        if state_values is None:
+            return
+        state, _ = WorkflowConnectionState.objects.get_or_create(connection=connection)
+        state.state_values = state_values or {}
+        state.full_clean()
+        state.save()
 
 
 class WorkflowRunSerializer(serializers.ModelSerializer):

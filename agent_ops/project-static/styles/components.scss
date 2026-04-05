@@ -2360,6 +2360,12 @@ tr[data-virtual='true'] {
   line-height: 1.45;
 }
 
+.workflow-editor-settings-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .workflow-editor-settings-label-row {
   display: flex;
   align-items: center;

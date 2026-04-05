@@ -1,0 +1,124 @@
+{% extends "generic/_base.html" %}
+
+{% block title %}Connect OpenAI Account{% endblock %}
+
+{% block content %}
+  <section class="card mt-4">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+        <div>
+          <h1 class="h3 mb-2">Connect OpenAI Account</h1>
+          <p class="text-secondary mb-0">
+            Open the verification page, sign in with ChatGPT, and enter the code below. This page will finish the connection automatically after approval.
+          </p>
+        </div>
+        <span class="badge bg-warning-lt text-warning" id="openai-device-auth-status">Waiting for authorization</span>
+      </div>
+
+      <div class="mt-4">
+        <a href="{{ verification_url }}" target="_blank" rel="noopener" class="btn btn-primary">Open verification page</a>
+      </div>
+
+      <div class="mt-4">
+        <div class="small text-secondary mb-1">Verification page</div>
+        <code>{{ verification_url }}</code>
+      </div>
+
+      <div class="mt-4">
+        <div class="small text-secondary mb-1">One-time code</div>
+        <div class="fs-1 fw-bold"><code>{{ user_code }}</code></div>
+      </div>
+
+      {% if expires_at %}
+        <div class="mt-3 text-secondary small">
+          Code expires at {{ expires_at }}.
+        </div>
+      {% endif %}
+
+      <div class="mt-4" id="openai-device-auth-message">Waiting for authorization.</div>
+
+      <div class="mt-4 d-flex gap-2 flex-wrap">
+        <button type="button" class="btn btn-outline-secondary" id="openai-device-auth-check">I approved it</button>
+        <a href="{{ workflow_connection_return_url|default:connection.get_absolute_url }}" class="btn btn-outline-secondary">
+          {% if workflow_connection_popup %}Close{% else %}Back{% endif %}
+        </a>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block javascript %}
+  {{ block.super }}
+  <script>
+    (function () {
+      const pollUrl = "{{ poll_url|escapejs }}";
+      const verificationUrl = "{{ verification_url|escapejs }}";
+      const pollIntervalMs = {{ poll_interval_ms|default:5000 }};
+      const statusBadge = document.getElementById("openai-device-auth-status");
+      const messageNode = document.getElementById("openai-device-auth-message");
+      const checkButton = document.getElementById("openai-device-auth-check");
+      let pollTimerId = null;
+      let completed = false;
+
+      const setPending = (message) => {
+        if (statusBadge) {
+          statusBadge.textContent = "Waiting for authorization";
+          statusBadge.className = "badge bg-warning-lt text-warning";
+        }
+        if (messageNode) {
+          messageNode.textContent = message;
+        }
+      };
+
+      const setError = (message) => {
+        if (statusBadge) {
+          statusBadge.textContent = "Authorization failed";
+          statusBadge.className = "badge bg-danger-lt text-danger";
+        }
+        if (messageNode) {
+          messageNode.textContent = message;
+        }
+      };
+
+      const poll = async () => {
+        if (completed) {
+          return;
+        }
+        try {
+          const response = await fetch(pollUrl, {
+            credentials: "same-origin",
+            headers: { "X-Requested-With": "XMLHttpRequest" },
+          });
+          const payload = await response.json();
+          if (payload.status === "authorized" && payload.redirect_url) {
+            completed = true;
+            window.location.href = payload.redirect_url;
+            return;
+          }
+          if (payload.status === "pending") {
+            setPending(payload.message || "Waiting for authorization.");
+            return;
+          }
+          if (payload.status === "expired") {
+            completed = true;
+            setError(payload.message || "Authorization session expired.");
+            return;
+          }
+          completed = true;
+          setError(payload.message || "OpenAI authorization failed.");
+        } catch (error) {
+          completed = true;
+          setError("OpenAI authorization failed.");
+        }
+      };
+
+      if (checkButton) {
+        checkButton.addEventListener("click", poll);
+      }
+
+      window.open(verificationUrl, "_blank", "noopener");
+      pollTimerId = window.setInterval(poll, pollIntervalMs);
+      poll();
+    })();
+  </script>
+{% endblock %}

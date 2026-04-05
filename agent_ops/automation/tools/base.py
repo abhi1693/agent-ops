@@ -549,6 +549,7 @@ def _http_json_request(
     headers: dict[str, str] | None = None,
     query: dict[str, Any] | None = None,
     json_body: dict[str, Any] | None = None,
+    form_body: dict[str, Any] | None = None,
     timeout: int = 20,
 ) -> tuple[Any, int]:
     final_url = url
@@ -560,8 +561,13 @@ def _http_json_request(
     request_headers = dict(headers or {})
     data = None
     if json_body is not None:
+        if form_body is not None:
+            raise ValidationError({"definition": "HTTP request cannot define both json_body and form_body."})
         data = json.dumps(json_body).encode("utf-8")
         request_headers.setdefault("Content-Type", "application/json")
+    elif form_body is not None:
+        data = urlencode(form_body, doseq=True).encode("utf-8")
+        request_headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
 
     request = Request(final_url, data=data, headers=request_headers, method=method.upper())
 

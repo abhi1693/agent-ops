@@ -3,13 +3,14 @@ import hmac
 import json
 import os
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.messages import get_messages
 from django.test import TestCase
 from django.urls import reverse
 
-from automation.models import Workflow, WorkflowConnection, WorkflowRun, WorkflowStepRun, WorkflowVersion
+from automation.models import Workflow, WorkflowConnection, WorkflowConnectionState, WorkflowRun, WorkflowStepRun, WorkflowVersion
 from automation.models import Secret, SecretGroup
 from automation.runtime import execute_workflow_run
 from tenancy.models import Environment, Organization, Workspace
@@ -393,20 +394,16 @@ class WorkflowViewTests(TestCase):
         response = self.client.get(reverse("workflow_designer", args=[self.workflow.pk]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.context["workflow_connections"],
-            [
-                {
-                    "connection_type": "openai.api",
-                    "enabled": True,
-                    "id": response.context["workflow_connections"][0]["id"],
-                    "integration_id": "openai",
-                    "label": "Primary OpenAI (Acme / Operations / production)",
-                    "name": "Primary OpenAI",
-                    "scope_label": "Acme / Operations / production",
-                }
-            ],
-        )
+        self.assertEqual(len(response.context["workflow_connections"]), 1)
+        workflow_connection = response.context["workflow_connections"][0]
+        self.assertEqual(workflow_connection["connection_type"], "openai.api")
+        self.assertTrue(workflow_connection["enabled"])
+        self.assertEqual(workflow_connection["integration_id"], "openai")
+        self.assertEqual(workflow_connection["label"], "Primary OpenAI (Acme / Operations / production)")
+        self.assertEqual(workflow_connection["name"], "Primary OpenAI")
+        self.assertEqual(workflow_connection["scope_label"], "Acme / Operations / production")
+        self.assertTrue(workflow_connection["edit_url"].endswith(f"/workflow-connections/{workflow_connection['id']}/edit/"))
+        self.assertTrue(workflow_connection["supports_oauth"])
         catalog_definition = next(
             item
             for item in response.context["workflow_catalog"]["definitions"]
@@ -479,12 +476,9 @@ class WorkflowViewTests(TestCase):
                 "connection_type": "openai.api",
                 "secret_group": secret.secret_group.pk,
                 "enabled": "on",
-                "field_values": json.dumps(
-                    {
-                        "base_url": "https://api.openai.com/v1",
-                        "api_key": {"source": "secret", "secret_name": secret.name},
-                    }
-                ),
+                "openai_auth_mode": "api_key",
+                "openai_base_url": "https://api.openai.com/v1",
+                "openai_api_key_secret_name": secret.name,
                 "metadata": json.dumps({"owner": "automation"}),
             },
         )
@@ -497,6 +491,252 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(connection.integration_id, "openai")
         self.assertEqual(connection.secret_group_id, secret.secret_group_id)
         self.assertEqual(connection.field_values["api_key"]["secret_name"], secret.name)
+
+    def test_workflow_connection_add_accepts_openai_oauth_state_values(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("workflowconnection_add"),
+            {
+                "environment": self.environment.pk,
+                "name": "OAuth OpenAI",
+                "description": "OpenAI via OAuth refresh flow",
+                "connection_type": "openai.api",
+                "enabled": "on",
+                "field_values": json.dumps(
+                    {
+                        "auth_mode": "oauth2_authorization_code",
+                        "base_url": "https://api.openai.com/v1",
+                        "oauth_client_id": "client-openai-123",
+                        "oauth_token_url": "https://auth.openai.com/oauth/token",
+                    }
+                ),
+                "state_values": json.dumps(
+                    {
+                        "refresh_token": "oauth-refresh-live",
+                        "access_token": "oauth-access-live",
+                        "expires_at": 4102444800,
+                        "account_id": "acct_live",
+                    }
+                ),
+                "metadata": json.dumps({"owner": "automation"}),
+            },
+        )
+
+        connection = WorkflowConnection.objects.get(name="OAuth OpenAI")
+        state = WorkflowConnectionState.objects.get(connection=connection)
+        self.assertRedirects(response, connection.get_absolute_url())
+        self.assertEqual(state.state_values["refresh_token"], "oauth-refresh-live")
+        self.assertEqual(state.state_values["account_id"], "acct_live")
+
+    def test_workflow_connection_add_defaults_openai_device_client_for_oauth_mode(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("workflowconnection_add"),
+            {
+                "environment": self.environment.pk,
+                "name": "OAuth OpenAI",
+                "description": "OpenAI via OAuth refresh flow",
+                "connection_type": "openai.api",
+                "enabled": "on",
+                "openai_auth_mode": "oauth2_authorization_code",
+                "openai_base_url": "https://api.openai.com/v1",
+                "openai_oauth_token_url": "https://auth.openai.com/oauth/token",
+            },
+        )
+
+        connection = WorkflowConnection.objects.get(name="OAuth OpenAI")
+        self.assertRedirects(response, connection.get_absolute_url())
+        self.assertEqual(connection.field_values["oauth_client_id"], "app_EMoamEEZ73f0CkXaXp7hrann")
+
+    def test_workflow_connection_detail_renders_state_summary_only(self):
+        connection = WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="OAuth OpenAI",
+            integration_id="openai",
+            connection_type="openai.api",
+            field_values={
+                "auth_mode": "oauth2_authorization_code",
+                "base_url": "https://api.openai.com/v1",
+                "oauth_client_id": "client-openai-123",
+                "oauth_token_url": "https://auth.openai.com/oauth/token",
+            },
+        )
+        WorkflowConnectionState.objects.create(
+            connection=connection,
+            state_values={
+                "refresh_token": "oauth-refresh-live",
+                "access_token": "oauth-access-live",
+                "expires_at": 4102444800,
+                "account_id": "acct_live",
+            },
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(connection.get_absolute_url())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "State summary")
+        self.assertContains(response, "acct_live")
+        self.assertContains(response, "has_access_token")
+        self.assertNotContains(response, "oauth-refresh-live")
+        self.assertNotContains(response, "oauth-access-live")
+
+    def test_workflow_connection_edit_renders_openai_oauth_controls(self):
+        connection = WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="OAuth OpenAI",
+            integration_id="openai",
+            connection_type="openai.api",
+            field_values={
+                "auth_mode": "oauth2_authorization_code",
+                "base_url": "https://api.openai.com/v1",
+                "oauth_token_url": "https://auth.openai.com/oauth/token",
+            },
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("workflowconnection_edit", args=[connection.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Connect my account")
+        self.assertContains(response, "Auth Mode")
+        self.assertContains(response, "API Key Secret Name")
+        self.assertContains(response, "OAuth Client ID")
+        self.assertContains(response, "This hosted flow does not require a callback URL")
+        self.assertContains(response, "https://auth.openai.com/codex/device")
+        self.assertNotContains(response, "Store typed connection field values and metadata as JSON objects.")
+
+    def test_workflow_connection_oauth_start_renders_device_login_page(self):
+        connection = WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="OAuth OpenAI",
+            integration_id="openai",
+            connection_type="openai.api",
+            field_values={
+                "auth_mode": "oauth2_authorization_code",
+                "base_url": "https://api.openai.com/v1",
+                "oauth_client_id": "client-openai-123",
+                "oauth_token_url": "https://auth.openai.com/oauth/token",
+            },
+        )
+        self.client.force_login(self.staff_user)
+
+        with patch(
+            "automation.views._http_json_request",
+            return_value=(
+                {
+                    "device_auth_id": "deviceauth_123",
+                    "user_code": "ABCD-EFGH",
+                    "interval": "5",
+                    "expires_at": "2099-01-01T00:00:00+00:00",
+                },
+                200,
+            ),
+        ) as mocked_request:
+            response = self.client.get(
+                reverse("workflowconnection_openai_oauth_start", args=[connection.pk]),
+                {
+                    "popup": "1",
+                    "return_url": reverse("workflow_designer", args=[self.workflow.pk]),
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Connect OpenAI Account")
+        self.assertContains(response, "ABCD-EFGH")
+        self.assertContains(response, "https://auth.openai.com/codex/device")
+        self.assertContains(response, "oauth/openai/device")
+        mocked_request.assert_called_once()
+        self.assertEqual(mocked_request.call_args.kwargs["url"], "https://auth.openai.com/api/accounts/deviceauth/usercode")
+        self.assertEqual(
+            mocked_request.call_args.kwargs["headers"]["User-Agent"],
+            "agent-ops-openai-auth/1.0",
+        )
+        self.assertEqual(
+            mocked_request.call_args.kwargs["json_body"],
+            {"client_id": "client-openai-123"},
+        )
+
+    def test_workflow_connection_oauth_poll_updates_state_and_returns_popup_bridge(self):
+        connection = WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="OAuth OpenAI",
+            integration_id="openai",
+            connection_type="openai.api",
+            field_values={
+                "auth_mode": "oauth2_authorization_code",
+                "base_url": "https://api.openai.com/v1",
+                "oauth_client_id": "client-openai-123",
+                "oauth_token_url": "https://auth.openai.com/oauth/token",
+            },
+        )
+        self.client.force_login(self.staff_user)
+        with patch(
+            "automation.views._http_json_request",
+            return_value=(
+                {
+                    "device_auth_id": "deviceauth_123",
+                    "user_code": "ABCD-EFGH",
+                    "interval": "5",
+                    "expires_at": "2099-01-01T00:00:00+00:00",
+                },
+                200,
+            ),
+        ):
+            start_response = self.client.get(
+                reverse("workflowconnection_openai_oauth_start", args=[connection.pk]),
+                {
+                    "popup": "1",
+                    "return_url": reverse("workflow_designer", args=[self.workflow.pk]),
+                },
+            )
+
+        self.assertEqual(start_response.status_code, 200)
+        session_token = next(
+            key.split(":")[-1]
+            for key in self.client.session.keys()
+            if key.startswith("workflow_connection_openai_oauth:")
+        )
+
+        with patch(
+            "automation.views._http_json_request",
+            side_effect=[
+                (
+                    {
+                        "authorization_code": "oauth-code-new",
+                        "code_verifier": "oauth-verifier-new",
+                    },
+                    200,
+                ),
+                (
+                    {
+                        "access_token": "oauth-access-new",
+                        "refresh_token": "oauth-refresh-new",
+                        "id_token": (
+                            "header."
+                            "eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF9uZXcifX0."
+                            "signature"
+                        ),
+                        "expires_in": 3600,
+                    },
+                    200,
+                ),
+            ],
+        ):
+            response = self.client.get(
+                reverse("workflowconnection_openai_oauth_poll", args=[session_token]),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "authorized")
+        self.assertIn(reverse("workflowconnection_popup_complete", args=[connection.pk]), payload["redirect_url"])
+        state = WorkflowConnectionState.objects.get(connection=connection)
+        self.assertEqual(state.state_values["access_token"], "oauth-access-new")
+        self.assertEqual(state.state_values["refresh_token"], "oauth-refresh-new")
+        self.assertEqual(state.state_values["account_id"], "acct_new")
 
     def test_workflow_detail_renders_scoped_connections_card(self):
         connection = WorkflowConnection.objects.create(

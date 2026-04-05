@@ -328,6 +328,7 @@ export function renderNodeSettingsFieldsMarkup(params: {
 }
 
 export function renderNodeConnectionSection(params: {
+  connectionCreateUrl?: string | null;
   connections: WorkflowConnection[];
   node: WorkflowNode;
   nodeDefinition: WorkflowNodeDefinition;
@@ -376,6 +377,49 @@ export function renderNodeConnectionSection(params: {
       if (selectableConnections.length === 0) {
         previewParts.push('No enabled compatible connections are available yet.');
       }
+      if (currentConnection?.supports_oauth) {
+        previewParts.push(
+          currentConnection.oauth_connected
+            ? 'OAuth account connected.'
+            : 'OAuth authorization still needs to be completed.',
+        );
+      }
+
+      const actionButtons: string[] = [];
+      if (params.connectionCreateUrl) {
+        actionButtons.push(`
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-secondary"
+            data-workflow-connection-create="${escapeHtml(params.connectionCreateUrl)}"
+            data-workflow-connection-default-type="${escapeHtml(slot.allowed_connection_types[0] ?? '')}"
+          >
+            New
+          </button>
+        `);
+      }
+      if (currentConnection?.edit_url) {
+        actionButtons.push(`
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-secondary"
+            data-workflow-connection-edit="${escapeHtml(currentConnection.edit_url)}"
+          >
+            Edit
+          </button>
+        `);
+      }
+      if (currentConnection?.supports_oauth && currentConnection.oauth_connect_url) {
+        actionButtons.push(`
+          <button
+            type="button"
+            class="btn btn-sm btn-primary"
+            data-workflow-connection-oauth="${escapeHtml(currentConnection.oauth_connect_url)}"
+          >
+            ${escapeHtml(currentConnection.oauth_connected ? 'Reconnect' : 'Connect my account')}
+          </button>
+        `);
+      }
 
       return `
         <div class="workflow-editor-settings-group">
@@ -404,6 +448,7 @@ export function renderNodeConnectionSection(params: {
           </select>
           ${slot.description ? `<div class="workflow-editor-settings-help">${escapeHtml(slot.description)}</div>` : ''}
           ${previewParts.length > 0 ? `<div class="workflow-editor-settings-preview">${escapeHtml(previewParts.join(' '))}</div>` : ''}
+          ${actionButtons.length > 0 ? `<div class="workflow-editor-settings-action-row">${actionButtons.join('')}</div>` : ''}
         </div>
       `;
     })

@@ -71,7 +71,13 @@
           <pre class="workflow-json-preview">{{ metadata_json }}</pre>
         </div>
       {% endif %}
-      {% if not field_values_json and not metadata_json %}
+      {% if state_summary_json %}
+        <div>
+          <div class="text-secondary mb-1">State summary</div>
+          <pre class="workflow-json-preview">{{ state_summary_json }}</pre>
+        </div>
+      {% endif %}
+      {% if not field_values_json and not metadata_json and not state_summary_json %}
         <div class="empty-state">No connection data stored.</div>
       {% endif %}
     </div>

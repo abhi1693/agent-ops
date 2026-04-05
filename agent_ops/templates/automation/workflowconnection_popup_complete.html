@@ -1,0 +1,41 @@
+{% extends "generic/_base.html" %}
+
+{% block title %}Connection Updated{% endblock %}
+
+{% block content %}
+  <div class="container py-5">
+    <div class="card mx-auto" style="max-width: 36rem;">
+      <div class="card-body">
+        <h1 class="h3 mb-3">Connection ready</h1>
+        <p class="text-secondary mb-3">
+          {{ object.name }} has been updated. This window will close automatically and refresh the workflow designer.
+        </p>
+        <div class="d-flex gap-2 flex-wrap">
+          {% if popup_return_url %}
+            <a href="{{ popup_return_url }}" class="btn btn-outline-secondary">Return manually</a>
+          {% endif %}
+          <button type="button" class="btn btn-primary" data-popup-close>Close window</button>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block body_scripts %}
+  {{ block.super }}
+  <script>
+    (() => {
+      const message = {
+        type: 'workflow-connection-updated',
+        action: '{{ popup_action|default:"saved"|escapejs }}',
+        connectionId: {{ object.pk }}
+      };
+      if (window.opener && window.opener !== window) {
+        window.opener.postMessage(message, window.location.origin);
+      }
+      const closeWindow = () => window.close();
+      document.querySelector('[data-popup-close]')?.addEventListener('click', closeWindow);
+      window.setTimeout(closeWindow, 200);
+    })();
+  </script>
+{% endblock %}

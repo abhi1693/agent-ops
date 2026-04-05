@@ -135,6 +135,7 @@ class WorkflowConnectionViewSet(RestrictedAutomationViewSet):
             "workspace",
             "environment",
             "secret_group",
+            "state",
         ).order_by(
             "organization__name",
             "workspace__name",

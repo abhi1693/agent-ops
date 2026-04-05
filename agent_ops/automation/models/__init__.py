@@ -1,4 +1,4 @@
-from .connections import WorkflowConnection
+from .connections import WorkflowConnection, WorkflowConnectionState
 from .runs import WorkflowRun, WorkflowStepRun
 from .secrets import Secret, SecretGroup
 from .versions import WorkflowVersion
@@ -9,6 +9,7 @@ __all__ = (
     "SecretGroup",
     "Workflow",
     "WorkflowConnection",
+    "WorkflowConnectionState",
     "WorkflowRun",
     "WorkflowStepRun",
     "WorkflowVersion",

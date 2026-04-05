@@ -26,6 +26,7 @@ export function registerWorkflowDesignerUiBindings(params: {
   navigateBrowser: (action: string, appId?: string) => void;
   openAuxiliaryInsertBrowser: (targetId: string, targetPort: AgentAuxiliaryPortId) => void;
   openBrowser: () => void;
+  openConnectionPopup: (url: string, options?: { defaultConnectionType?: string }) => void;
   openNodeSettings: (nodeId: string) => void;
   removeEdge: (edgeId: string) => void;
   renderBrowser: () => void;
@@ -71,6 +72,7 @@ export function registerWorkflowDesignerUiBindings(params: {
     navigateBrowser,
     openAuxiliaryInsertBrowser,
     openBrowser,
+    openConnectionPopup,
     openNodeSettings,
     removeEdge,
     renderBrowser,
@@ -123,6 +125,26 @@ export function registerWorkflowDesignerUiBindings(params: {
 
     if (target.closest('[data-workflow-run]')) {
       runWorkflow();
+      return;
+    }
+
+    const connectionCreateButton = target.closest<HTMLElement>('[data-workflow-connection-create]');
+    if (connectionCreateButton?.dataset.workflowConnectionCreate) {
+      openConnectionPopup(connectionCreateButton.dataset.workflowConnectionCreate, {
+        defaultConnectionType: connectionCreateButton.dataset.workflowConnectionDefaultType,
+      });
+      return;
+    }
+
+    const connectionEditButton = target.closest<HTMLElement>('[data-workflow-connection-edit]');
+    if (connectionEditButton?.dataset.workflowConnectionEdit) {
+      openConnectionPopup(connectionEditButton.dataset.workflowConnectionEdit);
+      return;
+    }
+
+    const connectionOauthButton = target.closest<HTMLElement>('[data-workflow-connection-oauth]');
+    if (connectionOauthButton?.dataset.workflowConnectionOauth) {
+      openConnectionPopup(connectionOauthButton.dataset.workflowConnectionOauth);
       return;
     }
 

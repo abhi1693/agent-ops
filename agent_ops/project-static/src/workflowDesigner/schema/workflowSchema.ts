@@ -10,8 +10,14 @@ import type {
 const WORKFLOW_DEFINITION_VERSION = 2;
 
 type WorkflowSchemaOptions = {
+  connectionSlotKeysByType?: Record<string, string[]>;
   kindByType?: Record<string, string>;
 };
+
+function getConnectionSlotKeys(type: string, options?: WorkflowSchemaOptions): string[] {
+  const slotKeys = options?.connectionSlotKeysByType?.[type];
+  return Array.isArray(slotKeys) ? slotKeys : [];
+}
 
 function normalizeNode(value: unknown, options?: WorkflowSchemaOptions): WorkflowNode | null {
   if (!value || typeof value !== 'object') {
@@ -44,9 +50,25 @@ function normalizeNode(value: unknown, options?: WorkflowSchemaOptions): Workflo
     ...persistedConfig,
     ...persistedParameters,
   };
+  const connectionSlotKeys = getConnectionSlotKeys(type, options);
+  const rawConnections =
+    node.connections && typeof node.connections === 'object' && !Array.isArray(node.connections)
+      ? (node.connections as Record<string, unknown>)
+      : {};
+  Object.entries(rawConnections).forEach(([slotKey, slotValue]) => {
+    if (!slotKey.trim() || slotValue === undefined || slotValue === null || slotValue === '') {
+      return;
+    }
+    config[slotKey] = slotValue;
+  });
   if (node.connection_id !== undefined && node.connection_id !== null && node.connection_id !== '') {
     config.connection_id = node.connection_id;
   }
+  connectionSlotKeys.forEach((slotKey) => {
+    if (slotKey !== 'connection_id' && rawConnections[slotKey] === undefined && config[slotKey] === undefined) {
+      config[slotKey] = '';
+    }
+  });
 
   return {
     config,
@@ -131,7 +153,10 @@ export function normalizeWorkflowDefinition(
   };
 }
 
-function serializeWorkflowNode(node: WorkflowNode): WorkflowPersistedNode {
+function serializeWorkflowNode(
+  node: WorkflowNode,
+  options?: WorkflowSchemaOptions,
+): WorkflowPersistedNode {
   const payload: WorkflowPersistedNode = {
     ...(node.disabled ? { disabled: true } : {}),
     id: node.id,
@@ -146,10 +171,31 @@ function serializeWorkflowNode(node: WorkflowNode): WorkflowPersistedNode {
 
   if (node.config) {
     const parameters: Record<string, unknown> = { ...node.config };
-    const connectionId = parameters.connection_id;
-    delete parameters.connection_id;
-    if (connectionId !== undefined && connectionId !== null && connectionId !== '') {
-      payload.connection_id = connectionId as string | number;
+    const slotKeys = new Set(getConnectionSlotKeys(node.type, options));
+    slotKeys.add('connection_id');
+    const connections: Record<string, string | number | Array<string | number>> = {};
+    slotKeys.forEach((slotKey) => {
+      const slotValue = parameters[slotKey];
+      delete parameters[slotKey];
+      if (slotValue === undefined || slotValue === null || slotValue === '') {
+        return;
+      }
+      if (Array.isArray(slotValue)) {
+        const filteredValues = slotValue.filter(
+          (value): value is string | number =>
+            (typeof value === 'string' && value.trim().length > 0) || typeof value === 'number',
+        );
+        if (filteredValues.length > 0) {
+          connections[slotKey] = filteredValues;
+        }
+        return;
+      }
+      if (typeof slotValue === 'string' || typeof slotValue === 'number') {
+        connections[slotKey] = slotValue;
+      }
+    });
+    if (Object.keys(connections).length > 0) {
+      payload.connections = connections;
     }
     if (Object.keys(parameters).length > 0) {
       payload.parameters = parameters;
@@ -173,10 +219,13 @@ function serializeWorkflowEdge(edge: WorkflowEdge): WorkflowPersistedEdge {
   };
 }
 
-export function serializeWorkflowDefinition(definition: WorkflowDefinition): WorkflowPersistedDefinition {
+export function serializeWorkflowDefinition(
+  definition: WorkflowDefinition,
+  options?: WorkflowSchemaOptions,
+): WorkflowPersistedDefinition {
   return {
     definition_version: WORKFLOW_DEFINITION_VERSION,
-    nodes: definition.nodes.map(serializeWorkflowNode),
+    nodes: definition.nodes.map((node) => serializeWorkflowNode(node, options)),
     edges: definition.edges.map(serializeWorkflowEdge),
     viewport: definition.viewport ?? { x: 0, y: 0, zoom: 1 },
   };

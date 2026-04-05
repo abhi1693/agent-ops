@@ -24,9 +24,12 @@ function enhanceDefinition(
   connections: WorkflowConnection[],
 ): WorkflowNodeDefinition {
   const config = { ...(definition.config ?? {}) };
-  if (definition.connection_type && !Object.prototype.hasOwnProperty.call(config, 'connection_id')) {
-    config.connection_id = '';
-  }
+  void connections;
+  (definition.connection_slots ?? []).forEach((slot) => {
+    if (!Object.prototype.hasOwnProperty.call(config, slot.key)) {
+      config[slot.key] = slot.multiple ? [] : '';
+    }
+  });
 
   return {
     ...definition,

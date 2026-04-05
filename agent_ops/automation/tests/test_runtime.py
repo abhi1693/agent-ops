@@ -3,10 +3,11 @@ import subprocess
 import tempfile
 from json import loads
 from unittest.mock import patch
+from urllib.parse import parse_qs
 
 from django.test import TestCase, TransactionTestCase
 
-from automation.models import Workflow, WorkflowConnection, WorkflowRun, WorkflowStepRun, WorkflowVersion
+from automation.models import Workflow, WorkflowConnection, WorkflowConnectionState, WorkflowRun, WorkflowStepRun, WorkflowVersion
 from automation.runtime import (
     _initialize_workflow_run,
     execute_workflow,
@@ -1159,6 +1160,251 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.output_data["response"], "Completed Review T-99")
         self.assertEqual(run.context_data["llm"]["response"]["text"], "Review T-99")
+
+    def test_execute_workflow_uses_openai_oauth_access_token_state(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="v2 agent runtime oauth connection",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.manual_trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "agent-1",
+                        "kind": "agent",
+                        "type": "core.agent",
+                        "label": "Draft",
+                        "config": {
+                            "template": "Review {{ trigger.payload.ticket_id }}",
+                            "output_key": "llm.response",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "model-1",
+                        "kind": "tool",
+                        "type": "openai.model.chat",
+                        "label": "OpenAI chat model",
+                        "config": {
+                            "connection_id": "",
+                            "model": "gpt-4.1-mini",
+                        },
+                        "position": {"x": 320, "y": 240},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "Completed {{ llm.response.text }}",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                    {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                    {
+                        "id": "edge-3",
+                        "source": "model-1",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
+                ],
+            },
+        )
+        connection = WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="OpenAI OAuth",
+            integration_id="openai",
+            connection_type="openai.api",
+            field_values={
+                "auth_mode": "oauth2_authorization_code",
+                "base_url": "https://api.openai.com/v1",
+                "oauth_client_id": "client-openai-123",
+                "oauth_token_url": "https://auth.openai.com/oauth/token",
+            },
+        )
+        WorkflowConnectionState.objects.create(
+            connection=connection,
+            state_values={
+                "access_token": "oauth-access-live",
+                "refresh_token": "oauth-refresh-live",
+                "expires_at": 4102444800,
+                "account_id": "acct_live",
+            },
+        )
+        workflow.definition["nodes"][2]["config"]["connection_id"] = str(connection.pk)
+        workflow.save(update_fields=("definition",))
+
+        def fake_urlopen(request, timeout=20):
+            self.assertEqual(timeout, 20)
+            self.assertEqual(request.full_url, "https://api.openai.com/v1/chat/completions")
+            self.assertEqual(request.headers["Authorization"], "Bearer oauth-access-live")
+            body = loads(request.data.decode("utf-8"))
+            self.assertEqual(body["messages"][0]["content"], "Review T-77")
+            return _FakeJsonResponse(
+                {
+                    "id": "chatcmpl-oauth-1",
+                    "model": "gpt-4.1-mini",
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {"role": "assistant", "content": "Review T-77"},
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+                }
+            )
+
+        with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+            run = execute_workflow(workflow, input_data={"ticket_id": "T-77"})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"], "Completed Review T-77")
+
+    def test_execute_workflow_refreshes_openai_oauth_access_token_state(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="v2 agent runtime oauth refresh",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.manual_trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "agent-1",
+                        "kind": "agent",
+                        "type": "core.agent",
+                        "label": "Draft",
+                        "config": {
+                            "template": "Review {{ trigger.payload.ticket_id }}",
+                            "output_key": "llm.response",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "model-1",
+                        "kind": "tool",
+                        "type": "openai.model.chat",
+                        "label": "OpenAI chat model",
+                        "config": {
+                            "connection_id": "",
+                            "model": "gpt-4.1-mini",
+                        },
+                        "position": {"x": 320, "y": 240},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "Completed {{ llm.response.text }}",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
+                    {"id": "edge-2", "source": "agent-1", "target": "response-1"},
+                    {
+                        "id": "edge-3",
+                        "source": "model-1",
+                        "sourcePort": "ai_languageModel",
+                        "target": "agent-1",
+                        "targetPort": "ai_languageModel",
+                    },
+                ],
+            },
+        )
+        secret = self._bind_secret(
+            workflow=workflow,
+            secret_name="OPENAI_OAUTH_CLIENT_SECRET",
+        )
+        connection = WorkflowConnection.objects.create(
+            environment=self.environment,
+            name="OpenAI OAuth Refresh",
+            integration_id="openai",
+            connection_type="openai.api",
+            secret_group=secret.secret_group,
+            field_values={
+                "auth_mode": "oauth2_authorization_code",
+                "base_url": "https://api.openai.com/v1",
+                "oauth_client_id": "client-openai-123",
+                "oauth_client_secret": {"source": "secret", "secret_name": secret.name},
+                "oauth_token_url": "https://auth.openai.com/oauth/token",
+            },
+        )
+        state = WorkflowConnectionState.objects.create(
+            connection=connection,
+            state_values={
+                "access_token": "oauth-access-expired",
+                "refresh_token": "oauth-refresh-old",
+                "expires_at": 1,
+                "account_id": "acct_old",
+            },
+        )
+        workflow.definition["nodes"][2]["config"]["connection_id"] = str(connection.pk)
+        workflow.save(update_fields=("definition",))
+
+        def fake_urlopen(request, timeout=20):
+            self.assertEqual(timeout, 20)
+            if request.full_url == "https://auth.openai.com/oauth/token":
+                self.assertEqual(request.get_method(), "POST")
+                payload = parse_qs(request.data.decode("utf-8"))
+                self.assertEqual(payload["grant_type"], ["refresh_token"])
+                self.assertEqual(payload["refresh_token"], ["oauth-refresh-old"])
+                self.assertEqual(payload["client_id"], ["client-openai-123"])
+                self.assertEqual(payload["client_secret"], ["sk-test-client-secret"])
+                return _FakeJsonResponse(
+                    {
+                        "access_token": "oauth-access-new",
+                        "refresh_token": "oauth-refresh-new",
+                        "expires_in": 3600,
+                        "account_id": "acct_new",
+                    }
+                )
+            self.assertEqual(request.full_url, "https://api.openai.com/v1/chat/completions")
+            self.assertEqual(request.headers["Authorization"], "Bearer oauth-access-new")
+            body = loads(request.data.decode("utf-8"))
+            self.assertEqual(body["messages"][0]["content"], "Review T-88")
+            return _FakeJsonResponse(
+                {
+                    "id": "chatcmpl-oauth-2",
+                    "model": "gpt-4.1-mini",
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {"role": "assistant", "content": "Review T-88"},
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+                }
+            )
+
+        with patch.dict(os.environ, {"OPENAI_OAUTH_CLIENT_SECRET": "sk-test-client-secret"}, clear=False):
+            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+                run = execute_workflow(workflow, input_data={"ticket_id": "T-88"})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"], "Completed Review T-88")
+        state.refresh_from_db()
+        self.assertEqual(state.state_values["access_token"], "oauth-access-new")
+        self.assertEqual(state.state_values["refresh_token"], "oauth-refresh-new")
+        self.assertEqual(state.state_values["account_id"], "acct_new")
+        self.assertIsNotNone(state.last_refreshed)
 
     def test_execute_workflow_rejects_legacy_agent_instructions_field(self):
         workflow = Workflow.objects.create(

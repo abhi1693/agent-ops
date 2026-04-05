@@ -1,7 +1,9 @@
 from automation.catalog.capabilities import CAPABILITY_AGENT_TOOL
-from automation.catalog.execution import resolve_connection_with_base_url
+from automation.catalog.execution import resolve_connection_request_auth, resolve_connection_with_base_url
 from automation.catalog.definitions import (
     CatalogNodeDefinition,
+    ConnectionHttpAuthDefinition,
+    ConnectionHttpHeaderDefinition,
     ConnectionSlotDefinition,
     ConnectionTypeDefinition,
     IntegrationApp,
@@ -41,15 +43,8 @@ def _execute_elasticsearch_search(runtime: WorkflowNodeExecutionContext) -> Work
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
+        **resolve_connection_request_auth(runtime, resolved_connection=resolved).headers,
     }
-    auth_scheme = _render_runtime_string(runtime, "auth_scheme", default="ApiKey", default_mode="static") or "ApiKey"
-    if auth_scheme not in {"ApiKey", "Bearer"}:
-        raise ValidationError(
-            {"definition": f'Node "{runtime.node["id"]}" config.auth_scheme must be one of: ApiKey, Bearer.'}
-        )
-    auth_token = resolved.values.get("auth_token")
-    if isinstance(auth_token, str) and auth_token:
-        headers["Authorization"] = f"{auth_scheme} {auth_token}"
 
     search_path = "/_search"
     if index_name:
@@ -103,6 +98,17 @@ ELASTICSEARCH_CONNECTION = ConnectionTypeDefinition(
     label="Elasticsearch API",
     auth_kind="http_secret",
     description="Reusable HTTP connection for Elasticsearch clusters and compatible search endpoints.",
+    http_auth=ConnectionHttpAuthDefinition(
+        headers=(
+            ConnectionHttpHeaderDefinition(
+                field_key="auth_token",
+                header_name="Authorization",
+                prefix_field_key="auth_scheme",
+                prefix_separator=" ",
+                required=False,
+            ),
+        ),
+    ),
     field_schema=(
         ParameterDefinition(
             key="base_url",
@@ -119,6 +125,18 @@ ELASTICSEARCH_CONNECTION = ConnectionTypeDefinition(
             required=False,
             description="Optional secret reference used in the Authorization header.",
             placeholder="ELASTICSEARCH_API_KEY",
+        ),
+        ParameterDefinition(
+            key="auth_scheme",
+            label="Auth Scheme",
+            value_type="string",
+            required=False,
+            description="Authorization scheme used with the connection secret.",
+            default="ApiKey",
+            options=(
+                ParameterOptionDefinition(value="ApiKey", label="ApiKey"),
+                ParameterOptionDefinition(value="Bearer", label="Bearer"),
+            ),
         ),
     ),
 )
@@ -179,18 +197,6 @@ APP = IntegrationApp(
                     required=False,
                     description="Maximum number of hits to return.",
                     default=25,
-                ),
-                ParameterDefinition(
-                    key="auth_scheme",
-                    label="Auth Scheme",
-                    value_type="string",
-                    required=False,
-                    description="Authorization scheme used with the connection secret.",
-                    default="ApiKey",
-                    options=(
-                        ParameterOptionDefinition(value="ApiKey", label="ApiKey"),
-                        ParameterOptionDefinition(value="Bearer", label="Bearer"),
-                    ),
                 ),
                 ParameterDefinition(
                     key="output_key",

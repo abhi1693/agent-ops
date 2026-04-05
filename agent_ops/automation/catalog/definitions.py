@@ -106,6 +106,90 @@ class ConnectionSlotDefinition:
 
 
 @dataclass(frozen=True)
+class ConnectionHttpHeaderDefinition:
+    field_key: str
+    header_name: str
+    prefix: str = ""
+    prefix_field_key: str | None = None
+    prefix_separator: str = ""
+    required: bool = False
+
+    def serialize(self) -> dict[str, Any]:
+        return {
+            "field_key": self.field_key,
+            "header_name": self.header_name,
+            "prefix": self.prefix,
+            "prefix_field_key": self.prefix_field_key,
+            "prefix_separator": self.prefix_separator,
+            "required": self.required,
+        }
+
+
+@dataclass(frozen=True)
+class ConnectionHttpQueryDefinition:
+    field_key: str
+    query_param: str
+    required: bool = False
+
+    def serialize(self) -> dict[str, Any]:
+        return {
+            "field_key": self.field_key,
+            "query_param": self.query_param,
+            "required": self.required,
+        }
+
+
+@dataclass(frozen=True)
+class ConnectionHttpAuthDefinition:
+    basic_username_field: str | None = None
+    basic_password_field: str | None = None
+    headers: tuple[ConnectionHttpHeaderDefinition, ...] = ()
+    query: tuple[ConnectionHttpQueryDefinition, ...] = ()
+    enabled_when_field: str | None = None
+    enabled_when_values: tuple[str, ...] = ()
+
+    def serialize(self) -> dict[str, Any]:
+        return {
+            "basic_username_field": self.basic_username_field,
+            "basic_password_field": self.basic_password_field,
+            "headers": [header.serialize() for header in self.headers],
+            "query": [query.serialize() for query in self.query],
+            "enabled_when_field": self.enabled_when_field,
+            "enabled_when_values": list(self.enabled_when_values),
+        }
+
+
+@dataclass(frozen=True)
+class ConnectionOAuth2Definition:
+    token_url_field: str
+    client_id_field: str | None = None
+    client_secret_field: str | None = None
+    access_token_state_key: str = "access_token"
+    refresh_token_state_key: str = "refresh_token"
+    expires_at_state_key: str = "expires_at"
+    account_id_state_key: str | None = None
+    access_token_header_name: str = "Authorization"
+    access_token_prefix: str = "Bearer "
+    enabled_when_field: str | None = None
+    enabled_when_values: tuple[str, ...] = ()
+
+    def serialize(self) -> dict[str, Any]:
+        return {
+            "token_url_field": self.token_url_field,
+            "client_id_field": self.client_id_field,
+            "client_secret_field": self.client_secret_field,
+            "access_token_state_key": self.access_token_state_key,
+            "refresh_token_state_key": self.refresh_token_state_key,
+            "expires_at_state_key": self.expires_at_state_key,
+            "account_id_state_key": self.account_id_state_key,
+            "access_token_header_name": self.access_token_header_name,
+            "access_token_prefix": self.access_token_prefix,
+            "enabled_when_field": self.enabled_when_field,
+            "enabled_when_values": list(self.enabled_when_values),
+        }
+
+
+@dataclass(frozen=True)
 class ConnectionTypeDefinition:
     id: str
     integration_id: str
@@ -114,6 +198,9 @@ class ConnectionTypeDefinition:
     description: str = ""
     parameter_schema: tuple[ParameterDefinition, ...] = ()
     field_schema: tuple[ParameterDefinition, ...] = ()
+    state_schema: tuple[ParameterDefinition, ...] = ()
+    http_auth: ConnectionHttpAuthDefinition | None = None
+    oauth2: ConnectionOAuth2Definition | None = None
 
     def register(self, registry: WorkflowCatalogRegistry) -> None:
         if self.id in registry["connection_types"]:
@@ -129,6 +216,9 @@ class ConnectionTypeDefinition:
             "description": self.description,
             "parameter_schema": [item.serialize() for item in self.parameter_schema],
             "field_schema": [item.serialize() for item in self.field_schema],
+            "state_schema": [item.serialize() for item in self.state_schema],
+            "http_auth": self.http_auth.serialize() if self.http_auth is not None else None,
+            "oauth2": self.oauth2.serialize() if self.oauth2 is not None else None,
         }
 
 

@@ -4,7 +4,7 @@ import hmac
 from django.core.exceptions import ValidationError
 
 from automation.catalog.capabilities import CAPABILITY_TRIGGER_WEBHOOK
-from automation.catalog.connections import resolve_workflow_connection_fields
+from automation.catalog.connections import get_connection_slot_value, resolve_workflow_connection_fields
 from automation.catalog.definitions import (
     CatalogNodeDefinition,
     ConnectionSlotDefinition,
@@ -50,7 +50,7 @@ def _prepare_github_webhook_request(*, workflow, node: dict, request) -> tuple[s
     runtime = _catalog_webhook_runtime(workflow, node)
     resolved = resolve_workflow_connection_fields(
         runtime,
-        connection_id=node.get("config", {}).get("connection_id"),
+        connection_id=get_connection_slot_value(node.get("config"), slot_key="connection_id"),
         expected_connection_type="github.oauth2",
     )
     webhook_secret = resolved.values.get("webhook_secret")

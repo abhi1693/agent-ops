@@ -60,7 +60,7 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertEqual(elasticsearch_template["config"]["output_key"], "elasticsearch.search")
         self.assertEqual(
             {field["key"] for field in elasticsearch_template["fields"]},
-            {"index", "query_json", "size", "auth_scheme", "output_key"},
+            {"index", "query_json", "size", "output_key"},
         )
 
     def test_normalize_agent_node_applies_agent_defaults(self):
@@ -168,7 +168,7 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
             {"template": "Plan {{ trigger.payload.ticket_id }}"},
         )
         self.assertEqual(canonical["nodes"][1]["kind"], "tool")
-        self.assertEqual(canonical["nodes"][1]["connection_id"], "42")
+        self.assertEqual(canonical["nodes"][1]["connections"], {"connection_id": "42"})
         self.assertEqual(
             canonical["nodes"][1]["parameters"],
             {"model": "gpt-4.1-mini", "base_url": "https://api.openai.com/v1"},

@@ -170,26 +170,73 @@ def _normalize_edge_shape(edge: dict) -> dict:
     return normalized_edge
 
 
-def _normalize_node_config(*, node: dict, template: dict | None) -> tuple[dict, str | int | None]:
+def _connection_slot_keys_for_template(template: dict | None) -> tuple[str, ...]:
+    if not isinstance(template, dict):
+        return ()
+    connection_slots = template.get("connection_slots")
+    if not isinstance(connection_slots, (list, tuple)):
+        return ()
+
+    slot_keys: list[str] = []
+    for connection_slot in connection_slots:
+        if not isinstance(connection_slot, dict):
+            continue
+        slot_key = connection_slot.get("key")
+        if isinstance(slot_key, str) and slot_key.strip():
+            slot_keys.append(slot_key.strip())
+    return tuple(slot_keys)
+
+
+def _normalize_node_connections(*, node: dict, template: dict | None, config: dict) -> dict[str, str | int | list[str | int]]:
+    normalized_connections: dict[str, str | int | list[str | int]] = {}
+    slot_keys = set(_connection_slot_keys_for_template(template))
+
+    raw_connections = node.get("connections")
+    if isinstance(raw_connections, dict):
+        for slot_key, raw_value in raw_connections.items():
+            if not isinstance(slot_key, str) or not slot_key.strip():
+                continue
+            if raw_value in (None, "", []):
+                continue
+            normalized_connections[slot_key] = raw_value
+            config.pop(slot_key, None)
+
+    connection_id = node.get("connection_id")
+    if connection_id in (None, ""):
+        legacy_connection_id = config.pop("connection_id", None)
+        connection_id = legacy_connection_id if legacy_connection_id not in (None, "") else None
+    else:
+        config.pop("connection_id", None)
+    if connection_id not in (None, ""):
+        normalized_connections.setdefault("connection_id", connection_id)
+
+    for slot_key in slot_keys:
+        slot_value = config.pop(slot_key, None)
+        if slot_value in (None, "", []):
+            continue
+        normalized_connections.setdefault(slot_key, slot_value)
+
+    return normalized_connections
+
+
+def _normalize_node_config(*, node: dict, template: dict | None) -> tuple[dict, dict[str, str | int | list[str | int]]]:
     raw_config = node.get("config")
     normalized_config = dict(raw_config) if isinstance(raw_config, dict) else {}
 
     raw_parameters = node.get("parameters")
     if isinstance(raw_parameters, dict):
         normalized_config.update(raw_parameters)
-
-    connection_id = node.get("connection_id")
-    if connection_id in (None, ""):
-        legacy_connection_id = normalized_config.pop("connection_id", None)
-        connection_id = legacy_connection_id if legacy_connection_id not in (None, "") else None
-    else:
-        normalized_config.pop("connection_id", None)
+    connection_bindings = _normalize_node_connections(
+        node=node,
+        template=template,
+        config=normalized_config,
+    )
 
     normalized_kind = node.get("kind")
     if normalized_kind == "agent" or (template and template.get("kind") == "agent"):
         normalized_config = normalize_workflow_agent_config(normalized_config)
 
-    return normalized_config, connection_id
+    return normalized_config, connection_bindings
 
 
 def _persisted_position(position: object) -> dict[str, int | float]:
@@ -203,9 +250,10 @@ def _persisted_position(position: object) -> dict[str, int | float]:
 
 def _trim_persisted_parameters(*, template: dict | None, parameters: dict) -> dict:
     defaults = template.get("config") if isinstance(template, dict) and isinstance(template.get("config"), dict) else {}
+    connection_slot_keys = set(_connection_slot_keys_for_template(template))
     trimmed: dict = {}
     for key, value in parameters.items():
-        if key == "connection_id":
+        if key == "connection_id" or key in connection_slot_keys:
             continue
         if key == "instructions":
             continue
@@ -240,7 +288,7 @@ def canonicalize_workflow_definition(definition: dict | None) -> dict:
             continue
         node_type = node_type.strip()
         node_template = get_workflow_node_template(node_type=node_type)
-        config, connection_id = _normalize_node_config(node=node, template=node_template)
+        config, connection_bindings = _normalize_node_config(node=node, template=node_template)
         parameters = _trim_persisted_parameters(template=node_template, parameters=config)
         name = node.get("name")
         if not isinstance(name, str) or not name.strip():
@@ -254,8 +302,8 @@ def canonicalize_workflow_definition(definition: dict | None) -> dict:
             "name": name.strip(),
             "position": _persisted_position(node.get("position")),
         }
-        if connection_id not in (None, ""):
-            persisted_node["connection_id"] = connection_id
+        if connection_bindings:
+            persisted_node["connections"] = dict(connection_bindings)
         if parameters:
             persisted_node["parameters"] = parameters
         raw_kind = node.get("kind")
@@ -321,9 +369,8 @@ def normalize_workflow_definition_nodes(definition: dict | None) -> dict:
 
         normalized_node = dict(node)
         node_template = get_workflow_node_template(node_type=normalized_node.get("type"))
-        existing_config, _connection_id = _normalize_node_config(node=normalized_node, template=node_template)
-        if _connection_id not in (None, ""):
-            existing_config["connection_id"] = _connection_id
+        existing_config, connection_bindings = _normalize_node_config(node=normalized_node, template=node_template)
+        existing_config.update(connection_bindings)
 
         if not isinstance(normalized_node.get("label"), str) or not normalized_node["label"].strip():
             if isinstance(normalized_node.get("name"), str) and normalized_node["name"].strip():

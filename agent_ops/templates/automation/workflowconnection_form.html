@@ -1,0 +1,181 @@
+{% extends "generic/_base.html" %}
+{% load forms %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block tabs %}
+  <ul class="nav nav-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button
+        class="nav-link active"
+        id="edit-form-tab"
+        data-bs-toggle="tab"
+        data-bs-target="#edit-form"
+        type="button"
+        role="tab"
+        aria-controls="edit-form"
+        aria-selected="true"
+      >
+        {% if is_editing %}Edit{% else %}Create{% endif %}
+      </button>
+    </li>
+  </ul>
+{% endblock %}
+
+{% block controls %}
+  <div class="btn-list">
+    {% if workflow_connection_oauth.available and workflow_connection_oauth.auth_mode == "oauth2_authorization_code" %}
+      {% if workflow_connection_oauth.can_start and workflow_connection_oauth.start_url %}
+        <a href="{{ workflow_connection_oauth.start_url }}" class="btn btn-primary">
+          <i class="mdi mdi-open-in-new"></i>
+          <span class="ms-1">{% if workflow_connection_oauth.connected %}Reconnect account{% else %}Connect my account{% endif %}</span>
+        </a>
+      {% else %}
+        <span class="btn btn-outline-secondary disabled" aria-disabled="true">
+          <i class="mdi mdi-link-variant"></i>
+          <span class="ms-1">Save to enable OAuth</span>
+        </span>
+      {% endif %}
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div class="tab-pane show active" id="edit-form" role="tabpanel" aria-labelledby="edit-form-tab">
+    {% if workflow_connection_oauth.available and workflow_connection_oauth.auth_mode == "oauth2_authorization_code" %}
+      <section class="card mt-4 mb-4">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+            <div>
+              <h2 class="h4 mb-2">OpenAI Account Login</h2>
+              <p class="text-secondary mb-2">
+                Use ChatGPT device login to authorize this credential with OpenAI. This hosted flow does not require a callback URL for your app.
+              </p>
+            </div>
+            <span class="badge {% if workflow_connection_oauth.connected %}bg-success-lt text-success{% else %}bg-warning-lt text-warning{% endif %}">
+              {{ workflow_connection_oauth.status_label }}
+            </span>
+          </div>
+          <div class="mt-3">
+            <div class="small text-secondary mb-1">Verification page</div>
+            <code>{{ workflow_connection_oauth.verification_url }}</code>
+          </div>
+          {% if workflow_connection_oauth.account_id %}
+            <div class="mt-3">
+              <div class="small text-secondary mb-1">Connected account</div>
+              <code>{{ workflow_connection_oauth.account_id }}</code>
+            </div>
+          {% endif %}
+        </div>
+      </section>
+    {% endif %}
+
+    <form action="" method="post" enctype="multipart/form-data" class="object-edit mt-5">
+      {% csrf_token %}
+
+      {% for field in form.hidden_fields %}
+        {{ field }}
+      {% endfor %}
+
+      {% if return_url %}
+        <input type="hidden" name="return_url" value="{{ return_url }}">
+      {% endif %}
+      {% if workflow_connection_popup %}
+        <input type="hidden" name="popup" value="1">
+      {% endif %}
+
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger" role="alert">
+          {{ form.non_field_errors }}
+        </div>
+      {% endif %}
+
+      {% if form.fieldsets %}
+        {% for fieldset in form.fieldsets %}
+          <div class="field-group mb-5">
+            {% if fieldset.title %}
+              <div class="row">
+                <h2 class="col-lg-9 offset-lg-3 h3 mb-2">{{ fieldset.title }}</h2>
+              </div>
+            {% endif %}
+            {% if fieldset.description %}
+              <div class="row">
+                <div class="col-lg-9 offset-lg-3 mb-3 text-secondary">
+                  {{ fieldset.description }}
+                </div>
+              </div>
+            {% endif %}
+            {% if form.uses_structured_openai_editor and fieldset.title == "Credentials" %}
+              {% with field=form.openai_auth_mode %}
+                {% include "inc/form_field.html" %}
+              {% endwith %}
+              {% with field=form.openai_base_url %}
+                {% include "inc/form_field.html" %}
+              {% endwith %}
+              <div data-openai-auth-section="api_key">
+                {% with field=form.openai_api_key_secret_name %}
+                  {% include "inc/form_field.html" %}
+                {% endwith %}
+              </div>
+              <div data-openai-auth-section="oauth">
+                {% with field=form.openai_oauth_client_id %}
+                  {% include "inc/form_field.html" %}
+                {% endwith %}
+                {% with field=form.openai_oauth_client_secret_name %}
+                  {% include "inc/form_field.html" %}
+                {% endwith %}
+                {% with field=form.openai_oauth_token_url %}
+                  {% include "inc/form_field.html" %}
+                {% endwith %}
+              </div>
+            {% else %}
+              {% for field_name in fieldset.fields %}
+                {% with field=form|form_field:field_name %}
+                  {% include "inc/form_field.html" %}
+                {% endwith %}
+              {% endfor %}
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="field-group mb-5">
+          {% for field in form.visible_fields %}
+            {% include "inc/form_field.html" %}
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="row">
+        <div class="offset-lg-3 col-lg-9">
+          <div class="object-edit-actions d-flex justify-content-end gap-2 flex-wrap">
+            <a href="{{ return_url }}" class="btn btn-outline-secondary">{% if workflow_connection_popup %}Close{% else %}Cancel{% endif %}</a>
+            <button type="submit" class="btn btn-primary">{{ submit_label }}</button>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+{% endblock %}
+
+{% block javascript %}
+  {{ block.super }}
+  {% if form.uses_structured_openai_editor %}
+    <script>
+      (function () {
+        const authModeField = document.getElementById("id_openai_auth_mode");
+        if (!authModeField) {
+          return;
+        }
+        const syncSections = () => {
+          const authMode = authModeField.value;
+          document.querySelectorAll("[data-openai-auth-section]").forEach((section) => {
+            const sectionMode = section.getAttribute("data-openai-auth-section");
+            section.hidden = sectionMode !== authMode;
+          });
+        };
+        authModeField.addEventListener("change", syncSections);
+        syncSections();
+      })();
+    </script>
+  {% endif %}
+{% endblock %}

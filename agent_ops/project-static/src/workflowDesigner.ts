@@ -154,6 +154,8 @@ export function initWorkflowDesigner(): void {
   const browser = browserElements;
   const canvas = canvasElements;
   const execution = getExecutionElements(root);
+  const workflowConnectionAddUrl = root.dataset.workflowConnectionAddUrl ?? '';
+  const workflowConnectionsUrl = root.dataset.workflowConnectionsUrl ?? '';
   const workflowRunUrl = root.dataset.workflowRunUrl ?? '';
   const workflowNodeRunUrlTemplate = root.dataset.workflowNodeRunUrlTemplate ?? '';
   const csrfToken = root.querySelector<HTMLInputElement>('input[name="csrfmiddlewaretoken"]')?.value ?? '';
@@ -404,6 +406,13 @@ export function initWorkflowDesigner(): void {
     },
     {},
   );
+  const workflowConnectionSlotKeysByType = workflowCatalog.definitions.reduce<Record<string, string[]>>(
+    (accumulator, definition) => {
+      accumulator[definition.type] = (definition.connection_slots ?? []).map((slot) => slot.key);
+      return accumulator;
+    },
+    {},
+  );
   const fallbackDefinition = parseJsonScript<WorkflowPersistedDefinition>('workflow-definition-data', {
     definition_version: 2,
     edges: [],
@@ -412,14 +421,19 @@ export function initWorkflowDesigner(): void {
   const persistedDefinition = parsePersistedDefinition(canvas.definitionInput) ?? fallbackDefinition;
   const graphStore = createGraphStore({
     definition: normalizeWorkflowDefinition(persistedDefinition, {
+      connectionSlotKeysByType: workflowConnectionSlotKeysByType,
       kindByType: workflowNodeKindsByType,
     }),
     persist(definition) {
-      canvas.definitionInput.value = JSON.stringify(serializeWorkflowDefinition(definition));
+      canvas.definitionInput.value = JSON.stringify(
+        serializeWorkflowDefinition(definition, {
+          connectionSlotKeysByType: workflowConnectionSlotKeysByType,
+        }),
+      );
     },
   });
   const workflowDefinition = graphStore.definition;
-  const workflowConnections = parseJsonScript<WorkflowConnection[]>('workflow-connections-data', []);
+  let workflowConnections = parseJsonScript<WorkflowConnection[]>('workflow-connections-data', []);
   const nodeRegistry = buildNodeRegistry(
     workflowCatalog.definitions,
     workflowConnections,
@@ -452,6 +466,51 @@ export function initWorkflowDesigner(): void {
   let connectionDraft: ConnectionDraft | null = null;
   let hoveredEdgeId: string | null = null;
 
+  function buildConnectionEditorUrl(
+    rawUrl: string,
+    options?: { defaultConnectionType?: string },
+  ): string {
+    const url = new URL(rawUrl, window.location.origin);
+    url.searchParams.set('popup', '1');
+    url.searchParams.set('return_url', window.location.href);
+    if (options?.defaultConnectionType && !url.searchParams.get('connection_type')) {
+      url.searchParams.set('connection_type', options.defaultConnectionType);
+    }
+    return url.toString();
+  }
+
+  function openConnectionPopup(rawUrl: string, options?: { defaultConnectionType?: string }): void {
+    const popupUrl = buildConnectionEditorUrl(rawUrl, options);
+    window.open(
+      popupUrl,
+      'workflowConnectionEditor',
+      'popup=yes,width=980,height=860,resizable=yes,scrollbars=yes',
+    );
+  }
+
+  async function refreshWorkflowConnections(): Promise<void> {
+    if (!workflowConnectionsUrl) {
+      return;
+    }
+
+    try {
+      const response = await fetch(workflowConnectionsUrl, {
+        headers: {
+          Accept: 'application/json',
+        },
+        credentials: 'same-origin',
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to refresh workflow connections (${response.status})`);
+      }
+      const payload = await response.json() as { connections?: WorkflowConnection[] };
+      workflowConnections = Array.isArray(payload.connections) ? payload.connections : [];
+      renderSettingsPanel();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
   function syncDefinitionInput(): void {
     graphStore.commit();
   }
@@ -475,7 +534,9 @@ export function initWorkflowDesigner(): void {
 
   function buildExecutionRequestBody(inputData: Record<string, unknown>): string {
     return JSON.stringify({
-      definition: serializeWorkflowDefinition(workflowDefinition),
+      definition: serializeWorkflowDefinition(workflowDefinition, {
+        connectionSlotKeysByType: workflowConnectionSlotKeysByType,
+      }),
       input_data: inputData,
     });
   }
@@ -563,6 +624,7 @@ export function initWorkflowDesigner(): void {
       presentation: workflowCatalog.presentation.settings,
     });
     const connectionMarkup = renderNodeConnectionSection({
+      connectionCreateUrl: workflowConnectionAddUrl,
       connections: workflowConnections,
       node: activeSettingsNode,
       nodeDefinition: activeNodeDefinition,
@@ -639,6 +701,16 @@ export function initWorkflowDesigner(): void {
     renderCanvas,
     renderNodeContextMenu,
     renderSettingsPanel,
+  });
+
+  window.addEventListener('message', (event) => {
+    if (event.origin !== window.location.origin || typeof event.data !== 'object' || event.data === null) {
+      return;
+    }
+    const message = event.data as { type?: string };
+    if (message.type === 'workflow-connection-updated') {
+      void refreshWorkflowConnections();
+    }
   });
 
   const {
@@ -931,6 +1003,7 @@ export function initWorkflowDesigner(): void {
     navigateBrowser,
     openAuxiliaryInsertBrowser,
     openBrowser,
+    openConnectionPopup,
     openNodeSettings,
     removeEdge,
     renderBrowser,

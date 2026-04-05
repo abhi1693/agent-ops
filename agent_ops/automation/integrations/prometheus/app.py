@@ -1,7 +1,9 @@
 from automation.catalog.capabilities import CAPABILITY_AGENT_TOOL
-from automation.catalog.execution import resolve_connection_with_base_url
+from automation.catalog.execution import resolve_connection_request_auth, resolve_connection_with_base_url
 from automation.catalog.definitions import (
     CatalogNodeDefinition,
+    ConnectionHttpAuthDefinition,
+    ConnectionHttpHeaderDefinition,
     ConnectionSlotDefinition,
     ConnectionTypeDefinition,
     IntegrationApp,
@@ -29,10 +31,10 @@ def _execute_prometheus_query(runtime: WorkflowNodeExecutionContext) -> Workflow
     query_text = _render_runtime_string(runtime, "query", required=True, default_mode="expression")
     query_time = _render_runtime_string(runtime, "time", default_mode="expression")
 
-    headers = {"Accept": "application/json"}
-    bearer_token = resolved.values.get("bearer_token")
-    if isinstance(bearer_token, str) and bearer_token:
-        headers["Authorization"] = f"Bearer {bearer_token}"
+    headers = {
+        "Accept": "application/json",
+        **resolve_connection_request_auth(runtime, resolved_connection=resolved).headers,
+    }
 
     query = {"query": query_text}
     if query_time:
@@ -73,6 +75,16 @@ PROMETHEUS_CONNECTION = ConnectionTypeDefinition(
     label="Prometheus API",
     auth_kind="http_secret",
     description="Reusable HTTP connection for Prometheus-compatible query endpoints.",
+    http_auth=ConnectionHttpAuthDefinition(
+        headers=(
+            ConnectionHttpHeaderDefinition(
+                field_key="bearer_token",
+                header_name="Authorization",
+                prefix="Bearer ",
+                required=False,
+            ),
+        ),
+    ),
     field_schema=(
         ParameterDefinition(
             key="base_url",

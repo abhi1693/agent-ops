@@ -270,12 +270,16 @@ export type WorkflowCatalogPayload = {
 
 export type WorkflowConnection = {
   connection_type: string;
+  edit_url: string;
   enabled: boolean;
   id: number;
   integration_id: string;
   label: string;
   name: string;
+  oauth_connect_url?: string;
+  oauth_connected?: boolean;
   scope_label?: string;
+  supports_oauth?: boolean;
 };
 
 export type AgentAuxiliaryPortId = 'ai_languageModel' | 'ai_tool';
@@ -342,6 +346,7 @@ export type WorkflowPaletteSection = {
 
 export type WorkflowPersistedNode = {
   config?: Record<string, unknown>;
+  connections?: Record<string, string | number | Array<string | number>>;
   id: string;
   kind?: string;
   label?: string;
@@ -359,7 +364,10 @@ export type WorkflowPersistedNode = {
   typeVersion?: number;
 };
 
-export type WorkflowNode = Omit<WorkflowPersistedNode, 'kind' | 'label' | 'name' | 'parameters' | 'connection_id'> & {
+export type WorkflowNode = Omit<
+  WorkflowPersistedNode,
+  'kind' | 'label' | 'name' | 'parameters' | 'connection_id' | 'connections'
+> & {
   config: Record<string, unknown>;
   kind: string;
   label: string;

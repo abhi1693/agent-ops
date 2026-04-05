@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from django.core.exceptions import ValidationError
 
-from automation.catalog.connections import WorkflowResolvedConnection, resolve_workflow_connection_fields
+from automation.catalog.connections import (
+    WorkflowResolvedConnection,
+    build_resolved_connection_request_auth,
+    get_connection_slot_value,
+    resolve_connection_request_auth,
+    resolve_workflow_connection_fields,
+)
 from automation.runtime_types import WorkflowNodeExecutionContext
 from automation.tools.base import _render_runtime_external_url
 
@@ -12,10 +18,11 @@ def resolve_connection_with_base_url(
     *,
     connection_type: str,
     base_url_field: str = "base_url",
+    connection_slot_key: str = "connection_id",
 ) -> tuple[WorkflowResolvedConnection, str]:
     resolved = resolve_workflow_connection_fields(
         runtime,
-        connection_id=runtime.config.get("connection_id"),
+        connection_id=get_connection_slot_value(runtime.config, slot_key=connection_slot_key),
         expected_connection_type=connection_type,
     )
     raw_base_url = resolved.values.get(base_url_field)
@@ -50,4 +57,9 @@ def resolve_connection_with_base_url(
     return resolved, (base_url or "").rstrip("/")
 
 
-__all__ = ("resolve_connection_with_base_url",)
+__all__ = (
+    "build_resolved_connection_request_auth",
+    "get_connection_slot_value",
+    "resolve_connection_request_auth",
+    "resolve_connection_with_base_url",
+)
