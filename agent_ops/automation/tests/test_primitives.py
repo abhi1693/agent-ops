@@ -20,6 +20,7 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
                 "core.manual_trigger",
                 "core.response",
                 "core.schedule_trigger",
+                "core.webhook_trigger",
                 "core.set",
                 "core.stop_and_error",
                 "core.switch",
@@ -379,3 +380,46 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
             )
 
         self.assertIn('must connect exactly one chat model on port "ai_languageModel"', str(exc_info.exception))
+
+    def test_runtime_validation_allows_multiple_trigger_nodes(self):
+        definition = normalize_workflow_definition_nodes(
+            {
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.manual_trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "trigger-2",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                            "authentication": "none",
+                            "response_mode": "immediately",
+                        },
+                        "position": {"x": 32, "y": 180},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                    {"id": "edge-2", "source": "trigger-2", "target": "response-1"},
+                ],
+            }
+        )
+
+        validate_workflow_runtime_definition(
+            nodes=definition["nodes"],
+            edges=definition["edges"],
+        )

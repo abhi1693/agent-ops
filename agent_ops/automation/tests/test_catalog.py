@@ -158,6 +158,9 @@ class WorkflowCatalogTests(SimpleTestCase):
         combinator_field = next(field for field in if_definition["fields"] if field["key"] == "combinator")
         rules_field = next(field for field in switch_definition["fields"] if field["key"] == "rules")
         http_method_field = next(field for field in webhook_definition["fields"] if field["key"] == "http_method")
+        authentication_field = next(field for field in webhook_definition["fields"] if field["key"] == "authentication")
+        response_mode_field = next(field for field in webhook_definition["fields"] if field["key"] == "response_mode")
+        secret_field = next(field for field in webhook_definition["fields"] if field["key"] == "secret_name")
 
         self.assertEqual(set_definition["defaultName"], "Edit Fields")
         self.assertEqual(set_definition["subtitle"], "={{config.output_key}}")
@@ -176,3 +179,8 @@ class WorkflowCatalogTests(SimpleTestCase):
         self.assertEqual(rules_field["type"], "fixed_collection")
         self.assertEqual(http_method_field["type"], "select")
         self.assertEqual(http_method_field["value_type"], "string")
+        self.assertEqual(authentication_field["type"], "select")
+        self.assertEqual(authentication_field["value_type"], "string")
+        self.assertEqual(response_mode_field["type"], "select")
+        self.assertEqual(response_mode_field["value_type"], "string")
+        self.assertEqual(secret_field["visible_when"], {"authentication": ["secret_header"]})

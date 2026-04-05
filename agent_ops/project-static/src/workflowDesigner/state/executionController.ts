@@ -46,6 +46,7 @@ export function createWorkflowDesignerExecutionController(params: {
   csrfToken: string;
   execution: ExecutionElements | null;
   executionPresentation: WorkflowExecutionPresentation;
+  getWorkflowHasWebhookTriggers: () => boolean;
   getInitialExecutionNodeId: (nodeId: string | null) => string | null;
   getNode: (nodeId: string | null | undefined) => WorkflowNode | undefined;
   getSelectedNodeId: () => string | null;
@@ -78,6 +79,7 @@ export function createWorkflowDesignerExecutionController(params: {
     csrfToken,
     execution,
     executionPresentation,
+    getWorkflowHasWebhookTriggers,
     getInitialExecutionNodeId,
     getNode,
     getSelectedNodeId,
@@ -95,6 +97,10 @@ export function createWorkflowDesignerExecutionController(params: {
   let selectedExecutionTab: ExecutionInspectorTab = 'overview';
   let selectedExecutionStepIndex = 0;
   let lastExecutionPayload: DesignerRunResponse | null = null;
+
+  function isWebhookListenMode(payload: DesignerRunResponse | null): boolean {
+    return payload?.mode === 'node_listen' || payload?.mode === 'workflow_listen';
+  }
 
   function parseJsonValue<T>(value: string | null): T | null {
     if (!value) {
@@ -434,10 +440,15 @@ export function createWorkflowDesignerExecutionController(params: {
     }
 
     lastExecutionPayload = payload;
-    const statusPresentation = executionPresentation.statuses[payload.run.status] ?? {
+    const statusPresentation = isWebhookListenMode(payload) && payload.run.status === 'pending'
+      ? {
+          badge_class: executionPresentation.statuses.pending?.badge_class ?? 'text-bg-secondary',
+          label: 'Listening',
+        }
+      : executionPresentation.statuses[payload.run.status] ?? {
       badge_class: executionPresentation.default_status.badge_class,
       label: payload.run.status,
-    };
+      };
     executionActiveNodeIds = payload.run.active_node_ids ?? [];
     executionCompletedNodeIds = getCompletedNodeIds(payload);
     executionCurrentNodeId = getExecutionFocusNodeId(payload);
@@ -539,6 +550,11 @@ export function createWorkflowDesignerExecutionController(params: {
     }
 
     const nodeId = options?.nodeId ?? null;
+    const selectedNode = getNode(nodeId);
+    const isWebhookNodeRun = Boolean(
+      selectedNode?.kind === 'trigger' && selectedNode.type?.toLowerCase().includes('webhook'),
+    );
+    const isWebhookWorkflowRun = !nodeId && getWorkflowHasWebhookTriggers();
     const inputData = parseExecutionInput();
     if (inputData === null) {
       return;
@@ -553,8 +569,14 @@ export function createWorkflowDesignerExecutionController(params: {
     executionSkippedNodeIds = [];
     execution.runButton.disabled = true;
     setExecutionStatus(
-      nodeId ? executionPresentation.running_status.node : executionPresentation.running_status.workflow,
-      executionPresentation.statuses.running?.badge_class ?? 'text-bg-primary',
+      isWebhookNodeRun || isWebhookWorkflowRun
+        ? 'Listening for webhook'
+        : nodeId
+          ? executionPresentation.running_status.node
+          : executionPresentation.running_status.workflow,
+      isWebhookNodeRun || isWebhookWorkflowRun
+        ? executionPresentation.statuses.pending?.badge_class ?? 'text-bg-secondary'
+        : executionPresentation.statuses.running?.badge_class ?? 'text-bg-primary',
     );
     onExecutionStateChange({
       focusNodeId: executionCurrentNodeId,

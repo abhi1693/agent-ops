@@ -487,8 +487,8 @@ def validate_workflow_runtime_definition(*, nodes: list[dict], edges: list[dict]
         primary_targets_by_source_port.setdefault(edge["source"], {}).setdefault(source_port, []).append(edge["target"])
 
     trigger_nodes = [node for node in nodes if node["kind"] == "trigger"]
-    if len(trigger_nodes) != 1:
-        raise_definition_error("Workflow runtime requires exactly one trigger node.")
+    if not trigger_nodes:
+        raise_definition_error("Workflow runtime requires at least one trigger node.")
     if any(_is_disabled_runtime_node(node) for node in trigger_nodes):
         raise_definition_error("Workflow trigger nodes cannot be disabled.")
 

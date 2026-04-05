@@ -497,7 +497,7 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
         icon: 'mdi-earth',
         label: nodeSelection.next_step_root.items.app_action.label,
       })] : []),
-      ...(!params.hasTrigger && availableDefinitions.some((definition) => definition.kind === 'trigger') ? [renderBrowserListItem({
+      ...(availableDefinitions.some((definition) => definition.kind === 'trigger') ? [renderBrowserListItem({
         action: 'navigate',
         actionValue: 'trigger-root',
         description: nodeSelection.trigger_root.additional.description,

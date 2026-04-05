@@ -25,6 +25,7 @@ from automation.catalog.services import (
 )
 from automation.catalog.payloads import build_workflow_catalog_payload
 from automation.catalog.webhooks import prepare_catalog_webhook_request
+from automation.core_nodes.webhook_trigger.node import get_configured_webhook_path, normalize_webhook_path
 from automation.forms import (
     SecretForm,
     SecretGroupForm,
@@ -44,7 +45,7 @@ from automation.integrations.openai.app import (
 )
 from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowConnectionState, WorkflowRun, WorkflowStepRun, WorkflowVersion
 from automation.primitives import canonicalize_workflow_definition, normalize_workflow_definition_nodes
-from automation.runtime import enqueue_workflow
+from automation.runtime import create_workflow_run, enqueue_workflow, execute_workflow_run
 from automation.tools.base import _http_json_request
 from automation.workflow_connections import split_workflow_edges
 from core.generic_views import (
@@ -65,6 +66,8 @@ from users.restrictions import assert_object_action_allowed, restrict_queryset
 
 
 WORKFLOW_CONNECTION_OPENAI_OAUTH_SESSION_PREFIX = "workflow_connection_openai_oauth"
+WEBHOOK_LISTEN_MODE = "webhook"
+WEBHOOK_LISTEN_TRIGGER_MODE = "manual:webhook_listen"
 
 
 def _openai_auth_headers() -> dict[str, str]:
@@ -87,6 +90,140 @@ def _flatten_validation_error(error: ValidationError) -> str:
             parts.append(f"{field}: {' '.join(messages_for_field)}")
         return " ".join(parts)
     return " ".join(error.messages)
+
+
+def _resolve_matching_webhook_trigger_node(*, workflow, request, nodes: list[dict]) -> tuple[dict, str, dict, dict]:
+    webhook_trigger_nodes = [node for node in nodes if node.get("kind") == "trigger"]
+    if not webhook_trigger_nodes:
+        raise ValidationError({"trigger": "Workflow has no trigger node."})
+
+    errors: list[str] = []
+    for trigger_node in webhook_trigger_nodes:
+        try:
+            trigger_mode, input_data, trigger_metadata = prepare_catalog_webhook_request(
+                workflow=workflow,
+                node=trigger_node,
+                request=request,
+            )
+        except ValidationError as exc:
+            errors.extend(exc.messages)
+            continue
+        return trigger_node, trigger_mode, input_data, trigger_metadata
+
+    detail = " ".join(errors).strip() if errors else "Webhook request did not match any trigger node."
+    raise ValidationError({"trigger": detail})
+
+
+def _resolve_public_webhook_trigger_request(request) -> tuple[Workflow, dict, dict]:
+    resolver_kwargs = getattr(getattr(request, "resolver_match", None), "kwargs", {}) or {}
+    webhook_path = normalize_webhook_path(resolver_kwargs.get("webhook_path"))
+    if not webhook_path:
+        raise Http404("Webhook not found.")
+
+    matches: list[tuple[Workflow, dict]] = []
+    workflows = Workflow.objects.select_related("organization", "workspace", "environment").order_by("pk")
+    for workflow in workflows.iterator():
+        nodes = normalize_workflow_definition_nodes(workflow.definition or {}).get("nodes", [])
+        for node in nodes:
+            if not isinstance(node, dict) or node.get("type") != "core.webhook_trigger":
+                continue
+            if get_configured_webhook_path(node.get("config") or {}) != webhook_path:
+                continue
+            matches.append((workflow, node))
+
+    if not matches:
+        raise Http404("Webhook not found.")
+    if len(matches) > 1:
+        raise ValidationError({"trigger": f'Webhook path "{webhook_path}" is not unique.'})
+
+    workflow, trigger_node = matches[0]
+    trigger_mode, input_data, trigger_metadata = prepare_catalog_webhook_request(
+        workflow=workflow,
+        node=trigger_node,
+        request=request,
+    )
+    return workflow, trigger_node, {
+        "input_data": input_data,
+        "trigger_metadata": trigger_metadata,
+        "trigger_mode": trigger_mode,
+    }
+
+
+def _is_webhook_trigger_node(node: dict | None) -> bool:
+    if not isinstance(node, dict) or node.get("kind") != "trigger":
+        return False
+    node_type = str(node.get("type") or "").lower()
+    return "webhook" in node_type
+
+
+def _is_webhook_listen_run(run: WorkflowRun) -> bool:
+    metadata = run.trigger_metadata if isinstance(run.trigger_metadata, dict) else {}
+    return metadata.get("listen_mode") == WEBHOOK_LISTEN_MODE
+
+
+def _resolve_designer_run_mode(run: WorkflowRun) -> str:
+    if _is_webhook_listen_run(run):
+        return "node_listen" if run.target_node_id else "workflow_listen"
+    return run.execution_mode
+
+
+def _claim_pending_webhook_listener_run(
+    *,
+    workflow: Workflow,
+    trigger_node_id: str,
+    trigger_mode: str,
+    trigger_metadata: dict,
+    input_data: dict,
+) -> WorkflowRun | None:
+    with transaction.atomic():
+        run = (
+            WorkflowRun.objects.select_for_update()
+            .filter(
+                workflow=workflow,
+                execution_mode=WorkflowRun.ExecutionModeChoices.WORKFLOW,
+                status=WorkflowRun.StatusChoices.PENDING,
+                trigger_mode=WEBHOOK_LISTEN_TRIGGER_MODE,
+                target_node_id__in=("", trigger_node_id),
+            )
+            .order_by("-created")
+            .first()
+        )
+        if run is None:
+            return None
+
+        existing_metadata = run.trigger_metadata if isinstance(run.trigger_metadata, dict) else {}
+        run.input_data = input_data or {}
+        run.trigger_mode = trigger_mode
+        run.trigger_metadata = {
+            **existing_metadata,
+            **trigger_metadata,
+            "listen_mode": WEBHOOK_LISTEN_MODE,
+            "trigger_node_id": trigger_node_id,
+        }
+        # Mark the listener as claimed before execution so a second webhook cannot attach to it.
+        run.status = WorkflowRun.StatusChoices.RUNNING
+        run.error = ""
+        run.finished_at = None
+        run.output_data = {}
+        run.context_data = {}
+        run.scheduler_state = {}
+        run.step_results = []
+        run.save(
+            update_fields=(
+                "input_data",
+                "trigger_mode",
+                "trigger_metadata",
+                "status",
+                "error",
+                "finished_at",
+                "output_data",
+                "context_data",
+                "scheduler_state",
+                "step_results",
+                "last_updated",
+            )
+        )
+        return run
 
 
 def _workflow_connection_popup_requested(request) -> bool:
@@ -575,9 +712,19 @@ def _is_node_primary_reachable(*, definition: dict, node_id: str) -> bool:
     return False
 
 
+def _workflow_has_webhook_trigger(definition: dict) -> bool:
+    return any(_is_webhook_trigger_node(node) for node in definition.get("nodes", []))
+
+
 def _build_designer_run_payload(run: WorkflowRun, *, mode: str, node: dict | None = None) -> dict:
     poll_url = reverse("workflow_designer_run_status", args=[run.workflow_id, run.pk])
-    if run.status == WorkflowRun.StatusChoices.PENDING:
+    if _is_webhook_listen_run(run) and run.status == WorkflowRun.StatusChoices.PENDING:
+        message = "Listening for webhook event."
+    elif _is_webhook_listen_run(run) and run.status == WorkflowRun.StatusChoices.RUNNING:
+        message = "Webhook event received. Running workflow."
+    elif _is_webhook_listen_run(run) and run.status == WorkflowRun.StatusChoices.SUCCEEDED:
+        message = "Webhook event processed."
+    elif run.status == WorkflowRun.StatusChoices.PENDING:
         message = "Workflow queued."
     elif run.status == WorkflowRun.StatusChoices.RUNNING:
         message = "Workflow running."
@@ -1284,6 +1431,9 @@ class WorkflowDesignerView(RestrictedObjectEditMixin, ObjectEditView):
                 "workflow_edit_url": reverse("workflow_edit", args=[self.object.pk]),
                 "workflow_changelog_url": reverse("workflow_changelog", args=[self.object.pk]),
                 "workflow_designer_run_url": reverse("workflow_designer_run", args=[self.object.pk]),
+                "workflow_webhook_url": request.build_absolute_uri(
+                    reverse("workflow_webhook_trigger_public_base")
+                ),
                 "workflow_designer_node_run_url_template": reverse(
                     "workflow_designer_node_run",
                     args=[self.object.pk, "__node_id__"],
@@ -1402,16 +1552,32 @@ class WorkflowDesignerRunView(View):
         except ValidationError as exc:
             return JsonResponse({"detail": _flatten_validation_error(exc)}, status=400)
 
+        definition = normalize_workflow_definition_nodes(workflow.definition or {})
+
         try:
-            run = enqueue_workflow(
-                workflow,
-                input_data=input_data,
-                actor=request.user,
-            )
+            if _workflow_has_webhook_trigger(definition):
+                run = create_workflow_run(
+                    workflow,
+                    input_data={},
+                    trigger_mode=WEBHOOK_LISTEN_TRIGGER_MODE,
+                    trigger_metadata={
+                        "listen_mode": WEBHOOK_LISTEN_MODE,
+                    },
+                    actor=request.user,
+                    execution_mode=WorkflowRun.ExecutionModeChoices.WORKFLOW,
+                )
+                mode = "workflow_listen"
+            else:
+                run = enqueue_workflow(
+                    workflow,
+                    input_data=input_data,
+                    actor=request.user,
+                )
+                mode = "workflow"
         except ValidationError as exc:
             return JsonResponse({"detail": _flatten_validation_error(exc)}, status=400)
 
-        return JsonResponse(_build_designer_run_payload(run, mode="workflow"), status=202)
+        return JsonResponse(_build_designer_run_payload(run, mode=mode), status=202)
 
 
 class WorkflowDesignerNodeRunView(View):
@@ -1439,15 +1605,30 @@ class WorkflowDesignerNodeRunView(View):
             return JsonResponse({"detail": f'Workflow does not define node "{kwargs["node_id"]}".'}, status=400)
 
         try:
-            run = enqueue_workflow(
-                workflow,
-                input_data=input_data,
-                trigger_mode="manual:node",
-                actor=request.user,
-                execution_mode=WorkflowRun.ExecutionModeChoices.NODE_PREVIEW,
-                target_node_id=node["id"],
-            )
-            mode = "node_preview"
+            if _is_webhook_trigger_node(node):
+                run = create_workflow_run(
+                    workflow,
+                    input_data={},
+                    trigger_mode=WEBHOOK_LISTEN_TRIGGER_MODE,
+                    trigger_metadata={
+                        "listen_mode": WEBHOOK_LISTEN_MODE,
+                        "trigger_node_id": node["id"],
+                    },
+                    actor=request.user,
+                    execution_mode=WorkflowRun.ExecutionModeChoices.WORKFLOW,
+                    target_node_id=node["id"],
+                )
+                mode = "node_listen"
+            else:
+                run = enqueue_workflow(
+                    workflow,
+                    input_data=input_data,
+                    trigger_mode="manual:node",
+                    actor=request.user,
+                    execution_mode=WorkflowRun.ExecutionModeChoices.NODE_PREVIEW,
+                    target_node_id=node["id"],
+                )
+                mode = "node_preview"
         except ValidationError as exc:
             return JsonResponse({"detail": _flatten_validation_error(exc)}, status=400)
 
@@ -1484,7 +1665,7 @@ class WorkflowDesignerRunStatusView(View):
         return JsonResponse(
             _build_designer_run_payload(
                 run,
-                mode=run.execution_mode,
+                mode=_resolve_designer_run_mode(run),
                 node=node,
             )
         )
@@ -1528,37 +1709,58 @@ class WorkflowWebhookTriggerView(View):
     http_method_names = ["get", "post", "put", "patch", "delete"]
 
     def _handle_request(self, request, *args, **kwargs):
-        workflow = (
-            Workflow.objects.select_related("organization", "workspace", "environment")
-            .filter(pk=kwargs["pk"], enabled=True)
-            .first()
-        )
-        if workflow is None:
-            return JsonResponse({"detail": "Workflow not found."}, status=404)
-
-        nodes = normalize_workflow_definition_nodes(workflow.definition or {}).get("nodes", [])
-        trigger_node = next((node for node in nodes if node.get("kind") == "trigger"), None)
-        if trigger_node is None:
-            return JsonResponse({"detail": "Workflow has no trigger node."}, status=400)
-
         try:
-            trigger_mode, input_data, trigger_metadata = prepare_catalog_webhook_request(
-                workflow=workflow,
-                node=trigger_node,
-                request=request,
-            )
+            if "pk" in kwargs:
+                workflow = (
+                    Workflow.objects.select_related("organization", "workspace", "environment")
+                    .filter(pk=kwargs["pk"])
+                    .first()
+                )
+                if workflow is None:
+                    return JsonResponse({"detail": "Workflow not found."}, status=404)
+
+                nodes = normalize_workflow_definition_nodes(workflow.definition or {}).get("nodes", [])
+                trigger_node, trigger_mode, input_data, trigger_metadata = _resolve_matching_webhook_trigger_node(
+                    workflow=workflow,
+                    request=request,
+                    nodes=nodes,
+                )
+            else:
+                workflow, trigger_node, webhook_request = _resolve_public_webhook_trigger_request(request)
+                trigger_mode = webhook_request["trigger_mode"]
+                input_data = webhook_request["input_data"]
+                trigger_metadata = webhook_request["trigger_metadata"]
+        except Http404:
+            return JsonResponse({"detail": "Workflow not found."}, status=404)
         except ValidationError as exc:
             message = " ".join(exc.messages)
             return JsonResponse({"detail": message}, status=400)
 
+        trigger_metadata = {
+            **trigger_metadata,
+            "trigger_node_id": trigger_node["id"],
+        }
+
         try:
-            run = enqueue_workflow(
-                workflow,
-                input_data=input_data,
+            run = _claim_pending_webhook_listener_run(
+                workflow=workflow,
+                trigger_node_id=trigger_node["id"],
                 trigger_mode=trigger_mode,
                 trigger_metadata=trigger_metadata,
-                actor=None,
+                input_data=input_data,
             )
+            if run is not None:
+                run = execute_workflow_run(run)
+            else:
+                if not workflow.enabled:
+                    return JsonResponse({"detail": "Workflow not found."}, status=404)
+                run = enqueue_workflow(
+                    workflow,
+                    input_data=input_data,
+                    trigger_mode=trigger_mode,
+                    trigger_metadata=trigger_metadata,
+                    actor=None,
+                )
         except ValidationError as exc:
             return JsonResponse({"detail": _flatten_validation_error(exc)}, status=400)
 

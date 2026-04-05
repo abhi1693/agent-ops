@@ -131,18 +131,12 @@ export function getAvailablePaletteSections(
   registry: WorkflowNodeRegistry,
   definition: WorkflowDefinition,
 ): WorkflowPaletteSection[] {
-  const hasTrigger = definition.nodes.some((node) => node.kind === 'trigger');
+  void definition;
 
   return registry.paletteSections
     .map((section) => ({
       ...section,
-      definitions: section.definitions.filter((definitionItem) => {
-        if (definitionItem.kind === 'trigger') {
-          return !hasTrigger;
-        }
-
-        return true;
-      }),
+      definitions: section.definitions,
     }))
     .filter((section) => section.definitions.length > 0);
 }

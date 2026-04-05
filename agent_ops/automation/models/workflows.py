@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import uuid
+
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.urls import reverse
 
 from automation.catalog.services import get_catalog_node
+from automation.core_nodes.webhook_trigger.node import get_configured_webhook_path
 from automation.primitives import (
     WORKFLOW_DEFINITION_VERSION,
+    canonicalize_workflow_definition,
     normalize_workflow_definition_nodes,
     validate_workflow_runtime_definition,
 )
@@ -243,6 +247,79 @@ def _validate_workflow_definition(definition):
                 raise ValidationError({"definition": f'Viewport "{key}" must be numeric.'})
 
 
+def _iter_public_webhook_nodes(definition: dict | None) -> list[dict]:
+    nodes = normalize_workflow_definition_nodes(definition).get("nodes", [])
+    return [node for node in nodes if isinstance(node, dict) and node.get("type") == "core.webhook_trigger"]
+
+
+def _collect_existing_public_webhook_paths(*, exclude_workflow_pk=None) -> dict[str, str]:
+    existing_paths: dict[str, str] = {}
+    workflows = Workflow.objects.exclude(pk=exclude_workflow_pk).only("pk", "name", "definition").order_by("pk")
+    for workflow in workflows.iterator():
+        for node in _iter_public_webhook_nodes(workflow.definition):
+            path = get_configured_webhook_path(node.get("config") or {})
+            if path:
+                existing_paths.setdefault(path, workflow.name)
+    return existing_paths
+
+
+def _assign_public_webhook_paths(definition: dict | None, *, exclude_workflow_pk=None) -> dict:
+    if not isinstance(definition, dict):
+        return canonicalize_workflow_definition(definition)
+
+    existing_paths = _collect_existing_public_webhook_paths(exclude_workflow_pk=exclude_workflow_pk)
+    assigned_paths: dict[str, str] = {}
+    used_paths = set(existing_paths)
+    normalized_nodes = _iter_public_webhook_nodes(definition)
+
+    for node in normalized_nodes:
+        node_id = str(node.get("id") or "").strip()
+        if not node_id:
+            continue
+        path = get_configured_webhook_path(node.get("config") or {})
+        if path:
+            if path in assigned_paths.values():
+                raise ValidationError(
+                    {"definition": f'Webhook path "{path}" is duplicated within this workflow.'}
+                )
+            if path in existing_paths:
+                raise ValidationError(
+                    {
+                        "definition": (
+                            f'Webhook path "{path}" is already used by workflow "{existing_paths[path]}".'
+                        )
+                    }
+                )
+            assigned_paths[node_id] = path
+            used_paths.add(path)
+            continue
+
+        path = str(uuid.uuid4())
+        while path in used_paths:
+            path = str(uuid.uuid4())
+        assigned_paths[node_id] = path
+        used_paths.add(path)
+
+    updated_definition = canonicalize_workflow_definition(definition)
+    updated_nodes = []
+    for node in updated_definition.get("nodes", []):
+        if not isinstance(node, dict):
+            updated_nodes.append(node)
+            continue
+        node_id = str(node.get("id") or "").strip()
+        assigned_path = assigned_paths.get(node_id)
+        if not assigned_path:
+            updated_nodes.append(node)
+            continue
+        parameters = dict(node.get("parameters") or {})
+        parameters["path"] = assigned_path
+        updated_node = dict(node)
+        updated_node["parameters"] = parameters
+        updated_nodes.append(updated_node)
+    updated_definition["nodes"] = updated_nodes
+    return updated_definition
+
+
 class Workflow(PrimaryModel):
     organization = models.ForeignKey(
         "tenancy.Organization",
@@ -342,6 +419,10 @@ class Workflow(PrimaryModel):
             workspace=self.workspace,
             environment=self.environment,
         )
+        self.definition = _assign_public_webhook_paths(
+            self.definition,
+            exclude_workflow_pk=self.pk,
+        )
         _validate_workflow_definition(self.definition)
 
         if self.organization is None:
@@ -369,6 +450,13 @@ class Workflow(PrimaryModel):
             workspace=self.workspace,
             environment=self.environment,
         )
+        original_definition = self.definition
+        self.definition = _assign_public_webhook_paths(
+            self.definition,
+            exclude_workflow_pk=self.pk,
+        )
+        if kwargs.get("update_fields") is not None and self.definition != original_definition:
+            kwargs["update_fields"] = tuple(set(kwargs["update_fields"]) | {"definition"})
         return super().save(*args, **kwargs)
 
     def get_changelog_related_object(self):

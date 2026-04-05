@@ -1,4 +1,3 @@
-import { renderSettingAssistMarkup } from './settingsAssist';
 import type {
   WorkflowConnection,
   WorkflowNode,
@@ -99,13 +98,66 @@ export function renderSettingsSection(params: {
     <section class="workflow-editor-settings-section">
       <div class="workflow-editor-settings-section-head">
         <div class="workflow-editor-settings-section-title">${escapeHtml(params.title)}</div>
-        <div class="workflow-editor-settings-section-description">${escapeHtml(params.description)}</div>
+        ${params.description.trim()
+          ? `<div class="workflow-editor-settings-section-description">${escapeHtml(params.description)}</div>`
+          : ''}
       </div>
       <div class="workflow-editor-settings-section-body">
         ${params.body}
       </div>
     </section>
   `;
+}
+
+function renderWebhookTriggerSection(params: {
+  node: WorkflowNode;
+  nodeDefinition: WorkflowNodeDefinition;
+  webhookUrl?: string;
+}): string {
+  if (params.nodeDefinition.type !== 'core.webhook_trigger' || !params.webhookUrl) {
+    return '';
+  }
+
+  const method = getConfigString(params.node.config, 'http_method') || 'POST';
+  const configuredPath = (getConfigString(params.node.config, 'path') || '')
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+    .split('/')
+    .filter(Boolean)
+    .join('/');
+  let endpointUrl = params.webhookUrl;
+  if (configuredPath) {
+    try {
+      const parsedUrl = new URL(params.webhookUrl, window.location.origin);
+      const basePathname = parsedUrl.pathname.replace(/\/+$/, '');
+      parsedUrl.pathname = `${basePathname}/${configuredPath}`;
+      endpointUrl = parsedUrl.toString();
+    } catch (_error) {
+      endpointUrl = `${params.webhookUrl.replace(/\/+$/, '')}/${configuredPath}`;
+    }
+  }
+
+  return renderSettingsSection({
+    title: 'Webhook URL',
+    description: '',
+    body: `
+      <div class="workflow-editor-settings-group">
+        <div class="workflow-editor-settings-label-row">
+          <label class="form-label" for="workflow-node-webhook-url-${escapeHtml(params.node.id)}">Endpoint</label>
+          <span class="badge text-bg-secondary">${escapeHtml(method)}</span>
+        </div>
+        <input
+          id="workflow-node-webhook-url-${escapeHtml(params.node.id)}"
+          type="text"
+          class="form-control workflow-editor-settings-control"
+          value="${escapeHtml(endpointUrl)}"
+          title="Click to copy"
+          data-webhook-endpoint-copy="true"
+          readonly
+        >
+      </div>
+    `,
+  });
 }
 
 export function renderSettingsOverviewSection(params: {
@@ -120,7 +172,9 @@ export function renderSettingsOverviewSection(params: {
     <section class="workflow-editor-settings-section">
       <div class="workflow-editor-settings-section-head">
         <div class="workflow-editor-settings-section-title">${escapeHtml(overviewPresentation.title)}</div>
-        <div class="workflow-editor-settings-section-description">${escapeHtml(overviewPresentation.description)}</div>
+        ${overviewPresentation.description.trim()
+          ? `<div class="workflow-editor-settings-section-description">${escapeHtml(overviewPresentation.description)}</div>`
+          : ''}
       </div>
       <div class="workflow-editor-settings-section-body">
         <div class="workflow-editor-settings-group">
@@ -148,7 +202,9 @@ export function renderSettingsIdentitySection(params: {
     <section class="workflow-editor-settings-section">
       <div class="workflow-editor-settings-section-head">
         <div class="workflow-editor-settings-section-title">${escapeHtml(identityPresentation.title)}</div>
-        <div class="workflow-editor-settings-section-description">${escapeHtml(identityPresentation.description)}</div>
+        ${identityPresentation.description.trim()
+          ? `<div class="workflow-editor-settings-section-description">${escapeHtml(identityPresentation.description)}</div>`
+          : ''}
       </div>
       <div class="workflow-editor-settings-section-body">
         <div class="workflow-editor-settings-group">
@@ -173,6 +229,7 @@ export function renderNodeSettingsFieldsMarkup(params: {
   node: WorkflowNode;
   nodeDefinition: WorkflowNodeDefinition;
   presentation: WorkflowSettingsPresentation;
+  webhookUrl?: string;
 }): string {
   const visibleFields = params.nodeDefinition.fields.filter((field) => isTemplateFieldVisible(params.node, field));
 
@@ -379,8 +436,6 @@ export function renderNodeSettingsFieldsMarkup(params: {
 
     const fieldId = `workflow-node-setting-${params.node.id}-${field.key}`;
     const value = getTemplateFieldValue(params.node, field);
-    const fieldBinding = getTemplateFieldBinding(field);
-    const fieldGroup = getTemplateFieldUiGroup(field);
     const supportsInputMode = supportsTemplateFieldInputMode(field);
     const fieldInputMode = getTemplateFieldInputMode(params.node, field);
     const labelMarkup = renderFieldLabelMarkup({
@@ -398,38 +453,6 @@ export function renderNodeSettingsFieldsMarkup(params: {
           </div>
         `
       : '';
-    const fieldPreview = fieldBinding === 'path' && value
-      ? `
-          <div class="workflow-editor-settings-preview">
-            ${escapeHtml(
-              fieldGroup === 'result'
-                ? `Writes to context.${value}`
-                : `Reads from context.${value}`,
-            )}
-          </div>
-        `
-      : '';
-    const assistMarkup = (() => {
-      if (supportsInputMode && fieldInputMode === 'expression') {
-        return renderSettingAssistMarkup({
-          binding: 'template',
-          field,
-          label: 'Insert result or trigger value',
-          suggestions: params.availableInputPaths,
-        });
-      }
-
-      if (fieldBinding === 'path' && fieldGroup === 'input') {
-        return renderSettingAssistMarkup({
-          field,
-          label: 'Use context path',
-          suggestions: params.availableInputPaths,
-        });
-      }
-
-      return '';
-    })();
-
     if (field.type === 'textarea') {
       return `
         <div class="workflow-editor-settings-group">
@@ -444,8 +467,6 @@ export function renderNodeSettingsFieldsMarkup(params: {
           >${escapeHtml(value)}</textarea>
           ${helpText}
           ${expressionHint}
-          ${fieldPreview}
-          ${assistMarkup}
         </div>
       `;
     }
@@ -478,7 +499,6 @@ export function renderNodeSettingsFieldsMarkup(params: {
             ${options}
           </select>
           ${helpText}
-          ${fieldPreview}
         </div>
       `;
     }
@@ -498,8 +518,6 @@ export function renderNodeSettingsFieldsMarkup(params: {
         >
         ${helpText}
         ${expressionHint}
-        ${fieldPreview}
-        ${assistMarkup}
       </div>
     `;
   }
@@ -509,6 +527,11 @@ export function renderNodeSettingsFieldsMarkup(params: {
   const advancedFields = visibleFields.filter((field) => getTemplateFieldUiGroup(field) === 'advanced');
 
   return [
+    renderWebhookTriggerSection({
+      node: params.node,
+      nodeDefinition: params.nodeDefinition,
+      webhookUrl: params.webhookUrl,
+    }),
     renderSettingsSection({
       title: params.presentation.groups.input?.title ?? 'Pass data in',
       description: params.presentation.groups.input?.description ?? '',

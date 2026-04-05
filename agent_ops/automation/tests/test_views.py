@@ -12,6 +12,7 @@ from django.urls import reverse
 
 from automation.models import Workflow, WorkflowConnection, WorkflowConnectionState, WorkflowRun, WorkflowStepRun, WorkflowVersion
 from automation.models import Secret, SecretGroup
+from automation.primitives import normalize_workflow_definition_nodes
 from automation.runtime import execute_workflow_run
 from tenancy.models import Environment, Organization, Workspace
 from users.models import Membership, ObjectPermission, User
@@ -203,6 +204,24 @@ class WorkflowViewTests(TestCase):
         run = WorkflowRun.objects.get(pk=payload["run_id"])
         return response, payload, run
 
+    def _get_public_webhook_path(self, workflow, *, node_id=None):
+        nodes = normalize_workflow_definition_nodes(workflow.definition or {}).get("nodes", [])
+        for node in nodes:
+            if node.get("type") != "core.webhook_trigger":
+                continue
+            if node_id is not None and node.get("id") != node_id:
+                continue
+            path = (node.get("config") or {}).get("path")
+            if isinstance(path, str) and path.strip():
+                return path.strip().strip("/")
+        raise AssertionError(f"Workflow {workflow.pk} does not define a public webhook path.")
+
+    def _get_public_webhook_url(self, workflow, *, node_id=None):
+        return reverse(
+            "workflow_webhook_trigger_public",
+            args=[self._get_public_webhook_path(workflow, node_id=node_id)],
+        )
+
     def test_workflow_list_is_scoped_for_members(self):
         self.client.force_login(self.standard_user)
 
@@ -323,6 +342,8 @@ class WorkflowViewTests(TestCase):
         self.assertContains(response, 'data-workflow-execution-status')
         self.assertContains(response, reverse("workflow_designer_run", args=[self.workflow.pk]))
         self.assertContains(response, reverse("workflow_designer_node_run", args=[self.workflow.pk, "__node_id__"]))
+        self.assertContains(response, reverse("workflow_webhook_trigger_public_base"))
+        self.assertNotContains(response, reverse("workflow_webhook_trigger_legacy", args=[self.workflow.pk]))
 
     def test_workflow_designer_rejects_legacy_native_model_provider_nodes(self):
         self.workflow.definition = {
@@ -1056,6 +1077,136 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(status_payload["run"]["status"], "succeeded")
         self.assertIn("Completed T-42", status_payload["run"]["output_json"])
 
+    def test_workflow_designer_run_endpoint_puts_webhook_workflow_into_listen_mode(self):
+        self.client.force_login(self.staff_user)
+        definition = {
+            "nodes": [
+                {
+                    "id": "trigger-1",
+                    "kind": "trigger",
+                    "type": "core.webhook_trigger",
+                    "label": "Webhook",
+                    "config": {
+                        "http_method": "POST",
+                    },
+                    "position": {"x": 32, "y": 40},
+                },
+                {
+                    "id": "response-1",
+                    "kind": "response",
+                    "type": "core.response",
+                    "label": "Reply",
+                    "config": {
+                        "template": "Completed {{ trigger.payload.ticket_id }}",
+                    },
+                    "position": {"x": 320, "y": 40},
+                },
+            ],
+            "edges": [
+                {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+            ],
+        }
+
+        with patch("automation.runtime.ensure_workers_for_queue") as ensure_workers, patch(
+            "automation.runtime.enqueue_workflow_run_job"
+        ) as enqueue_job:
+            response = self.client.post(
+                reverse("workflow_designer_run", args=[self.workflow.pk]),
+                data=json.dumps(
+                    {
+                        "definition": definition,
+                        "input_data": {"ticket_id": "T-42"},
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        ensure_workers.assert_not_called()
+        enqueue_job.assert_not_called()
+        self.assertEqual(response.status_code, 202)
+        payload = response.json()
+        self.assertEqual(payload["mode"], "workflow_listen")
+        self.assertEqual(payload["run"]["status"], "pending")
+        self.assertEqual(payload["message"], "Listening for webhook event.")
+
+        run = WorkflowRun.objects.get(pk=payload["run"]["id"])
+        self.assertEqual(run.execution_mode, WorkflowRun.ExecutionModeChoices.WORKFLOW)
+        self.assertEqual(run.target_node_id, "")
+        self.assertEqual(run.trigger_mode, "manual:webhook_listen")
+        self.assertEqual(run.trigger_metadata["listen_mode"], "webhook")
+
+    def test_workflow_webhook_trigger_claims_pending_workflow_listen_run_and_executes_it(self):
+        self.client.force_login(self.staff_user)
+        definition = {
+            "nodes": [
+                {
+                    "id": "trigger-1",
+                    "kind": "trigger",
+                    "type": "core.webhook_trigger",
+                    "label": "Webhook",
+                    "config": {
+                        "http_method": "POST",
+                    },
+                    "position": {"x": 32, "y": 40},
+                },
+                {
+                    "id": "response-1",
+                    "kind": "response",
+                    "type": "core.response",
+                    "label": "Reply",
+                    "config": {
+                        "template": "Completed {{ trigger.payload.ticket_id }}",
+                    },
+                    "position": {"x": 320, "y": 40},
+                },
+            ],
+            "edges": [
+                {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+            ],
+        }
+
+        listen_response = self.client.post(
+            reverse("workflow_designer_run", args=[self.workflow.pk]),
+            data=json.dumps(
+                {
+                    "definition": definition,
+                    "input_data": {"ticket_id": "T-42"},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(listen_response.status_code, 202)
+        listen_payload = listen_response.json()
+        run = WorkflowRun.objects.get(pk=listen_payload["run"]["id"])
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.PENDING)
+        self.assertEqual(run.target_node_id, "")
+        self.workflow.refresh_from_db()
+
+        webhook_response = self.client.post(
+            self._get_public_webhook_url(self.workflow),
+            data=json.dumps({"ticket_id": "INC-900"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(webhook_response.status_code, 200)
+        webhook_payload = webhook_response.json()
+        self.assertEqual(webhook_payload["run_id"], run.pk)
+        self.assertEqual(webhook_payload["status"], WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(webhook_payload["output_data"]["response"], "Completed INC-900")
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.trigger_metadata["trigger_node_id"], "trigger-1")
+        self.assertEqual(run.output_data["response"], "Completed INC-900")
+
+        status_response = self.client.get(listen_payload["poll_url"])
+        self.assertEqual(status_response.status_code, 200)
+        status_payload = status_response.json()
+        self.assertEqual(status_payload["mode"], "workflow_listen")
+        self.assertEqual(status_payload["run"]["status"], "succeeded")
+        self.assertIn("Completed INC-900", status_payload["run"]["output_json"])
+
     def test_workflow_designer_run_endpoint_rejects_unsupported_definition(self):
         self.client.force_login(self.staff_user)
 
@@ -1287,6 +1438,135 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(status_payload["run"]["step_count"], 1)
         self.assertIn("gpt-4.1-mini", status_payload["run"]["output_json"])
 
+    def test_workflow_designer_node_run_endpoint_puts_webhook_trigger_into_listen_mode(self):
+        self.client.force_login(self.staff_user)
+        definition = {
+            "nodes": [
+                {
+                    "id": "trigger-1",
+                    "kind": "trigger",
+                    "type": "core.webhook_trigger",
+                    "label": "Webhook",
+                    "config": {
+                        "http_method": "POST",
+                        "authentication": "none",
+                        "response_mode": "immediately",
+                    },
+                    "position": {"x": 32, "y": 40},
+                },
+                {
+                    "id": "response-1",
+                    "kind": "response",
+                    "type": "core.response",
+                    "label": "Done",
+                    "config": {
+                        "template": "ok",
+                    },
+                    "position": {"x": 320, "y": 40},
+                },
+            ],
+            "edges": [
+                {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+            ],
+        }
+
+        with patch("automation.runtime.ensure_workers_for_queue") as ensure_workers, patch(
+            "automation.runtime.enqueue_workflow_run_job"
+        ) as enqueue_job:
+            response = self.client.post(
+                reverse("workflow_designer_node_run", args=[self.workflow.pk, "trigger-1"]),
+                data=json.dumps({"definition": definition}),
+                content_type="application/json",
+            )
+
+        ensure_workers.assert_not_called()
+        enqueue_job.assert_not_called()
+        self.assertEqual(response.status_code, 202)
+        payload = response.json()
+        self.assertEqual(payload["mode"], "node_listen")
+        self.assertEqual(payload["node"]["id"], "trigger-1")
+        self.assertEqual(payload["run"]["status"], "pending")
+        self.assertEqual(payload["message"], "Listening for webhook event.")
+
+        run = WorkflowRun.objects.get(pk=payload["run"]["id"])
+        self.assertEqual(run.execution_mode, WorkflowRun.ExecutionModeChoices.WORKFLOW)
+        self.assertEqual(run.target_node_id, "trigger-1")
+        self.assertEqual(run.trigger_mode, "manual:webhook_listen")
+        self.assertEqual(run.trigger_metadata["listen_mode"], "webhook")
+
+    def test_workflow_webhook_trigger_claims_pending_listen_run_and_executes_it(self):
+        self.client.force_login(self.staff_user)
+
+        definition = {
+            "nodes": [
+                {
+                    "id": "trigger-1",
+                    "kind": "trigger",
+                    "type": "core.webhook_trigger",
+                    "label": "Webhook",
+                    "config": {
+                        "http_method": "POST",
+                        "authentication": "none",
+                        "response_mode": "immediately",
+                    },
+                    "position": {"x": 32, "y": 40},
+                },
+                {
+                    "id": "response-1",
+                    "kind": "response",
+                    "type": "core.response",
+                    "label": "Done",
+                    "config": {
+                        "template": "ticket:{{ trigger.payload.ticket_id }}",
+                    },
+                    "position": {"x": 320, "y": 40},
+                },
+            ],
+            "edges": [
+                {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+            ],
+        }
+
+        listen_response = self.client.post(
+            reverse("workflow_designer_node_run", args=[self.workflow.pk, "trigger-1"]),
+            data=json.dumps({"definition": definition}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(listen_response.status_code, 202)
+        listen_payload = listen_response.json()
+        run = WorkflowRun.objects.get(pk=listen_payload["run"]["id"])
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.PENDING)
+        self.workflow.refresh_from_db()
+
+        webhook_response = self.client.post(
+            self._get_public_webhook_url(self.workflow),
+            data=json.dumps({"ticket_id": "INC-123"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(webhook_response.status_code, 200)
+        webhook_payload = webhook_response.json()
+        self.assertEqual(webhook_payload["run_id"], run.pk)
+        self.assertEqual(webhook_payload["status"], WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(webhook_payload["output_data"]["response"], "ticket:INC-123")
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.execution_mode, WorkflowRun.ExecutionModeChoices.WORKFLOW)
+        self.assertEqual(run.target_node_id, "trigger-1")
+        self.assertEqual(run.trigger_metadata["listen_mode"], "webhook")
+        self.assertEqual(run.trigger_metadata["trigger_node_id"], "trigger-1")
+        self.assertEqual(run.output_data["response"], "ticket:INC-123")
+
+        status_response = self.client.get(listen_payload["poll_url"])
+        self.assertEqual(status_response.status_code, 200)
+        status_payload = status_response.json()
+        self.assertEqual(status_payload["mode"], "node_listen")
+        self.assertEqual(status_payload["node"]["id"], "trigger-1")
+        self.assertEqual(status_payload["run"]["status"], "succeeded")
+        self.assertIn("ticket:INC-123", status_payload["run"]["output_json"])
+
     def test_workflow_detail_post_executes_runtime_and_persists_run(self):
         self.workflow.definition = {
             "nodes": [
@@ -1458,7 +1738,7 @@ class WorkflowViewTests(TestCase):
                 "webhook_secret": {"source": "secret", "secret_name": secret.name},
             },
         )
-        workflow.definition["nodes"][0]["config"]["connection_id"] = str(connection.pk)
+        workflow.definition["nodes"][0]["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
         body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
 
@@ -1470,7 +1750,7 @@ class WorkflowViewTests(TestCase):
             ).hexdigest()
             _, _, run = self._queue_workflow_request(
                 lambda: self.client.post(
-                    reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                    reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
                     data=body,
                     content_type="application/json",
                     HTTP_X_HUB_SIGNATURE_256=signature,
@@ -1521,7 +1801,7 @@ class WorkflowViewTests(TestCase):
 
         _, _, run = self._queue_workflow_request(
             lambda: self.client.post(
-                reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                self._get_public_webhook_url(workflow),
                 data=json.dumps({"ticket_id": "INC-123"}),
                 content_type="application/json",
             )
@@ -1531,6 +1811,98 @@ class WorkflowViewTests(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
         self.assertEqual(run.output_data["response"], "INC-123:POST")
+
+    def test_workflow_webhook_trigger_accepts_generic_payload_on_configured_path(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Generic webhook path",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                            "path": "orders/new",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.meta.webhook_path }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+            enabled=True,
+        )
+
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                reverse("workflow_webhook_trigger_public", args=["orders/new"]),
+                data=json.dumps({"ticket_id": "INC-123"}),
+                content_type="application/json",
+            )
+        )
+
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "orders/new")
+
+    def test_workflow_webhook_trigger_rejects_request_when_path_does_not_match(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Generic webhook wrong path",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                            "path": "orders/new",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "ok",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+            enabled=True,
+        )
+
+        response = self.client.post(
+            reverse("workflow_webhook_trigger_public", args=["orders/old"]),
+            data=json.dumps({"ticket_id": "INC-123"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Workflow not found.")
 
     def test_workflow_webhook_trigger_validates_generic_secret_header(self):
         workflow = Workflow.objects.create(
@@ -1545,6 +1917,7 @@ class WorkflowViewTests(TestCase):
                         "label": "Webhook",
                         "config": {
                             "http_method": "POST",
+                            "authentication": "secret_header",
                             "secret_name": "WEBHOOK_SHARED_SECRET",
                             "secret_header": "X-Webhook-Secret",
                         },
@@ -1572,7 +1945,7 @@ class WorkflowViewTests(TestCase):
         with patch.dict(os.environ, {"WEBHOOK_SHARED_SECRET": "shared-secret"}, clear=False):
             _, _, run = self._queue_workflow_request(
                 lambda: self.client.post(
-                    reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                    self._get_public_webhook_url(workflow),
                     data=json.dumps({"status": "ok"}),
                     content_type="application/json",
                     HTTP_X_WEBHOOK_SECRET="shared-secret",
@@ -1616,7 +1989,7 @@ class WorkflowViewTests(TestCase):
         )
 
         response = self.client.post(
-            reverse("workflow_webhook_trigger", args=[workflow.pk]),
+            self._get_public_webhook_url(workflow),
             data=json.dumps({"status": "wrong-method"}),
             content_type="application/json",
         )
@@ -1659,7 +2032,7 @@ class WorkflowViewTests(TestCase):
                 enabled=True,
             )
 
-            request_path = reverse("workflow_webhook_trigger", args=[workflow.pk])
+            request_path = self._get_public_webhook_url(workflow)
             if method == "GET":
                 _, _, run = self._queue_workflow_request(
                     lambda: self.client.get(request_path)
@@ -1701,6 +2074,146 @@ class WorkflowViewTests(TestCase):
             run.refresh_from_db()
             self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
             self.assertEqual(run.output_data["response"], method)
+
+    def test_workflow_webhook_trigger_matches_correct_trigger_when_workflow_has_multiple_webhooks(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Multiple webhook triggers",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-post",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook POST",
+                        "config": {
+                            "http_method": "POST",
+                            "authentication": "none",
+                            "response_mode": "immediately",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "trigger-get",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook GET",
+                        "config": {
+                            "http_method": "GET",
+                            "authentication": "none",
+                            "response_mode": "immediately",
+                        },
+                        "position": {"x": 32, "y": 180},
+                    },
+                    {
+                        "id": "response-post",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done POST",
+                        "config": {
+                            "template": "post:{{ trigger.meta.method }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-get",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done GET",
+                        "config": {
+                            "template": "get:{{ trigger.meta.method }}",
+                        },
+                        "position": {"x": 320, "y": 180},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-post", "target": "response-post"},
+                    {"id": "edge-2", "source": "trigger-get", "target": "response-get"},
+                ],
+            },
+            enabled=True,
+        )
+
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.get(self._get_public_webhook_url(workflow, node_id="trigger-get"))
+        )
+
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "get:GET")
+        self.assertEqual(run.trigger_metadata["trigger_node_id"], "trigger-get")
+
+    def test_workflow_webhook_trigger_matches_correct_trigger_when_paths_differ(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Multiple webhook paths",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-orders",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook Orders",
+                        "config": {
+                            "http_method": "POST",
+                            "path": "orders/new",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "trigger-shipments",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook Shipments",
+                        "config": {
+                            "http_method": "POST",
+                            "path": "shipments/new",
+                        },
+                        "position": {"x": 32, "y": 180},
+                    },
+                    {
+                        "id": "response-orders",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done Orders",
+                        "config": {
+                            "template": "orders:{{ trigger.meta.webhook_path }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-shipments",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done Shipments",
+                        "config": {
+                            "template": "shipments:{{ trigger.meta.webhook_path }}",
+                        },
+                        "position": {"x": 320, "y": 180},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-orders", "target": "response-orders"},
+                    {"id": "edge-2", "source": "trigger-shipments", "target": "response-shipments"},
+                ],
+            },
+            enabled=True,
+        )
+
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                reverse("workflow_webhook_trigger_public", args=["shipments/new"]),
+                data=json.dumps({"ticket_id": "INC-123"}),
+                content_type="application/json",
+            )
+        )
+
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "shipments:shipments/new")
+        self.assertEqual(run.trigger_metadata["trigger_node_id"], "trigger-shipments")
 
     def test_workflow_webhook_trigger_accepts_v2_github_payload_with_valid_signature(self):
         workflow = Workflow.objects.create(
@@ -1751,7 +2264,7 @@ class WorkflowViewTests(TestCase):
                 "webhook_secret": {"source": "secret", "secret_name": secret.name},
             },
         )
-        workflow.definition["nodes"][0]["config"]["connection_id"] = str(connection.pk)
+        workflow.definition["nodes"][0]["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
         body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
 
@@ -1763,7 +2276,7 @@ class WorkflowViewTests(TestCase):
             ).hexdigest()
             _, _, run = self._queue_workflow_request(
                 lambda: self.client.post(
-                    reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                    reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
                     data=body,
                     content_type="application/json",
                     HTTP_X_HUB_SIGNATURE_256=signature,
@@ -1831,7 +2344,7 @@ class WorkflowViewTests(TestCase):
                 "webhook_secret": {"source": "secret", "secret_name": secret.name},
             },
         )
-        workflow.definition["nodes"][0]["config"]["connection_id"] = str(connection.pk)
+        workflow.definition["nodes"][0]["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
         body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
 
@@ -1843,7 +2356,7 @@ class WorkflowViewTests(TestCase):
             ).hexdigest()
             _, _, run = self._queue_workflow_request(
                 lambda: self.client.post(
-                    reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                    reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
                     data=body,
                     content_type="application/json",
                     HTTP_X_HUB_SIGNATURE_256=signature,
@@ -1909,7 +2422,7 @@ class WorkflowViewTests(TestCase):
                 "webhook_secret": {"source": "secret", "secret_name": secret.name},
             },
         )
-        workflow.definition["nodes"][0]["config"]["connection_id"] = str(connection.pk)
+        workflow.definition["nodes"][0]["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
         body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
 
@@ -1921,7 +2434,7 @@ class WorkflowViewTests(TestCase):
             ).hexdigest()
             _, _, run = self._queue_workflow_request(
                 lambda: self.client.post(
-                    reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                    reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
                     data=body,
                     content_type="application/json",
                     HTTP_X_HUB_SIGNATURE_256=signature,
@@ -1980,12 +2493,12 @@ class WorkflowViewTests(TestCase):
                 "webhook_secret": {"source": "secret", "secret_name": secret.name},
             },
         )
-        workflow.definition["nodes"][0]["config"]["connection_id"] = str(connection.pk)
+        workflow.definition["nodes"][0]["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
 
         with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "github-secret"}, clear=False):
             response = self.client.post(
-                reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
                 data=json.dumps({"zen": "fail"}),
                 content_type="application/json",
                 HTTP_X_HUB_SIGNATURE_256="sha256=bad",

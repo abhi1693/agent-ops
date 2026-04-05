@@ -349,6 +349,35 @@ def _record_runtime_node_output(
     runtime_node_outputs[node_id] = output_record
 
 
+def _resolve_initial_trigger_node(run: WorkflowRun, nodes: list[dict[str, Any]]) -> dict[str, Any]:
+    trigger_nodes = [node for node in nodes if node["kind"] == "trigger"]
+    if not trigger_nodes:
+        raise ValidationError({"definition": "Workflow runtime requires at least one trigger node."})
+
+    trigger_metadata = run.trigger_metadata or {}
+    trigger_node_id = trigger_metadata.get("trigger_node_id") if isinstance(trigger_metadata, dict) else None
+    if isinstance(trigger_node_id, str) and trigger_node_id.strip():
+        matched_node = next((node for node in trigger_nodes if node["id"] == trigger_node_id.strip()), None)
+        if matched_node is None:
+            raise ValidationError(
+                {"definition": f'Workflow trigger node "{trigger_node_id.strip()}" could not be resolved.'}
+            )
+        return matched_node
+
+    preferred_trigger_type = run.trigger_mode
+    if preferred_trigger_type == "manual":
+        preferred_trigger_type = "core.manual_trigger"
+
+    matching_nodes = [
+        node for node in trigger_nodes
+        if isinstance(node.get("type"), str) and node.get("type") == preferred_trigger_type
+    ]
+    if matching_nodes:
+        return matching_nodes[0]
+
+    return trigger_nodes[0]
+
+
 def _build_step_output_snapshot(
     *,
     result: _NodeExecutionResult,
@@ -945,7 +974,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                 secret_values=secret_values,
             )
 
-        trigger_node = next(node for node in nodes if node["kind"] == "trigger")
+        trigger_node = _resolve_initial_trigger_node(run, nodes)
         ready_node_ids.append(trigger_node["id"])
         activated_node_ids.add(trigger_node["id"])
         scheduler_state = _update_run_scheduler_state(
@@ -1265,6 +1294,29 @@ def enqueue_workflow(
         )
         enqueue_workflow_run_job(run)
     return run
+
+
+def create_workflow_run(
+    workflow,
+    *,
+    input_data: dict[str, Any] | None = None,
+    trigger_mode: str = "manual",
+    trigger_metadata: dict[str, Any] | None = None,
+    actor=None,
+    execution_mode: str = WorkflowRun.ExecutionModeChoices.WORKFLOW,
+    target_node_id: str | None = None,
+    status: str = WorkflowRun.StatusChoices.PENDING,
+) -> WorkflowRun:
+    return _initialize_workflow_run(
+        workflow,
+        input_data=input_data,
+        trigger_mode=trigger_mode,
+        trigger_metadata=trigger_metadata,
+        actor=actor,
+        execution_mode=execution_mode,
+        target_node_id=target_node_id,
+        status=status,
+    )
 
 
 def execute_workflow(

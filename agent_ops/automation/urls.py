@@ -103,7 +103,22 @@ urlpatterns = [
         WorkflowDesignerNodeRunView.as_view(),
         name="workflow_designer_node_run",
     ),
-    path("workflows/<int:pk>/trigger/webhook/", WorkflowWebhookTriggerView.as_view(), name="workflow_webhook_trigger"),
+    path("webhooks/", WorkflowWebhookTriggerView.as_view(), name="workflow_webhook_trigger_public_base"),
+    path(
+        "webhooks/<path:webhook_path>/",
+        WorkflowWebhookTriggerView.as_view(),
+        name="workflow_webhook_trigger_public",
+    ),
+    path(
+        "workflows/<int:pk>/trigger/webhook/",
+        WorkflowWebhookTriggerView.as_view(),
+        name="workflow_webhook_trigger_legacy",
+    ),
+    path(
+        "workflows/<int:pk>/trigger/webhook/<path:webhook_path>/",
+        WorkflowWebhookTriggerView.as_view(),
+        name="workflow_webhook_trigger_legacy_path",
+    ),
     path("workflows/<int:pk>/changelog/", WorkflowChangelogView.as_view(), name="workflow_changelog"),
     path("workflows/<int:pk>/edit/", WorkflowUpdateView.as_view(), name="workflow_edit"),
     path("workflows/<int:pk>/delete/", WorkflowDeleteView.as_view(), name="workflow_delete"),

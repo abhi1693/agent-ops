@@ -2243,6 +2243,75 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.step_results[0]["type"], "core.webhook_trigger")
         self.assertEqual(run.output_data["response"], "core.webhook_trigger:INC-321")
 
+    def test_execute_workflow_uses_selected_trigger_node_from_metadata(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="multiple webhook triggers",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-post",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook POST",
+                        "config": {
+                            "http_method": "POST",
+                            "authentication": "none",
+                            "response_mode": "immediately",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "trigger-get",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook GET",
+                        "config": {
+                            "http_method": "GET",
+                            "authentication": "none",
+                            "response_mode": "immediately",
+                        },
+                        "position": {"x": 32, "y": 180},
+                    },
+                    {
+                        "id": "response-post",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "POST response",
+                        "config": {
+                            "template": "post:{{ trigger.meta.method }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-get",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "GET response",
+                        "config": {
+                            "template": "get:{{ trigger.meta.method }}",
+                        },
+                        "position": {"x": 320, "y": 180},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-post", "target": "response-post"},
+                    {"id": "edge-2", "source": "trigger-get", "target": "response-get"},
+                ],
+            },
+        )
+
+        run = execute_workflow(
+            workflow,
+            input_data={"ticket_id": "INC-654"},
+            trigger_mode="core.webhook_trigger",
+            trigger_metadata={"method": "GET", "trigger_node_id": "trigger-get"},
+        )
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.step_results[0]["node_id"], "trigger-get")
+        self.assertEqual(run.output_data["response"], "get:GET")
+
     def test_execute_workflow_runs_switch_builtin(self):
         workflow = Workflow.objects.create(
             environment=self.environment,

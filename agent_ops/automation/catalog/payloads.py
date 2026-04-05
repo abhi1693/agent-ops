@@ -35,7 +35,7 @@ WORKFLOW_CATALOG_GROUPS: tuple[dict[str, str], ...] = (
 )
 
 WORKFLOW_TRIGGER_SELECTION: dict[str, Any] = {
-    "description": "Triggers start your workflow. Each workflow can only have one trigger.",
+    "description": "Triggers start your workflow. Add another trigger when the workflow should start in more than one way.",
     "label": "Add trigger",
 }
 
@@ -256,31 +256,26 @@ WORKFLOW_DESIGNER_PRESENTATION: dict[str, Any] = {
         "empty": "No editable settings for this node yet.",
         "groups": {
             "advanced": {
-                "description": "Provider, routing, and runtime controls for this node.",
+                "description": "",
                 "title": "Other settings",
             },
             "identity": {
-                "description": "Rename the node so the graph reads clearly.",
+                "description": "",
                 "fields": {
                     "node_name": "Node name",
                 },
                 "title": "Identity",
             },
             "input": {
-                "description": (
-                    "Choose Static or Expression for each input, then map trigger payload "
-                    "and earlier node outputs."
-                ),
+                "description": "",
                 "title": "Pass data in",
             },
             "connection": {
-                "description": "Choose which reusable connection this node should use.",
+                "description": "",
                 "title": "Connection",
             },
             "overview": {
-                "description": (
-                    "Keep the graph readable and make the node’s role obvious at a glance."
-                ),
+                "description": "",
                 "fields": {
                     "node_id": "Node id",
                     "type": "Type",
@@ -288,7 +283,7 @@ WORKFLOW_DESIGNER_PRESENTATION: dict[str, Any] = {
                 "title": "Node overview",
             },
             "result": {
-                "description": "Choose where this node should read or write workflow context values.",
+                "description": "",
                 "title": "Save result",
             },
             "docs": {
@@ -372,7 +367,7 @@ def _serialize_parameter(parameter: ParameterDefinition) -> dict[str, Any]:
         "description": parameter.description,
         "required": parameter.required,
         "type": _field_type_for_parameter(parameter),
-        "help_text": parameter.help_text or parameter.description,
+        "help_text": parameter.help_text,
         "hint": parameter.hint,
         "display_options": {
             condition_kind: {

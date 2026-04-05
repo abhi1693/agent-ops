@@ -1,3 +1,5 @@
+import uuid
+
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
@@ -393,6 +395,79 @@ class WorkflowModelTests(TestCase):
         )
 
         workflow.full_clean()
+
+    def test_workflow_save_assigns_public_webhook_uuid_path_by_default(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Generated webhook path",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    }
+                ],
+                "edges": [],
+            },
+        )
+
+        parameters = workflow.definition["nodes"][0]["parameters"]
+        self.assertIn("path", parameters)
+        self.assertEqual(str(uuid.UUID(parameters["path"])), parameters["path"])
+
+    def test_workflow_rejects_duplicate_public_webhook_path_across_workflows(self):
+        Workflow.objects.create(
+            environment=self.environment,
+            name="Primary webhook path",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                            "path": "orders/new",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    }
+                ],
+                "edges": [],
+            },
+        )
+
+        duplicate = Workflow(
+            environment=self.environment,
+            name="Duplicate webhook path",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-2",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                            "path": "orders/new",
+                        },
+                        "position": {"x": 48, "y": 72},
+                    }
+                ],
+                "edges": [],
+            },
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            duplicate.save()
+
+        self.assertIn('Webhook path "orders/new" is already used', str(context.exception))
 
     def test_workflow_rejects_mcp_tool_secret_headers_in_manual_headers_json(self):
         workflow = Workflow(

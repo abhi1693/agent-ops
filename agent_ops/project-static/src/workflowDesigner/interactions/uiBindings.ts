@@ -4,6 +4,28 @@ import type { ExecutionInspectorTab } from '../state/executionController';
 
 type SettingsFieldInputMetadata = Pick<WorkflowNodeTemplateField, 'type' | 'value_type'>;
 
+async function copyTextToClipboard(value: string): Promise<void> {
+  if (!value) {
+    return;
+  }
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  const fallbackInput = document.createElement('textarea');
+  fallbackInput.value = value;
+  fallbackInput.setAttribute('readonly', 'true');
+  fallbackInput.style.position = 'fixed';
+  fallbackInput.style.opacity = '0';
+  fallbackInput.style.pointerEvents = 'none';
+  document.body.appendChild(fallbackInput);
+  fallbackInput.select();
+  document.execCommand('copy');
+  document.body.removeChild(fallbackInput);
+}
+
 export function registerWorkflowDesignerUiBindings(params: {
   addNode: (nodeType: string) => void;
   addSelectedNodeCollectionItem: (fieldKey: string, optionKey: string) => void;
@@ -108,6 +130,12 @@ export function registerWorkflowDesignerUiBindings(params: {
 
   root.addEventListener('click', (event) => {
     const target = event.target as HTMLElement;
+    const webhookEndpointField = target.closest<HTMLInputElement>('[data-webhook-endpoint-copy="true"]');
+    if (webhookEndpointField) {
+      webhookEndpointField.select();
+      void copyTextToClipboard(webhookEndpointField.value);
+      return;
+    }
 
     const settingModeButton = target.closest<HTMLElement>('[data-node-setting-mode-key]');
     if (

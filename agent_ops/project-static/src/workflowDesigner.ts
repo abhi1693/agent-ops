@@ -113,6 +113,18 @@ function getRealAppLabel(definition: WorkflowNodeDefinition | undefined): string
   return getRealAppId(definition) ? definition.app_label?.trim() ?? '' : '';
 }
 
+function createWebhookPathId(): string {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+    const randomValue = Math.floor(Math.random() * 16);
+    const nextValue = character === 'x' ? randomValue : (randomValue & 0x3) | 0x8;
+    return nextValue.toString(16);
+  });
+}
+
 function createWorkflowNode(
   board: HTMLElement,
   definition: WorkflowDefinition,
@@ -120,8 +132,16 @@ function createWorkflowNode(
   selectedNodeId: string | null,
   overridePosition?: { x: number; y: number },
 ): WorkflowNode {
+  const config = cloneValue(nodeDefinition.config ?? {}) as Record<string, unknown>;
+  if (nodeDefinition.type === 'core.webhook_trigger') {
+    const existingPath = typeof config.path === 'string' ? config.path.trim() : '';
+    if (!existingPath) {
+      config.path = createWebhookPathId();
+    }
+  }
+
   return {
-    config: cloneValue(nodeDefinition.config ?? {}),
+    config,
     id: createId('node'),
     kind: nodeDefinition.kind,
     label: nodeDefinition.label,
@@ -163,6 +183,7 @@ export function initWorkflowDesigner(): void {
   const workflowConnectionsUrl = root.dataset.workflowConnectionsUrl ?? '';
   const workflowSaveUrl = root.dataset.workflowSaveUrl ?? '';
   const workflowRunUrl = root.dataset.workflowRunUrl ?? '';
+  const workflowWebhookUrl = root.dataset.workflowWebhookUrl ?? '';
   const workflowNodeRunUrlTemplate = root.dataset.workflowNodeRunUrlTemplate ?? '';
   const csrfToken = root.querySelector<HTMLInputElement>('input[name="csrfmiddlewaretoken"]')?.value ?? '';
   const autosaveStatus = root.querySelector<HTMLElement>('[data-workflow-save-status]');
@@ -298,7 +319,7 @@ export function initWorkflowDesigner(): void {
         },
         trigger_root: {
           additional: {
-            description: 'Triggers start your workflow. Each workflow can only have one trigger.',
+            description: 'Triggers start your workflow. Add another trigger when the workflow should start in more than one way.',
             label: 'Add trigger',
           },
           empty: 'No matching triggers',
@@ -882,6 +903,7 @@ export function initWorkflowDesigner(): void {
       node: activeSettingsNode,
       nodeDefinition: activeNodeDefinition,
       presentation: workflowCatalog.presentation.settings,
+      webhookUrl: workflowWebhookUrl,
     });
     const connectionMarkup = renderNodeConnectionSection({
       connectionCreateUrl: workflowConnectionAddUrl,
@@ -1038,6 +1060,9 @@ export function initWorkflowDesigner(): void {
     csrfToken,
     execution,
     executionPresentation: workflowCatalog.presentation.execution,
+    getWorkflowHasWebhookTriggers: () => workflowDefinition.nodes.some(
+      (node: WorkflowNode) => node.kind === 'trigger' && node.type.toLowerCase().includes('webhook'),
+    ),
     getInitialExecutionNodeId,
     getNode: (nodeId) => getNode(nodeId ?? null),
     getSelectedNodeId,
@@ -1178,14 +1203,6 @@ export function initWorkflowDesigner(): void {
   function addNode(nodeType: string): void {
     const nodeDefinition = nodeRegistry.definitionMap.get(nodeType);
     if (!nodeDefinition) {
-      return;
-    }
-    if (
-      nodeDefinition.kind === 'trigger'
-      && workflowDefinition.nodes.some((node) => node.kind === 'trigger')
-    ) {
-      closeBrowser();
-      renderBrowser();
       return;
     }
 
