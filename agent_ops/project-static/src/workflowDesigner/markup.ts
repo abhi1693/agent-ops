@@ -130,7 +130,7 @@ export function renderFieldMarkup(
           <input
             id="workflow-config-${escapeHtml(field.key)}"
             class="form-control"
-            type="text"
+            type="${field.type === 'datetime' ? 'datetime-local' : 'text'}"
             value="${currentValue}"
             placeholder="${escapeHtml(field.placeholder ?? '')}"
             data-config-field="${escapeHtml(field.key)}"

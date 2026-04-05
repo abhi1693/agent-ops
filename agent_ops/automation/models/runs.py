@@ -89,6 +89,7 @@ class WorkflowRun(ChangeLoggedModel):
     )
     job_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     queue_name = models.CharField(max_length=100, blank=True)
+    started_at = models.DateTimeField(blank=True, null=True)
     finished_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:

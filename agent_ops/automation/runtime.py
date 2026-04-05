@@ -16,6 +16,7 @@ from automation.queue import (
     get_workflow_queue_name,
 )
 from automation.runtime_types import WorkflowNodeExecutionContext
+from automation.scheduling import schedule_next_scheduled_workflow_run
 from automation.workflow_connections import (
     build_auxiliary_connections_by_target,
     get_edge_target_port,
@@ -743,10 +744,18 @@ def _finalize_workflow_run_failure(
     return run
 
 
+def _maybe_schedule_follow_up_run(run: WorkflowRun) -> None:
+    try:
+        schedule_next_scheduled_workflow_run(run)
+    except Exception:
+        return
+
+
 def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
     secret_paths: set[str] = set()
     secret_values: list[str] = []
     step_results: list[dict[str, Any]] = []
+    finalized_run: WorkflowRun | None = None
 
     if run.workflow_version_id is None:
         run.workflow_version = ensure_workflow_version_snapshot(run.workflow)
@@ -796,6 +805,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
     )
     run.status = WorkflowRun.StatusChoices.RUNNING
     run.error = ""
+    run.started_at = timezone.now()
     run.finished_at = None
     run.output_data = {}
     run.context_data = {}
@@ -805,6 +815,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
         update_fields=(
             "status",
             "error",
+            "started_at",
             "finished_at",
             "output_data",
             "context_data",
@@ -944,7 +955,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                     secret_paths=secret_paths,
                     secret_values=secret_values,
                 )
-            return _finalize_workflow_run_success(
+            finalized_run = _finalize_workflow_run_success(
                 run=run,
                 run_status=result.run_status or WorkflowRun.StatusChoices.SUCCEEDED,
                 response_payload=_build_node_response_payload(node, result),
@@ -954,6 +965,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                 secret_paths=secret_paths,
                 secret_values=secret_values,
             )
+            return finalized_run
 
         trigger_node = _resolve_initial_trigger_node(run, nodes)
         ready_node_ids.append(trigger_node["id"])
@@ -1217,7 +1229,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                 "response": None,
             }
 
-        return _finalize_workflow_run_success(
+        finalized_run = _finalize_workflow_run_success(
             run=run,
             run_status=run_status,
             response_payload=response_payload,
@@ -1227,6 +1239,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
             secret_paths=secret_paths,
             secret_values=secret_values,
         )
+        return finalized_run
     except Exception as exc:
         scheduler_state = _update_run_scheduler_state(
             run,
@@ -1239,7 +1252,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
             selected_predecessors=selected_predecessors,
             skipped_predecessors=skipped_predecessors,
         )
-        return _finalize_workflow_run_failure(
+        finalized_run = _finalize_workflow_run_failure(
             run=run,
             error=exc,
             context=context,
@@ -1248,6 +1261,10 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
             secret_paths=secret_paths,
             secret_values=secret_values,
         )
+        return finalized_run
+    finally:
+        if finalized_run is not None:
+            _maybe_schedule_follow_up_run(finalized_run)
 
 
 def enqueue_workflow(
@@ -1287,6 +1304,7 @@ def create_workflow_run(
     execution_mode: str = WorkflowRun.ExecutionModeChoices.WORKFLOW,
     target_node_id: str | None = None,
     status: str = WorkflowRun.StatusChoices.PENDING,
+    queue_name: str = "",
 ) -> WorkflowRun:
     return _initialize_workflow_run(
         workflow,
@@ -1297,6 +1315,7 @@ def create_workflow_run(
         execution_mode=execution_mode,
         target_node_id=target_node_id,
         status=status,
+        queue_name=queue_name,
     )
 
 

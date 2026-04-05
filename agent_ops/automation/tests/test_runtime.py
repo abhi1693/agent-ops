@@ -2143,7 +2143,8 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "core.schedule_trigger",
                         "label": "Schedule Trigger",
                         "config": {
-                            "cron": "0 */2 * * *",
+                            "schedule_at": "2026-04-06T10:30",
+                            "interval_minutes": 120,
                         },
                         "position": {"x": 32, "y": 40},
                     },
@@ -2167,7 +2168,48 @@ class WorkflowRuntimeTests(TestCase):
         run = execute_workflow(workflow, input_data={"interval": "manual"})
 
         self.assertEqual(run.status, "succeeded")
-        self.assertEqual(run.step_results[0]["result"]["schedule"]["cron"], "0 */2 * * *")
+        self.assertEqual(run.step_results[0]["result"]["schedule"]["schedule_at"], "2026-04-06T10:30:00+00:00")
+        self.assertEqual(run.step_results[0]["result"]["schedule"]["interval_minutes"], 120)
+        self.assertEqual(run.step_results[0]["type"], "core.schedule_trigger")
+
+    def test_execute_workflow_runs_interval_only_schedule_trigger_builtin(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="interval schedule trigger built-in",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.schedule_trigger",
+                        "label": "Schedule Trigger",
+                        "config": {
+                            "interval_minutes": 15,
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.type }} {{ trigger.payload.interval|default:'manual' }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow, input_data={"interval": "manual"})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.step_results[0]["result"]["schedule"]["schedule_at"], None)
+        self.assertEqual(run.step_results[0]["result"]["schedule"]["interval_minutes"], 15)
         self.assertEqual(run.step_results[0]["type"], "core.schedule_trigger")
 
     def test_execute_workflow_runs_webhook_trigger_builtin(self):

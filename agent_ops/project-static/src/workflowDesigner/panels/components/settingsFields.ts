@@ -23,6 +23,24 @@ import {
   renderRequiredBadge,
 } from './settingsShared';
 
+function getRenderedFieldValue(field: WorkflowNodeTemplateField, value: string): string {
+  if (field.type !== 'datetime' || !value) {
+    return value;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  const year = parsed.getFullYear();
+  const month = `${parsed.getMonth() + 1}`.padStart(2, '0');
+  const day = `${parsed.getDate()}`.padStart(2, '0');
+  const hours = `${parsed.getHours()}`.padStart(2, '0');
+  const minutes = `${parsed.getMinutes()}`.padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 function renderWebhookTriggerSection(params: {
   node: WorkflowNode;
   nodeDefinition: WorkflowNodeDefinition;
@@ -86,6 +104,8 @@ function renderNestedFieldControl(params: {
   const valueTypeAttribute = field.value_type
     ? ` data-node-setting-value-type="${escapeHtml(field.value_type)}"`
     : '';
+  const inputType = field.type === 'datetime' ? 'datetime-local' : 'text';
+  const renderedValue = getRenderedFieldValue(field, value);
 
   if (field.type === 'textarea') {
     return `
@@ -126,9 +146,9 @@ function renderNestedFieldControl(params: {
   return `
     <input
       id="${escapeHtml(fieldId)}"
-      type="text"
+      type="${escapeHtml(inputType)}"
       class="form-control workflow-editor-settings-control"
-      value="${escapeHtml(value)}"
+      value="${escapeHtml(renderedValue)}"
       placeholder="${escapeHtml(field.placeholder ?? '')}"
       data-node-setting-path="${escapeHtml(path)}"
       data-node-setting-type="${escapeHtml(field.type)}"${valueTypeAttribute}
@@ -305,6 +325,8 @@ function renderSettingsField(params: {
   const valueTypeAttribute = field.value_type
     ? ` data-node-setting-value-type="${escapeHtml(field.value_type)}"`
     : '';
+  const inputType = field.type === 'datetime' ? 'datetime-local' : 'text';
+  const renderedValue = getRenderedFieldValue(field, value);
 
   if (field.type === 'textarea') {
     return `
@@ -359,9 +381,9 @@ function renderSettingsField(params: {
       ${labelMarkup}
       <input
         id="${escapeHtml(fieldId)}"
-        type="text"
+        type="${escapeHtml(inputType)}"
         class="form-control workflow-editor-settings-control"
-        value="${escapeHtml(value)}"
+        value="${escapeHtml(renderedValue)}"
         placeholder="${escapeHtml(field.placeholder ?? '')}"
         data-node-setting-key="${escapeHtml(field.key)}"
         data-node-setting-type="${escapeHtml(field.type)}"${valueTypeAttribute}

@@ -443,6 +443,7 @@ export function registerWorkflowDesignerUiBindings(params: {
       const type = target.dataset.nodeSettingType;
       if (
         type === 'text' ||
+        type === 'datetime' ||
         type === 'textarea' ||
         type === 'select' ||
         type === 'node_target' ||
@@ -476,6 +477,7 @@ export function registerWorkflowDesignerUiBindings(params: {
       const type = target.dataset.nodeSettingType;
       if (
         type === 'text' ||
+        type === 'datetime' ||
         type === 'textarea' ||
         type === 'select' ||
         type === 'node_target' ||

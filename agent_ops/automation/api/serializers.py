@@ -309,6 +309,7 @@ class WorkflowRunSerializer(serializers.ModelSerializer):
             "error",
             "created",
             "last_updated",
+            "started_at",
             "finished_at",
         )
 

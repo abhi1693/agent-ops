@@ -42,15 +42,53 @@ def ensure_workers_for_queue(queue_name: str) -> None:
     )
 
 
-def enqueue_workflow_run_job(run: WorkflowRun) -> WorkflowRun:
+def enqueue_workflow_run_job_now(run: WorkflowRun) -> WorkflowRun:
     from automation.jobs import run_workflow_job
 
     queue = django_rq.get_queue(run.queue_name or WORKFLOW_QUEUE_DEFAULT)
-    callback = partial(
-        queue.enqueue,
+    queue.enqueue(
         run_workflow_job,
         run.pk,
         job_id=str(run.job_id),
     )
+    return run
+
+
+def enqueue_workflow_run_job(run: WorkflowRun) -> WorkflowRun:
+    callback = partial(
+        enqueue_workflow_run_job_now,
+        run,
+    )
     transaction.on_commit(callback)
     return run
+
+
+def enqueue_workflow_run_job_at_now(run: WorkflowRun, scheduled_for) -> WorkflowRun:
+    from automation.jobs import run_workflow_job
+
+    queue = django_rq.get_queue(run.queue_name or WORKFLOW_QUEUE_DEFAULT)
+    queue.enqueue_at(
+        scheduled_for,
+        run_workflow_job,
+        run.pk,
+        job_id=str(run.job_id),
+    )
+    return run
+
+
+def enqueue_workflow_run_job_at(run: WorkflowRun, scheduled_for) -> WorkflowRun:
+    callback = partial(
+        enqueue_workflow_run_job_at_now,
+        run,
+        scheduled_for,
+    )
+    transaction.on_commit(callback)
+    return run
+
+
+def delete_workflow_run_job(run: WorkflowRun) -> None:
+    queue = django_rq.get_queue(run.queue_name or WORKFLOW_QUEUE_DEFAULT)
+    job = queue.fetch_job(str(run.job_id))
+    if job is None:
+        return
+    job.delete()

@@ -204,6 +204,7 @@ class WorkflowCatalogTests(SimpleTestCase):
         set_definition = next(item for item in payload["definitions"] if item["type"] == "core.set")
         response_definition = next(item for item in payload["definitions"] if item["type"] == "core.response")
         if_definition = next(item for item in payload["definitions"] if item["type"] == "core.if")
+        schedule_definition = next(item for item in payload["definitions"] if item["type"] == "core.schedule_trigger")
         switch_definition = next(item for item in payload["definitions"] if item["type"] == "core.switch")
         webhook_definition = next(item for item in payload["definitions"] if item["type"] == "core.webhook_trigger")
 
@@ -212,6 +213,10 @@ class WorkflowCatalogTests(SimpleTestCase):
         status_field = next(field for field in response_definition["fields"] if field["key"] == "status")
         conditions_field = next(field for field in if_definition["fields"] if field["key"] == "conditions")
         combinator_field = next(field for field in if_definition["fields"] if field["key"] == "combinator")
+        schedule_at_field = next(field for field in schedule_definition["fields"] if field["key"] == "schedule_at")
+        interval_minutes_field = next(
+            field for field in schedule_definition["fields"] if field["key"] == "interval_minutes"
+        )
         rules_field = next(field for field in switch_definition["fields"] if field["key"] == "rules")
         http_method_field = next(field for field in webhook_definition["fields"] if field["key"] == "http_method")
         authentication_field = next(field for field in webhook_definition["fields"] if field["key"] == "authentication")
@@ -231,6 +236,11 @@ class WorkflowCatalogTests(SimpleTestCase):
         self.assertEqual(conditions_field["collection_options"][0]["fields"][0]["key"], "leftPath")
         self.assertEqual(conditions_field["ui_group"], "input")
         self.assertEqual(combinator_field["type"], "select")
+        self.assertEqual(schedule_definition["subtitle"], '={{config.interval_minutes || config.schedule_at || "schedule"}}')
+        self.assertEqual(schedule_at_field["type"], "datetime")
+        self.assertEqual(schedule_at_field["value_type"], "string")
+        self.assertEqual(interval_minutes_field["value_type"], "integer")
+        self.assertEqual(interval_minutes_field["ui_group"], "input")
         self.assertEqual(rules_field["type"], "fixed_collection")
         self.assertEqual(http_method_field["type"], "select")
         self.assertEqual(http_method_field["value_type"], "string")

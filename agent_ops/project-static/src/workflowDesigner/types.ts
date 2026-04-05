@@ -29,7 +29,7 @@ export type WorkflowNodeTemplateField = {
   required?: boolean;
   requires_data_path?: 'single' | 'multiple';
   rows?: number;
-  type: 'text' | 'textarea' | 'select' | 'node_target' | 'fixed_collection';
+  type: 'text' | 'textarea' | 'select' | 'node_target' | 'fixed_collection' | 'datetime';
   ui_group?: 'advanced' | 'input' | 'result';
   value_type?: string;
   visible_when?: Record<string, string[]>;
