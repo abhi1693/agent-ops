@@ -1023,13 +1023,16 @@ export function initWorkflowDesigner(): void {
     executeDesignerRun,
     getActiveExecutionNodeId,
     getExecutionActiveNodeIds,
+    getExecutionCompletedNodeIds,
+    getExecutionCurrentNodeId,
     getExecutionFailedNodeIds,
     getLastExecutionPayload,
-    getExecutionSucceededNodeId,
+    getExecutionSkippedNodeIds,
     getIsExecutionPending,
     renderExecutionNodeAction,
     selectExecutionStep,
     selectExecutionTab,
+    syncExecutionSelectionToNode,
   } = createWorkflowDesignerExecutionController({
     buildExecutionRequestBody,
     csrfToken,
@@ -1039,11 +1042,24 @@ export function initWorkflowDesigner(): void {
     getNode: (nodeId) => getNode(nodeId ?? null),
     getSelectedNodeId,
     isTerminalRunStatus,
-    onExecutionStateChange: () => {
+    onExecutionStateChange: ({ focusNodeId }) => {
+      if (focusNodeId) {
+        setSelectedNode(focusNodeId);
+      }
       renderCanvas();
       renderSettingsPanel();
     },
   });
+
+  function setSelectedNode(nodeId: string | null): void {
+    setSelectedNodeId(nodeId);
+    syncExecutionSelectionToNode(nodeId);
+  }
+
+  function openWorkflowNodeSettings(nodeId: string): void {
+    openNodeSettings(nodeId);
+    syncExecutionSelectionToNode(nodeId);
+  }
 
   ({
     renderCanvas,
@@ -1059,8 +1075,10 @@ export function initWorkflowDesigner(): void {
     getConnectionDraft: () => connectionDraft,
     getContextMenuState,
     getExecutionActiveNodeIds,
+    getExecutionCompletedNodeIds,
+    getExecutionCurrentNodeId,
     getExecutionFailedNodeIds,
-    getExecutionSucceededNodeId,
+    getExecutionSkippedNodeIds,
     getHoveredEdgeId: () => hoveredEdgeId,
     getIsExecutionPending,
     getNode: (nodeId) => getNode(nodeId ?? null),
@@ -1099,14 +1117,14 @@ export function initWorkflowDesigner(): void {
     getWorkflowDefinition: () => workflowDefinition,
     initialIsOpen: workflowDefinition.nodes.length === 0,
     initialView: getDefaultBrowserView(workflowDefinition.nodes.length === 0),
-    openNodeSettings,
+    openNodeSettings: openWorkflowNodeSettings,
     groups: workflowCatalog.groups,
     presentation: workflowCatalog.presentation.node_selection,
     renderCanvas,
     renderNodeContextMenu,
     renderSettingsPanel,
     screenToWorld: viewportController.screenToWorld,
-    setSelectedNodeId: (nodeId) => setSelectedNodeId(nodeId),
+    setSelectedNodeId: (nodeId) => setSelectedNode(nodeId),
   });
 
   const {
@@ -1180,7 +1198,7 @@ export function initWorkflowDesigner(): void {
       pendingInsert?.position,
     );
     graphStore.addNode(newNode);
-    setSelectedNodeId(newNode.id);
+    setSelectedNode(newNode.id);
     syncDefinitionInput();
     closeBrowser();
     if (pendingInsert?.sourceId) {
@@ -1234,7 +1252,7 @@ export function initWorkflowDesigner(): void {
     }
 
     const pointerPoint = getPointFromClient(clientX, clientY);
-    setSelectedNodeId(sourceId);
+    setSelectedNode(sourceId);
     hoveredEdgeId = null;
     connectionDraft = {
       hoveredTargetId: null,
@@ -1271,6 +1289,7 @@ export function initWorkflowDesigner(): void {
     renderEdges,
     renderNodes,
     renderSettingsPanel,
+    shouldKeepSettingsOpenOnNodeSelect: () => Boolean(getSettingsNodeId()),
     setConnectionDraft: (nextState) => {
       connectionDraft = nextState;
     },
@@ -1283,7 +1302,7 @@ export function initWorkflowDesigner(): void {
     setPanState: (nextState) => {
       panState = nextState;
     },
-    setSelectedNodeId,
+    setSelectedNodeId: setSelectedNode,
     setSettingsNodeId,
     shouldOpenInsertBrowser,
     updateNodePosition,
@@ -1311,7 +1330,7 @@ export function initWorkflowDesigner(): void {
     openAuxiliaryInsertBrowser,
     openBrowser,
     openConnectionPopup,
-    openNodeSettings,
+    openNodeSettings: openWorkflowNodeSettings,
     removeEdge,
     renderBrowser,
     repositionGraph,

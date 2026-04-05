@@ -43,8 +43,10 @@ export function createWorkflowDesignerRenderController(params: {
   getConnectionDraft: () => ConnectionDraftInput;
   getContextMenuState: () => WorkflowNodeContextMenuState | null;
   getExecutionActiveNodeIds: () => string[];
+  getExecutionCompletedNodeIds: () => string[];
+  getExecutionCurrentNodeId: () => string | null;
   getExecutionFailedNodeIds: () => string[];
-  getExecutionSucceededNodeId: () => string | null;
+  getExecutionSkippedNodeIds: () => string[];
   getHoveredEdgeId: () => string | null;
   getIsExecutionPending: () => boolean;
   getNode: (nodeId: string | null | undefined) => WorkflowNode | undefined;
@@ -75,8 +77,10 @@ export function createWorkflowDesignerRenderController(params: {
     getConnectionDraft,
     getContextMenuState,
     getExecutionActiveNodeIds,
+    getExecutionCompletedNodeIds,
+    getExecutionCurrentNodeId,
     getExecutionFailedNodeIds,
-    getExecutionSucceededNodeId,
+    getExecutionSkippedNodeIds,
     getHoveredEdgeId,
     getIsExecutionPending,
     getNode,
@@ -166,8 +170,10 @@ export function createWorkflowDesignerRenderController(params: {
             connectionDraft,
             connectorSides: CONNECTOR_SIDES,
             executionActiveNodeIds: getExecutionActiveNodeIds(),
+            executionCompletedNodeIds: getExecutionCompletedNodeIds(),
+            executionCurrentNodeId: getExecutionCurrentNodeId(),
             executionFailedNodeIds: getExecutionFailedNodeIds(),
-            executionSucceededNodeId: getExecutionSucceededNodeId(),
+            executionSkippedNodeIds: getExecutionSkippedNodeIds(),
             getCompatibleAgentAuxiliaryPort,
             getNode: (nodeId) => getNode(nodeId ?? null),
             getNodeDefinition,

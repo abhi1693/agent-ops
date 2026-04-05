@@ -367,14 +367,14 @@ export function renderWorkflowEditorNodeMarkup(params: WorkflowEditorNodePresent
         title="Node running"
       >
         <i class="mdi mdi-loading mdi-spin"></i>
-      </span>
-    `
-    : params.isExecutionSucceeded
+        </span>
+      `
+    : params.isExecutionCurrent || params.isExecutionCompleted
       ? `
         <span
           class="workflow-editor-node-execution-indicator is-succeeded"
-          aria-label="Node succeeded"
-          title="Node succeeded"
+          aria-label="${params.isExecutionCurrent ? 'Latest node result' : 'Node completed'}"
+          title="${params.isExecutionCurrent ? 'Latest node result' : 'Node completed'}"
         >
           <i class="mdi mdi-check"></i>
         </span>
@@ -386,10 +386,30 @@ export function renderWorkflowEditorNodeMarkup(params: WorkflowEditorNodePresent
             aria-label="Node failed"
             title="Node failed"
           >
-            <i class="mdi mdi-close"></i>
-          </span>
+          <i class="mdi mdi-close"></i>
+        </span>
         `
+        : params.isExecutionSkipped
+          ? `
+            <span
+              class="workflow-editor-node-execution-indicator is-skipped"
+              aria-label="Node skipped"
+              title="Node skipped"
+            >
+              <i class="mdi mdi-skip-next"></i>
+            </span>
+          `
         : '';
+  const executionBadgeMarkup = params.executionStatusLabel && params.executionStatusTone
+    ? `
+      <span
+        class="workflow-editor-node-execution-badge is-${params.executionStatusTone}"
+        aria-label="${escapeHtml(params.executionStatusLabel)}"
+      >
+        ${escapeHtml(params.executionStatusLabel)}
+      </span>
+    `
+    : '';
 
   const auxiliaryPortsMarkup = params.node.kind === 'agent'
     ? `
@@ -506,7 +526,7 @@ export function renderWorkflowEditorNodeMarkup(params: WorkflowEditorNodePresent
 
   return `
     <article
-      class="workflow-editor-node workflow-editor-node--${escapeHtml(params.node.kind)}${params.isSelected ? ' is-selected' : ''}${params.isConnectionSource ? ' is-connection-source' : ''}${params.isConnectionCandidate ? ' is-connection-candidate' : ''}${params.isConnectionTarget ? ' is-connection-target' : ''}${params.agentNeedsModel ? ' is-agent-incomplete' : ''}${params.isDisabled ? ' is-disabled' : ''}${params.isExecutionPending ? ' is-executing' : ''}${params.isExecutionSucceeded ? ' is-execution-succeeded' : ''}${params.isExecutionFailed ? ' is-execution-failed' : ''}"
+      class="workflow-editor-node workflow-editor-node--${escapeHtml(params.node.kind)}${params.isSelected ? ' is-selected' : ''}${params.isConnectionSource ? ' is-connection-source' : ''}${params.isConnectionCandidate ? ' is-connection-candidate' : ''}${params.isConnectionTarget ? ' is-connection-target' : ''}${params.agentNeedsModel ? ' is-agent-incomplete' : ''}${params.isDisabled ? ' is-disabled' : ''}${params.isExecutionPending ? ' is-executing' : ''}${params.isExecutionCompleted ? ' is-execution-completed' : ''}${params.isExecutionCurrent ? ' is-execution-current' : ''}${params.isExecutionFailed ? ' is-execution-failed' : ''}${params.isExecutionSkipped ? ' is-execution-skipped' : ''}"
       data-workflow-node-id="${escapeHtml(params.node.id)}"
       tabindex="0"
     >
@@ -514,6 +534,7 @@ export function renderWorkflowEditorNodeMarkup(params: WorkflowEditorNodePresent
       ${connectorsMarkup}
       ${executionIndicatorMarkup}
       ${cardMarkup}
+      ${executionBadgeMarkup}
       ${copyMarkup}
     </article>
   `;

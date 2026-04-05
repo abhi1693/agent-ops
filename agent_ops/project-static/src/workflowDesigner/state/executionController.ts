@@ -50,7 +50,9 @@ export function createWorkflowDesignerExecutionController(params: {
   getNode: (nodeId: string | null | undefined) => WorkflowNode | undefined;
   getSelectedNodeId: () => string | null;
   isTerminalRunStatus: (status: string) => boolean;
-  onExecutionStateChange: () => void;
+  onExecutionStateChange: (state: {
+    focusNodeId: string | null;
+  }) => void;
 }): {
   executeDesignerRun: (
     url: string,
@@ -60,13 +62,16 @@ export function createWorkflowDesignerExecutionController(params: {
   ) => Promise<void>;
   getActiveExecutionNodeId: () => string | null;
   getExecutionActiveNodeIds: () => string[];
+  getExecutionCompletedNodeIds: () => string[];
+  getExecutionCurrentNodeId: () => string | null;
   getExecutionFailedNodeIds: () => string[];
   getLastExecutionPayload: () => DesignerRunResponse | null;
-  getExecutionSucceededNodeId: () => string | null;
+  getExecutionSkippedNodeIds: () => string[];
   getIsExecutionPending: () => boolean;
   renderExecutionNodeAction: () => void;
   selectExecutionStep: (stepIndex: number) => void;
   selectExecutionTab: (tab: ExecutionInspectorTab) => void;
+  syncExecutionSelectionToNode: (nodeId: string | null) => void;
 } {
   const {
     buildExecutionRequestBody,
@@ -83,8 +88,10 @@ export function createWorkflowDesignerExecutionController(params: {
   let isExecutionPending = false;
   let activeExecutionNodeId: string | null = null;
   let executionActiveNodeIds: string[] = [];
+  let executionCompletedNodeIds: string[] = [];
+  let executionCurrentNodeId: string | null = null;
   let executionFailedNodeIds: string[] = [];
-  let executionSucceededNodeId: string | null = null;
+  let executionSkippedNodeIds: string[] = [];
   let selectedExecutionTab: ExecutionInspectorTab = 'overview';
   let selectedExecutionStepIndex = 0;
   let lastExecutionPayload: DesignerRunResponse | null = null;
@@ -172,6 +179,68 @@ export function createWorkflowDesignerExecutionController(params: {
     return nodeIds.map((nodeId) => getNodeLabel(nodeId)).join(', ');
   }
 
+  function getExecutionSteps(payload: DesignerRunResponse | null): DesignerRunStep[] {
+    if (!payload) {
+      return [];
+    }
+
+    const parsedSteps = parseJsonValue<DesignerRunStep[]>(payload.run.steps_json);
+    return Array.isArray(parsedSteps) ? parsedSteps : [];
+  }
+
+  function getLatestExecutionStepIndexForNode(
+    payload: DesignerRunResponse | null,
+    nodeId: string | null,
+  ): number {
+    if (!payload || !nodeId) {
+      return -1;
+    }
+
+    const steps = getExecutionSteps(payload);
+    for (let index = steps.length - 1; index >= 0; index -= 1) {
+      if (steps[index]?.node_id === nodeId) {
+        return index;
+      }
+    }
+
+    return -1;
+  }
+
+  function getCompletedNodeIds(payload: DesignerRunResponse): string[] {
+    const completedNodeIds: string[] = [];
+    const seenNodeIds = new Set<string>();
+    const failedNodeIds = new Set(payload.run.failed_node_ids ?? []);
+    const activeNodeIds = new Set(payload.run.active_node_ids ?? []);
+
+    getExecutionSteps(payload).forEach((step) => {
+      const nodeId = step.node_id;
+      if (!nodeId || seenNodeIds.has(nodeId) || failedNodeIds.has(nodeId) || activeNodeIds.has(nodeId)) {
+        return;
+      }
+
+      seenNodeIds.add(nodeId);
+      completedNodeIds.push(nodeId);
+    });
+
+    return completedNodeIds;
+  }
+
+  function getExecutionFocusNodeId(payload: DesignerRunResponse | null): string | null {
+    if (!payload) {
+      return null;
+    }
+
+    if ((payload.run.active_node_ids ?? []).length > 0) {
+      return payload.run.active_node_ids[0] ?? null;
+    }
+
+    if ((payload.run.failed_node_ids ?? []).length > 0) {
+      return payload.run.failed_node_ids[0] ?? null;
+    }
+
+    return payload.run.last_completed_node_id ?? payload.node?.id ?? null;
+  }
+
   function resolveDefaultExecutionTab(payload: DesignerRunResponse): ExecutionInspectorTab {
     if (parseJsonValue(payload.run.output_json) !== null) {
       return 'output';
@@ -203,54 +272,19 @@ export function createWorkflowDesignerExecutionController(params: {
     const overviewLabels = executionPresentation.inspector.overview;
     const selectedStep = steps[selectedExecutionStepIndex] ?? null;
 
-    const stepListMarkup = steps.length > 0
-      ? `
-          <div class="workflow-editor-execution-step-list">
-            ${steps
-              .map((step, index) => {
-                const isSelected = index === selectedExecutionStepIndex;
-                const title = step.label || step.node_id || `Step ${index + 1}`;
-                const meta = [step.kind ? formatKindLabel(step.kind) : '', step.type || '']
-                  .filter((part) => part)
-                  .join(' · ');
-
-                return `
-                  <button
-                    type="button"
-                    class="workflow-editor-execution-step-item${isSelected ? ' is-active' : ''}"
-                    data-workflow-execution-step-index="${index}"
-                  >
-                    <span class="workflow-editor-execution-step-index">${index + 1}</span>
-                    <span class="workflow-editor-execution-step-copy">
-                      <span class="workflow-editor-execution-step-title">${escapeHtml(title)}</span>
-                      <span class="workflow-editor-execution-step-meta">${escapeHtml(meta)}</span>
-                    </span>
-                  </button>
-                `;
-              })
-              .join('')}
-          </div>
-        `
-      : `<div class="workflow-editor-settings-empty">${escapeHtml(executionPresentation.inspector.steps.empty)}</div>`;
-
     const stepDetailMarkup = selectedStep
       ? `
-          <div class="workflow-editor-execution-step-detail-head">
-            <div class="workflow-editor-execution-step-detail-title">
-              ${escapeHtml(selectedStep.label || selectedStep.node_id || executionPresentation.inspector.steps.title)}
-            </div>
-            <div class="workflow-editor-execution-step-detail-meta">
-              ${escapeHtml(
-                [selectedStep.kind ? formatKindLabel(selectedStep.kind) : '', selectedStep.type || '']
-                  .filter((part) => part)
-                  .join(' · '),
-              )}
-            </div>
-          </div>
-          <div class="workflow-editor-execution-group">
-            <div class="text-secondary mb-1">${escapeHtml(executionPresentation.inspector.steps.result_label)}</div>
-            <pre class="workflow-json-preview mb-0">${escapeHtml(formatJsonValue(selectedStep.result ?? {}, '{}'))}</pre>
-          </div>
+          ${
+            steps.length > 1
+              ? `
+                <div class="workflow-editor-execution-group">
+                  <div class="text-secondary mb-1">Step</div>
+                  <div class="workflow-editor-execution-stat-value">${escapeHtml(`${selectedExecutionStepIndex + 1} of ${steps.length}`)}</div>
+                </div>
+              `
+              : ''
+          }
+          <pre class="workflow-json-preview mb-0">${escapeHtml(formatJsonValue(selectedStep.result ?? {}, '{}'))}</pre>
         `
       : `<div class="workflow-editor-settings-empty">${escapeHtml(executionPresentation.inspector.steps.empty)}</div>`;
 
@@ -314,11 +348,8 @@ export function createWorkflowDesignerExecutionController(params: {
         </div>
       `,
       steps: `
-        <div class="workflow-editor-execution-steps-layout">
-          ${stepListMarkup}
-          <div class="workflow-editor-execution-step-detail">
-            ${stepDetailMarkup}
-          </div>
+        <div class="workflow-editor-execution-step-detail">
+          ${stepDetailMarkup}
         </div>
       `,
       trace: `
@@ -377,6 +408,26 @@ export function createWorkflowDesignerExecutionController(params: {
     renderExecutionInspector();
   }
 
+  function syncExecutionSelectionToNode(nodeId: string | null): void {
+    if (!lastExecutionPayload || !nodeId) {
+      return;
+    }
+
+    const stepIndex = getLatestExecutionStepIndexForNode(lastExecutionPayload, nodeId);
+    if (stepIndex >= 0) {
+      selectedExecutionStepIndex = stepIndex;
+      selectedExecutionTab = 'steps';
+      renderExecutionInspector();
+      return;
+    }
+
+    if (lastExecutionPayload.run.last_completed_node_id === nodeId) {
+      const hasOutput = parseJsonValue(lastExecutionPayload.run.output_json) !== null;
+      selectedExecutionTab = hasOutput ? 'output' : 'overview';
+      renderExecutionInspector();
+    }
+  }
+
   function renderExecutionResult(payload: DesignerRunResponse): void {
     if (!execution) {
       return;
@@ -388,17 +439,16 @@ export function createWorkflowDesignerExecutionController(params: {
       label: payload.run.status,
     };
     executionActiveNodeIds = payload.run.active_node_ids ?? [];
+    executionCompletedNodeIds = getCompletedNodeIds(payload);
+    executionCurrentNodeId = getExecutionFocusNodeId(payload);
     executionFailedNodeIds = payload.run.failed_node_ids ?? [];
-    executionSucceededNodeId = null;
+    executionSkippedNodeIds = payload.run.skipped_node_ids ?? [];
     if (payload.run.status === 'succeeded') {
-      executionSucceededNodeId = payload.run.last_completed_node_id;
-      executionFailedNodeIds = [];
       executionActiveNodeIds = [];
     } else if (payload.run.status === 'failed') {
       executionActiveNodeIds = [];
     } else if (payload.run.status !== 'running') {
       executionActiveNodeIds = [];
-      executionFailedNodeIds = [];
     }
 
     const modeLabel = payload.mode.startsWith('node')
@@ -436,7 +486,9 @@ export function createWorkflowDesignerExecutionController(params: {
       execution.resultError.textContent = '';
     }
     setExecutionStatus(statusPresentation.label, statusPresentation.badge_class);
-    onExecutionStateChange();
+    onExecutionStateChange({
+      focusNodeId: executionCurrentNodeId,
+    });
   }
 
   async function pollDesignerRunStatus(url: string): Promise<DesignerRunResponse> {
@@ -495,14 +547,18 @@ export function createWorkflowDesignerExecutionController(params: {
     isExecutionPending = true;
     activeExecutionNodeId = getInitialExecutionNodeId(nodeId);
     executionActiveNodeIds = activeExecutionNodeId ? [activeExecutionNodeId] : [];
+    executionCompletedNodeIds = [];
+    executionCurrentNodeId = activeExecutionNodeId;
     executionFailedNodeIds = [];
-    executionSucceededNodeId = null;
+    executionSkippedNodeIds = [];
     execution.runButton.disabled = true;
     setExecutionStatus(
       nodeId ? executionPresentation.running_status.node : executionPresentation.running_status.workflow,
       executionPresentation.statuses.running?.badge_class ?? 'text-bg-primary',
     );
-    onExecutionStateChange();
+    onExecutionStateChange({
+      focusNodeId: executionCurrentNodeId,
+    });
 
     try {
       const response = await fetch(url, {
@@ -531,18 +587,24 @@ export function createWorkflowDesignerExecutionController(params: {
       const message = error instanceof Error ? error.message : executionPresentation.messages.execution_failed;
       showExecutionError(message);
       executionActiveNodeIds = [];
+      executionCompletedNodeIds = [];
+      executionCurrentNodeId = null;
       executionFailedNodeIds = [];
-      executionSucceededNodeId = null;
+      executionSkippedNodeIds = [];
       setExecutionStatus(
         executionPresentation.statuses.failed?.label ?? 'Failed',
         executionPresentation.statuses.failed?.badge_class ?? 'text-bg-danger',
       );
-      onExecutionStateChange();
+      onExecutionStateChange({
+        focusNodeId: null,
+      });
     } finally {
       isExecutionPending = false;
       activeExecutionNodeId = null;
       execution.runButton.disabled = false;
-      onExecutionStateChange();
+      onExecutionStateChange({
+        focusNodeId: executionCurrentNodeId,
+      });
     }
   }
 
@@ -591,12 +653,15 @@ export function createWorkflowDesignerExecutionController(params: {
     executeDesignerRun,
     getActiveExecutionNodeId: () => activeExecutionNodeId,
     getExecutionActiveNodeIds: () => executionActiveNodeIds,
+    getExecutionCompletedNodeIds: () => executionCompletedNodeIds,
+    getExecutionCurrentNodeId: () => executionCurrentNodeId,
     getExecutionFailedNodeIds: () => executionFailedNodeIds,
     getLastExecutionPayload: () => lastExecutionPayload,
-    getExecutionSucceededNodeId: () => executionSucceededNodeId,
+    getExecutionSkippedNodeIds: () => executionSkippedNodeIds,
     getIsExecutionPending: () => isExecutionPending,
     renderExecutionNodeAction,
     selectExecutionStep,
     selectExecutionTab,
+    syncExecutionSelectionToNode,
   };
 }

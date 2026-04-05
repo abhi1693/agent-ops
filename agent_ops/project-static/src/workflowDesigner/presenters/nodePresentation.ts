@@ -152,8 +152,11 @@ export function buildWorkflowEditorNodePresentation(params: {
   connectionDraft: ConnectionDraftInput | null;
   connectorSides: ConnectorSide[];
   executionActiveNodeIds: string[];
+
+  executionCompletedNodeIds: string[];
+  executionCurrentNodeId: string | null;
   executionFailedNodeIds: string[];
-  executionSucceededNodeId: string | null;
+  executionSkippedNodeIds: string[];
   getCompatibleAgentAuxiliaryPort: (
     sourceNode: WorkflowNode | undefined,
     sourceDefinition: WorkflowNodeDefinition | undefined,
@@ -180,8 +183,10 @@ export function buildWorkflowEditorNodePresentation(params: {
     connectionDraft,
     connectorSides,
     executionActiveNodeIds,
+    executionCompletedNodeIds,
+    executionCurrentNodeId,
     executionFailedNodeIds,
-    executionSucceededNodeId,
+    executionSkippedNodeIds,
     getCompatibleAgentAuxiliaryPort,
     getNode,
     getNodeDefinition,
@@ -203,8 +208,10 @@ export function buildWorkflowEditorNodePresentation(params: {
   const isExecutionNodePending =
     executionActiveNodeIds.includes(node.id)
     || (isExecutionPending && activeExecutionNodeId === node.id);
-  const isExecutionSucceeded = executionSucceededNodeId === node.id;
+  const isExecutionCompleted = executionCompletedNodeIds.includes(node.id);
+  const isExecutionCurrent = executionCurrentNodeId === node.id;
   const isExecutionFailed = executionFailedNodeIds.includes(node.id);
+  const isExecutionSkipped = executionSkippedNodeIds.includes(node.id);
   const isConnectionSource = connectionDraft?.sourceId === node.id;
   const isConnectionCandidate = connectionDraft
     ? isValidConnection(connectionDraft.sourceId, node.id)
@@ -310,6 +317,28 @@ export function buildWorkflowEditorNodePresentation(params: {
         };
       })
     : [];
+  const executionStatusTone = isExecutionNodePending
+    ? 'running'
+    : isExecutionFailed
+      ? 'failed'
+      : isExecutionCurrent
+        ? 'current'
+        : isExecutionSkipped
+          ? 'skipped'
+          : isExecutionCompleted
+            ? 'completed'
+            : null;
+  const executionStatusLabel = executionStatusTone === 'running'
+    ? 'Running'
+    : executionStatusTone === 'failed'
+      ? 'Failed'
+      : executionStatusTone === 'current'
+        ? 'Latest'
+        : executionStatusTone === 'skipped'
+          ? 'Skipped'
+          : executionStatusTone === 'completed'
+            ? 'Done'
+            : null;
 
   return {
     agentDisplayTitle,
@@ -317,14 +346,18 @@ export function buildWorkflowEditorNodePresentation(params: {
     auxiliaryPorts,
     canToggleDisabled: supportsNodeDisabledState(node),
     connectors,
+    executionStatusLabel,
+    executionStatusTone,
     icon,
     isConnectionCandidate,
     isConnectionSource,
     isConnectionTarget,
+    isExecutionCompleted,
+    isExecutionCurrent,
     isDisabled,
     isExecutionFailed,
     isExecutionPending: isExecutionNodePending,
-    isExecutionSucceeded,
+    isExecutionSkipped,
     isSelected,
     node,
     showAgentKindLabel,

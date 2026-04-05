@@ -97,6 +97,7 @@ export function registerWorkflowDesignerPointerInteractions(params: {
   renderEdges: () => void;
   renderNodes: () => void;
   renderSettingsPanel: () => void;
+  shouldKeepSettingsOpenOnNodeSelect: () => boolean;
   setConnectionDraft: (nextState: ConnectionDraft | null) => void;
   setDragState: (nextState: DragState | null) => void;
   setHoveredEdgeId: (nextState: string | null) => void;
@@ -130,6 +131,7 @@ export function registerWorkflowDesignerPointerInteractions(params: {
     renderEdges,
     renderNodes,
     renderSettingsPanel,
+    shouldKeepSettingsOpenOnNodeSelect,
     setConnectionDraft,
     setDragState,
     setHoveredEdgeId,
@@ -271,12 +273,16 @@ export function registerWorkflowDesignerPointerInteractions(params: {
 
     if (getSelectedNodeId() !== nodeId) {
       setSelectedNodeId(nodeId);
-      setSettingsNodeId(null);
+      if (shouldKeepSettingsOpenOnNodeSelect()) {
+        setSettingsNodeId(nodeId);
+      } else {
+        setSettingsNodeId(null);
+      }
       renderNodes();
       renderSettingsPanel();
     }
 
-    if (getSettingsNodeId()) {
+    if (getSettingsNodeId() && !shouldKeepSettingsOpenOnNodeSelect()) {
       setSettingsNodeId(null);
       renderSettingsPanel();
     }
