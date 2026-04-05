@@ -14,6 +14,7 @@ import {
   getTemplateFieldInputMode,
   getTemplateFieldUiGroup,
   getTemplateFieldValue,
+  getTemplateFieldValueAtPath,
   isTemplateFieldVisible,
   supportsTemplateFieldInputMode,
 } from '../utils';
@@ -175,7 +176,207 @@ export function renderNodeSettingsFieldsMarkup(params: {
 }): string {
   const visibleFields = params.nodeDefinition.fields.filter((field) => isTemplateFieldVisible(params.node, field));
 
+  function renderFieldHelpMarkup(field: WorkflowNodeTemplateField): string {
+    return field.help_text
+      ? `<div class="workflow-editor-settings-help">${escapeHtml(field.help_text)}</div>`
+      : '';
+  }
+
+  function renderNestedField(paramsForField: {
+    field: WorkflowNodeTemplateField;
+    fieldId: string;
+    path: string;
+    value: string;
+    options: WorkflowNodeTemplateOption[];
+  }): string {
+    const { field, fieldId, path, value, options } = paramsForField;
+    const valueTypeAttribute = field.value_type
+      ? ` data-node-setting-value-type="${escapeHtml(field.value_type)}"`
+      : '';
+
+    if (field.type === 'textarea') {
+      return `
+        <textarea
+          id="${escapeHtml(fieldId)}"
+          class="form-control workflow-editor-settings-control"
+          rows="${field.rows ?? 4}"
+          data-node-setting-path="${escapeHtml(path)}"
+          data-node-setting-type="${escapeHtml(field.type)}"${valueTypeAttribute}
+        >${escapeHtml(value)}</textarea>
+      `;
+    }
+
+    if (field.type === 'select' || field.type === 'node_target') {
+      const optionsMarkup = options
+        .map(
+          (option) => `
+            <option value="${escapeHtml(option.value)}"${option.value === value ? ' selected' : ''}>
+              ${escapeHtml(option.label)}
+            </option>
+          `,
+        )
+        .join('');
+
+      return `
+        <select
+          id="${escapeHtml(fieldId)}"
+          class="form-select workflow-editor-settings-control"
+          data-node-setting-path="${escapeHtml(path)}"
+          data-node-setting-type="${escapeHtml(field.type)}"${valueTypeAttribute}
+        >
+          <option value="">${escapeHtml(params.presentation.controls.select_placeholder)}</option>
+          ${optionsMarkup}
+        </select>
+      `;
+    }
+
+    return `
+      <input
+        id="${escapeHtml(fieldId)}"
+        type="text"
+        class="form-control workflow-editor-settings-control"
+        value="${escapeHtml(value)}"
+        placeholder="${escapeHtml(field.placeholder ?? '')}"
+        data-node-setting-path="${escapeHtml(path)}"
+        data-node-setting-type="${escapeHtml(field.type)}"${valueTypeAttribute}
+      >
+    `;
+  }
+
+  function renderCollectionField(field: WorkflowNodeTemplateField): string {
+    const fieldId = `workflow-node-setting-${params.node.id}-${field.key}`;
+    const labelMarkup = renderRequiredBadge({
+      badgeText: params.presentation.controls.required_badge,
+      fieldId,
+      isRequired: field.required,
+      label: field.label,
+    });
+    const collectionOptions = field.collection_options ?? [];
+    const currentValue =
+      params.node.config[field.key] && typeof params.node.config[field.key] === 'object' && !Array.isArray(params.node.config[field.key])
+        ? (params.node.config[field.key] as Record<string, unknown>)
+        : {};
+
+    const optionMarkup = collectionOptions
+      .map((option) => {
+        const rawItems = currentValue[option.key];
+        const items = Array.isArray(rawItems) ? rawItems : [];
+        const renderedItems = items
+          .map((item, itemIndex) => {
+            const itemValue = item && typeof item === 'object' && !Array.isArray(item)
+              ? (item as Record<string, unknown>)
+              : {};
+            const visibleNestedFields = option.fields.filter((nestedField) => {
+              if (!nestedField.visible_when) {
+                return true;
+              }
+              return Object.entries(nestedField.visible_when).every(([configKey, allowedValues]) => {
+                const currentNestedValue = getConfigString(itemValue, configKey, nestedField.type === 'textarea');
+                return allowedValues.includes(currentNestedValue);
+              });
+            });
+            const titleField = itemValue.name;
+            const itemTitle = typeof titleField === 'string' && titleField.trim()
+              ? titleField.trim()
+              : `${option.label} ${itemIndex + 1}`;
+
+            const nestedMarkup = visibleNestedFields
+              .map((nestedField) => {
+                const nestedPath = `${field.key}.${option.key}.${itemIndex}.${nestedField.key}`;
+                const nestedFieldId = `${fieldId}-${option.key}-${itemIndex}-${nestedField.key}`;
+                const nestedValue = getTemplateFieldValueAtPath(
+                  params.node,
+                  nestedPath,
+                  nestedField.type === 'textarea',
+                );
+                const nestedOptions = nestedField.type === 'node_target'
+                  ? params.getNodeTargetOptions()
+                  : nestedField.options ?? [];
+
+                return `
+                  <div class="workflow-editor-settings-group">
+                    ${renderRequiredBadge({
+                      badgeText: params.presentation.controls.required_badge,
+                      fieldId: nestedFieldId,
+                      isRequired: nestedField.required,
+                      label: nestedField.label,
+                    })}
+                    ${renderNestedField({
+                      field: nestedField,
+                      fieldId: nestedFieldId,
+                      path: nestedPath,
+                      value: nestedValue,
+                      options: nestedOptions,
+                    })}
+                    ${renderFieldHelpMarkup(nestedField)}
+                  </div>
+                `;
+              })
+              .join('');
+
+            return `
+              <div class="workflow-editor-settings-section">
+                <div class="workflow-editor-settings-section-head">
+                  <div class="workflow-editor-settings-section-title">${escapeHtml(itemTitle)}</div>
+                  <div class="workflow-editor-settings-action-row">
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-secondary"
+                      data-node-setting-collection-remove="true"
+                      data-node-setting-collection-field="${escapeHtml(field.key)}"
+                      data-node-setting-collection-option="${escapeHtml(option.key)}"
+                      data-node-setting-collection-index="${itemIndex}"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+                <div class="workflow-editor-settings-section-body">
+                  ${nestedMarkup}
+                </div>
+              </div>
+            `;
+          })
+          .join('');
+
+        return `
+          <div class="workflow-editor-settings-group">
+            ${
+              option.description
+                ? `<div class="workflow-editor-settings-help">${escapeHtml(option.description)}</div>`
+                : ''
+            }
+            ${renderedItems}
+            <div class="workflow-editor-settings-action-row">
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-secondary"
+                data-node-setting-collection-add="true"
+                data-node-setting-collection-field="${escapeHtml(field.key)}"
+                data-node-setting-collection-option="${escapeHtml(option.key)}"
+              >
+                Add ${escapeHtml(option.label)}
+              </button>
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+
+    return `
+      <div class="workflow-editor-settings-group">
+        ${labelMarkup}
+        ${renderFieldHelpMarkup(field)}
+        ${optionMarkup || `<div class="workflow-editor-settings-empty">${escapeHtml(field.description ?? 'No items configured yet.')}</div>`}
+      </div>
+    `;
+  }
+
   function renderSettingsField(field: WorkflowNodeTemplateField): string {
+    if (field.type === 'fixed_collection') {
+      return renderCollectionField(field);
+    }
+
     const fieldId = `workflow-node-setting-${params.node.id}-${field.key}`;
     const value = getTemplateFieldValue(params.node, field);
     const fieldBinding = getTemplateFieldBinding(field);
@@ -189,9 +390,7 @@ export function renderNodeSettingsFieldsMarkup(params: {
       presentation: params.presentation,
       supportsInputMode,
     });
-    const helpText = field.help_text
-      ? `<div class="workflow-editor-settings-help">${escapeHtml(field.help_text)}</div>`
-      : '';
+    const helpText = renderFieldHelpMarkup(field);
     const expressionHint = supportsInputMode && fieldInputMode === 'expression'
       ? `
           <div class="workflow-editor-settings-expression-hint">
@@ -241,6 +440,7 @@ export function renderNodeSettingsFieldsMarkup(params: {
             rows="${field.rows ?? 4}"
             data-node-setting-key="${escapeHtml(field.key)}"
             data-node-setting-type="${escapeHtml(field.type)}"
+            ${field.value_type ? `data-node-setting-value-type="${escapeHtml(field.value_type)}"` : ''}
           >${escapeHtml(value)}</textarea>
           ${helpText}
           ${expressionHint}
@@ -272,6 +472,7 @@ export function renderNodeSettingsFieldsMarkup(params: {
             class="form-select workflow-editor-settings-control"
             data-node-setting-key="${escapeHtml(field.key)}"
             data-node-setting-type="${escapeHtml(field.type)}"
+            ${field.value_type ? `data-node-setting-value-type="${escapeHtml(field.value_type)}"` : ''}
           >
             <option value="">${escapeHtml(params.presentation.controls.select_placeholder)}</option>
             ${options}
@@ -293,6 +494,7 @@ export function renderNodeSettingsFieldsMarkup(params: {
           placeholder="${escapeHtml(field.placeholder ?? '')}"
           data-node-setting-key="${escapeHtml(field.key)}"
           data-node-setting-type="${escapeHtml(field.type)}"
+          ${field.value_type ? `data-node-setting-value-type="${escapeHtml(field.value_type)}"` : ''}
         >
         ${helpText}
         ${expressionHint}

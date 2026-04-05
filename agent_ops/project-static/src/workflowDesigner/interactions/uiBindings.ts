@@ -1,9 +1,12 @@
 import type { BrowserElements, CanvasElements } from '../dom';
-import type { AgentAuxiliaryPortId } from '../types';
+import type { AgentAuxiliaryPortId, WorkflowNodeTemplateField } from '../types';
 import type { ExecutionInspectorTab } from '../state/executionController';
+
+type SettingsFieldInputMetadata = Pick<WorkflowNodeTemplateField, 'type' | 'value_type'>;
 
 export function registerWorkflowDesignerUiBindings(params: {
   addNode: (nodeType: string) => void;
+  addSelectedNodeCollectionItem: (fieldKey: string, optionKey: string) => void;
   applyNodeSettingSuggestion: (
     key: string,
     value: string,
@@ -29,6 +32,7 @@ export function registerWorkflowDesignerUiBindings(params: {
   openConnectionPopup: (url: string, options?: { defaultConnectionType?: string }) => void;
   openNodeSettings: (nodeId: string) => void;
   removeEdge: (edgeId: string) => void;
+  removeSelectedNodeCollectionItem: (fieldKey: string, optionKey: string, itemIndex: number) => void;
   renderBrowser: () => void;
   repositionGraph: () => void;
   root: HTMLElement;
@@ -45,6 +49,12 @@ export function registerWorkflowDesignerUiBindings(params: {
     value: string,
     options?: { rerenderSettings?: boolean },
   ) => void;
+  updateSelectedNodeFieldPath: (
+    path: string,
+    value: string,
+    field: SettingsFieldInputMetadata,
+    options?: { rerenderSettings?: boolean },
+  ) => void;
   updateSelectedNodeFieldMode: (
     key: string,
     mode: 'expression' | 'static',
@@ -55,6 +65,7 @@ export function registerWorkflowDesignerUiBindings(params: {
 }): void {
   const {
     addNode,
+    addSelectedNodeCollectionItem,
     applyNodeSettingSuggestion,
     browser,
     canvas,
@@ -76,6 +87,7 @@ export function registerWorkflowDesignerUiBindings(params: {
     openConnectionPopup,
     openNodeSettings,
     removeEdge,
+    removeSelectedNodeCollectionItem,
     renderBrowser,
     repositionGraph,
     root,
@@ -88,6 +100,7 @@ export function registerWorkflowDesignerUiBindings(params: {
     setSearchQuery,
     toggleNodeDisabled,
     updateSelectedNodeField,
+    updateSelectedNodeFieldPath,
     updateSelectedNodeFieldMode,
     updateSelectedNodeLabel,
     zoomByStep,
@@ -152,6 +165,35 @@ export function registerWorkflowDesignerUiBindings(params: {
 
     if (target.closest('[data-workflow-run-selected-node]')) {
       runSelectedNode();
+      return;
+    }
+
+    const addCollectionItemButton = target.closest<HTMLElement>('[data-node-setting-collection-add]');
+    if (
+      addCollectionItemButton?.dataset.nodeSettingCollectionField &&
+      addCollectionItemButton.dataset.nodeSettingCollectionOption
+    ) {
+      addSelectedNodeCollectionItem(
+        addCollectionItemButton.dataset.nodeSettingCollectionField,
+        addCollectionItemButton.dataset.nodeSettingCollectionOption,
+      );
+      return;
+    }
+
+    const removeCollectionItemButton = target.closest<HTMLElement>('[data-node-setting-collection-remove]');
+    if (
+      removeCollectionItemButton?.dataset.nodeSettingCollectionField &&
+      removeCollectionItemButton.dataset.nodeSettingCollectionOption &&
+      removeCollectionItemButton.dataset.nodeSettingCollectionIndex
+    ) {
+      const itemIndex = Number.parseInt(removeCollectionItemButton.dataset.nodeSettingCollectionIndex, 10);
+      if (!Number.isNaN(itemIndex)) {
+        removeSelectedNodeCollectionItem(
+          removeCollectionItemButton.dataset.nodeSettingCollectionField,
+          removeCollectionItemButton.dataset.nodeSettingCollectionOption,
+          itemIndex,
+        );
+      }
       return;
     }
 
@@ -368,6 +410,24 @@ export function registerWorkflowDesignerUiBindings(params: {
       return;
     }
 
+    const path = target.dataset.nodeSettingPath;
+    if (path) {
+      const type = target.dataset.nodeSettingType;
+      if (
+        type === 'text' ||
+        type === 'textarea' ||
+        type === 'select' ||
+        type === 'node_target' ||
+        type === 'fixed_collection'
+      ) {
+        updateSelectedNodeFieldPath(path, target.value, {
+          type,
+          value_type: target.dataset.nodeSettingValueType,
+        });
+      }
+      return;
+    }
+
     const key = target.dataset.nodeSettingKey;
     if (!key) {
       return;
@@ -380,6 +440,24 @@ export function registerWorkflowDesignerUiBindings(params: {
     const target = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
     if (target.matches('[data-node-setting-label]')) {
       updateSelectedNodeLabel(target.value, { rerenderSettings: true });
+      return;
+    }
+
+    const path = target.dataset.nodeSettingPath;
+    if (path) {
+      const type = target.dataset.nodeSettingType;
+      if (
+        type === 'text' ||
+        type === 'textarea' ||
+        type === 'select' ||
+        type === 'node_target' ||
+        type === 'fixed_collection'
+      ) {
+        updateSelectedNodeFieldPath(path, target.value, {
+          type,
+          value_type: target.dataset.nodeSettingValueType,
+        }, { rerenderSettings: true });
+      }
       return;
     }
 

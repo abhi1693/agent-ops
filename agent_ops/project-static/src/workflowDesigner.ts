@@ -1229,8 +1229,11 @@ export function initWorkflowDesigner(): void {
   }
 
   const {
+    addSelectedNodeCollectionItem,
     applyNodeSettingSuggestion,
+    removeSelectedNodeCollectionItem,
     updateSelectedNodeField,
+    updateSelectedNodeFieldPath,
     updateSelectedNodeFieldMode,
     updateSelectedNodeLabel,
   } = createWorkflowDesignerSettingsController({
@@ -1311,6 +1314,7 @@ export function initWorkflowDesigner(): void {
 
   registerWorkflowDesignerUiBindings({
     addNode,
+    addSelectedNodeCollectionItem,
     applyNodeSettingSuggestion,
     browser,
     canvas,
@@ -1332,6 +1336,7 @@ export function initWorkflowDesigner(): void {
     openConnectionPopup,
     openNodeSettings: openWorkflowNodeSettings,
     removeEdge,
+    removeSelectedNodeCollectionItem,
     renderBrowser,
     repositionGraph,
     root,
@@ -1360,6 +1365,7 @@ export function initWorkflowDesigner(): void {
     setSearchQuery,
     toggleNodeDisabled,
     updateSelectedNodeField,
+    updateSelectedNodeFieldPath,
     updateSelectedNodeFieldMode,
     updateSelectedNodeLabel,
     zoomByStep: (direction) => {

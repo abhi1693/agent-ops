@@ -54,7 +54,15 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         )
         self.assertEqual(
             {field["key"] for field in WORKFLOW_NODE_TEMPLATE_MAP["core.set"]["fields"]},
-            {"mode", "output_key", "value", "json_output"},
+            {"mode", "output_key", "fields", "json_output"},
+        )
+        self.assertEqual(
+            {field["key"] for field in WORKFLOW_NODE_TEMPLATE_MAP["core.if"]["fields"]},
+            {"conditions", "combinator"},
+        )
+        self.assertEqual(
+            {field["key"] for field in WORKFLOW_NODE_TEMPLATE_MAP["core.switch"]["fields"]},
+            {"mode", "rules", "numberOutputs", "fallbackOutput", "output"},
         )
         self.assertEqual(prometheus_template["config"]["output_key"], "prometheus.query")
         self.assertEqual(
@@ -100,9 +108,10 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
                     "type": "core.set",
                     "label": "Set",
                     "config": {
-                        "value": "hello",
+                        "mode": "raw",
+                        "json_output": '"hello"',
                         "__input_modes": {
-                            "value": "expression",
+                            "json_output": "expression",
                             "output_key": "expression",
                             "missing": "expression",
                             "invalid": "dynamic",
@@ -119,7 +128,6 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
         self.assertEqual(
             normalized["nodes"][0]["config"]["__input_modes"],
             {
-                "value": "expression",
                 "output_key": "expression",
             },
         )
@@ -229,8 +237,9 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
                     "type": "core.set",
                     "label": "Set tool",
                     "config": {
+                        "mode": "raw",
                         "output_key": "template.result",
-                        "value": "Weather summary for {{ trigger.payload.city }}",
+                        "json_output": '"Weather summary for {{ trigger.payload.city }}"',
                     },
                     "position": {"x": 480, "y": 240},
                 },

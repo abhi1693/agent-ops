@@ -158,12 +158,13 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "tool-1",
                         "kind": "tool",
-                        "type": "core.set",
-                        "label": "Set tool",
-                        "config": {
-                            "output_key": "template.result",
-                            "value": "Weather summary for {{ trigger.payload.city }}",
-                        },
+                    "type": "core.set",
+                    "label": "Set tool",
+                    "config": {
+                        "mode": "raw",
+                        "output_key": "template.result",
+                        "json_output": '"Weather summary for {{ trigger.payload.city }}"',
+                    },
                         "position": {"x": 480, "y": 240},
                     },
                 ],
@@ -313,12 +314,13 @@ class WorkflowModelTests(TestCase):
                     {
                         "id": "tool-1",
                         "kind": "tool",
-                        "type": "core.set",
-                        "label": "Render summary",
-                        "config": {
-                            "value": "Org {{ workflow.scope_label }}",
-                            "output_key": "summary",
-                        },
+                    "type": "core.set",
+                    "label": "Render summary",
+                    "config": {
+                        "mode": "raw",
+                        "json_output": '"Org {{ workflow.scope_label }}"',
+                        "output_key": "summary",
+                    },
                         "position": {"x": 320, "y": 40},
                     },
                     {

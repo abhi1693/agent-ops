@@ -10,6 +10,8 @@ import {
 } from './settingsAssist';
 import {
   getRuntimeTemplateFieldInputModeDefault,
+  normalizeFieldInputValue,
+  setConfigValueAtPath,
   getTemplateFieldInputMode,
   supportsTemplateFieldInputMode,
   WORKFLOW_NODE_INPUT_MODES_KEY,
@@ -19,6 +21,17 @@ type SettingsFieldSelection = {
   field: WorkflowNodeTemplateField;
   node: WorkflowNode;
 };
+
+type SettingsFieldInputMetadata = Pick<WorkflowNodeTemplateField, 'type' | 'value_type'>;
+
+function buildCollectionItemDefaults(fields: WorkflowNodeTemplateField[]): Record<string, unknown> {
+  return fields.reduce<Record<string, unknown>>((accumulator, field) => {
+    if (field.default !== undefined) {
+      accumulator[field.key] = field.default;
+    }
+    return accumulator;
+  }, {});
+}
 
 type SettingsControllerParams = {
   canvas: Pick<CanvasElements, 'settingsFields' | 'settingsTitle'>;
@@ -32,10 +45,18 @@ type SettingsControllerParams = {
 };
 
 export function createWorkflowDesignerSettingsController(params: SettingsControllerParams): {
+  addSelectedNodeCollectionItem: (fieldKey: string, optionKey: string) => void;
   applyNodeSettingSuggestion: (key: string, value: string, binding: 'literal' | 'path' | 'template') => void;
+  removeSelectedNodeCollectionItem: (fieldKey: string, optionKey: string, itemIndex: number) => void;
   updateSelectedNodeField: (
     key: string,
     value: string,
+    options?: { rerenderSettings?: boolean },
+  ) => void;
+  updateSelectedNodeFieldPath: (
+    path: string,
+    value: string,
+    field: SettingsFieldInputMetadata,
     options?: { rerenderSettings?: boolean },
   ) => void;
   updateSelectedNodeFieldMode: (
@@ -127,6 +148,70 @@ export function createWorkflowDesignerSettingsController(params: SettingsControl
     canvas.settingsTitle.textContent = value || getNodeDefinition(settingsNode)?.label || settingsNode.type;
   }
 
+  function addSelectedNodeCollectionItem(fieldKey: string, optionKey: string): void {
+    const settingsNode = getNode(getSettingsNodeId());
+    const nodeDefinition = getNodeDefinition(settingsNode);
+    if (!settingsNode || !nodeDefinition) {
+      return;
+    }
+
+    const nextConfig = { ...(settingsNode.config ?? {}) };
+    const currentValue = nextConfig[fieldKey];
+    const nextFieldValue =
+      currentValue && typeof currentValue === 'object' && !Array.isArray(currentValue)
+        ? { ...(currentValue as Record<string, unknown>) }
+        : {};
+    const currentItems = nextFieldValue[optionKey];
+    const nextItems = Array.isArray(currentItems) ? [...currentItems] : [];
+    const fieldDefinition = nodeDefinition.fields.find((field) => field.key === fieldKey);
+    const collectionOption = fieldDefinition?.collection_options?.find((option) => option.key === optionKey);
+    nextItems.push(collectionOption ? buildCollectionItemDefaults(collectionOption.fields) : {});
+    nextFieldValue[optionKey] = nextItems;
+    nextConfig[fieldKey] = nextFieldValue;
+    settingsNode.config = nextConfig;
+    syncDefinitionInput();
+    renderCanvas();
+    renderSettingsPanel();
+  }
+
+  function removeSelectedNodeCollectionItem(fieldKey: string, optionKey: string, itemIndex: number): void {
+    const settingsNode = getNode(getSettingsNodeId());
+    if (!settingsNode) {
+      return;
+    }
+
+    const nextConfig = { ...(settingsNode.config ?? {}) };
+    const currentValue = nextConfig[fieldKey];
+    if (!currentValue || typeof currentValue !== 'object' || Array.isArray(currentValue)) {
+      return;
+    }
+
+    const nextFieldValue = { ...(currentValue as Record<string, unknown>) };
+    const currentItems = nextFieldValue[optionKey];
+    if (!Array.isArray(currentItems)) {
+      return;
+    }
+
+    const nextItems = [...currentItems];
+    nextItems.splice(itemIndex, 1);
+    if (nextItems.length > 0) {
+      nextFieldValue[optionKey] = nextItems;
+    } else {
+      delete nextFieldValue[optionKey];
+    }
+
+    if (Object.keys(nextFieldValue).length > 0) {
+      nextConfig[fieldKey] = nextFieldValue;
+    } else {
+      delete nextConfig[fieldKey];
+    }
+
+    settingsNode.config = nextConfig;
+    syncDefinitionInput();
+    renderCanvas();
+    renderSettingsPanel();
+  }
+
   function updateSelectedNodeField(
     key: string,
     value: string,
@@ -139,20 +224,26 @@ export function createWorkflowDesignerSettingsController(params: SettingsControl
     }
 
     const nextConfig = { ...(settingsNode.config ?? {}) };
-    if (value === '') {
+    const field = nodeDefinition.fields.find((item) => item.key === key);
+    const normalizedValue = field
+      ? normalizeFieldInputValue(field, value)
+      : value === ''
+        ? undefined
+        : value;
+
+    if (normalizedValue === undefined) {
       delete nextConfig[key];
     } else {
-      nextConfig[key] = value;
+      nextConfig[key] = normalizedValue;
     }
 
-    const field = nodeDefinition.fields.find((item) => item.key === key);
     if (field && supportsTemplateFieldInputMode(field)) {
       const currentModesValue = nextConfig[WORKFLOW_NODE_INPUT_MODES_KEY];
       const nextModes =
         currentModesValue && typeof currentModesValue === 'object' && !Array.isArray(currentModesValue)
           ? { ...(currentModesValue as Record<string, unknown>) }
           : {};
-      if (value === '') {
+      if (normalizedValue === undefined) {
         delete nextModes[key];
       } else {
         const runtimeDefaultMode = getRuntimeTemplateFieldInputModeDefault(field);
@@ -175,6 +266,30 @@ export function createWorkflowDesignerSettingsController(params: SettingsControl
     settingsNode.config = nextConfig;
 
     syncNodeTargetEdges(settingsNode, getNodeDefinition(settingsNode));
+    syncDefinitionInput();
+    renderCanvas();
+    if (options?.rerenderSettings) {
+      renderSettingsPanel();
+    }
+  }
+
+  function updateSelectedNodeFieldPath(
+    path: string,
+    value: string,
+    field: SettingsFieldInputMetadata,
+    options?: { rerenderSettings?: boolean },
+  ): void {
+    const settingsNode = getNode(getSettingsNodeId());
+    if (!settingsNode) {
+      return;
+    }
+
+    settingsNode.config = setConfigValueAtPath(
+      { ...(settingsNode.config ?? {}) },
+      path,
+      normalizeFieldInputValue(field, value),
+    );
+
     syncDefinitionInput();
     renderCanvas();
     if (options?.rerenderSettings) {
@@ -206,8 +321,11 @@ export function createWorkflowDesignerSettingsController(params: SettingsControl
   }
 
   return {
+    addSelectedNodeCollectionItem,
     applyNodeSettingSuggestion,
+    removeSelectedNodeCollectionItem,
     updateSelectedNodeField,
+    updateSelectedNodeFieldPath,
     updateSelectedNodeFieldMode,
     updateSelectedNodeLabel,
   };

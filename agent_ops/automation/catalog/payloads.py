@@ -410,6 +410,17 @@ def _serialize_parameter(parameter: ParameterDefinition) -> dict[str, Any]:
             }
             for config_key, option_map in parameter.options_by_field.items()
         }
+    if parameter.collection_options:
+        payload["collection_options"] = [
+            {
+                "key": option.key,
+                "label": option.label,
+                "description": option.description,
+                "multiple": option.multiple,
+                "fields": [_serialize_parameter(child) for child in option.fields],
+            }
+            for option in parameter.collection_options
+        ]
     if parameter.rows is not None:
         payload["rows"] = parameter.rows
     elif parameter.value_type in {"json", "text"}:

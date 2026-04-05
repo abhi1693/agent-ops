@@ -40,6 +40,24 @@ class ParameterOptionDefinition:
 
 
 @dataclass(frozen=True)
+class ParameterCollectionOptionDefinition:
+    key: str
+    label: str
+    fields: tuple["ParameterDefinition", ...]
+    description: str = ""
+    multiple: bool = False
+
+    def serialize(self) -> dict[str, Any]:
+        return {
+            "key": self.key,
+            "label": self.label,
+            "description": self.description,
+            "multiple": self.multiple,
+            "fields": [field.serialize() for field in self.fields],
+        }
+
+
+@dataclass(frozen=True)
 class ParameterDefinition:
     key: str
     label: str
@@ -60,6 +78,7 @@ class ParameterDefinition:
     no_data_expression: bool = False
     requires_data_path: str | None = None
     options_by_field: dict[str, dict[str, tuple[ParameterOptionDefinition, ...]]] = field(default_factory=dict)
+    collection_options: tuple[ParameterCollectionOptionDefinition, ...] = ()
 
     def serialize(self) -> dict[str, Any]:
         return {
@@ -94,6 +113,7 @@ class ParameterDefinition:
                 }
                 for config_key, option_map in self.options_by_field.items()
             },
+            "collection_options": [option.serialize() for option in self.collection_options],
         }
 
 

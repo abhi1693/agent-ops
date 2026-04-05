@@ -3,8 +3,18 @@ export type WorkflowNodeTemplateOption = {
   value: string;
 };
 
+export type WorkflowNodeTemplateCollectionOption = {
+  description?: string;
+  fields: WorkflowNodeTemplateField[];
+  key: string;
+  label: string;
+  multiple?: boolean;
+};
+
 export type WorkflowNodeTemplateField = {
   binding?: 'literal' | 'path' | 'template';
+  collection_options?: WorkflowNodeTemplateCollectionOption[];
+  default?: unknown;
   description?: string;
   display_options?: Record<string, Record<string, string[]>>;
   help_text?: string;
@@ -19,7 +29,7 @@ export type WorkflowNodeTemplateField = {
   required?: boolean;
   requires_data_path?: 'single' | 'multiple';
   rows?: number;
-  type: 'text' | 'textarea' | 'select' | 'node_target';
+  type: 'text' | 'textarea' | 'select' | 'node_target' | 'fixed_collection';
   ui_group?: 'advanced' | 'input' | 'result';
   value_type?: string;
   visible_when?: Record<string, string[]>;

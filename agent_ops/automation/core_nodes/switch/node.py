@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from automation.catalog.definitions import CatalogNodeDefinition, OutputPortDefinition, ParameterDefinition, ParameterOptionDefinition
+from automation.catalog.definitions import (
+    CatalogNodeDefinition,
+    OutputPortDefinition,
+    ParameterCollectionOptionDefinition,
+    ParameterDefinition,
+    ParameterOptionDefinition,
+)
 from automation.catalog.validation import raise_definition_error, validate_parameter_schema
 from automation.core_nodes._conditions import evaluate_condition_block
 from automation.runtime_types import WorkflowNodeExecutionContext, WorkflowNodeExecutionResult
@@ -30,6 +36,19 @@ def _get_switch_rule_values(config: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _build_switch_rule_condition_block(rule: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "conditions": [
+            {
+                "leftPath": rule.get("leftPath"),
+                "operator": rule.get("operator"),
+                "rightValue": rule.get("rightValue"),
+            }
+        ],
+        "combinator": "and",
+    }
+
+
 def _get_expression_output_count(config: dict[str, Any]) -> int:
     raw_count = config.get("numberOutputs") or 2
     try:
@@ -47,7 +66,10 @@ def _get_active_switch_ports(config: dict[str, Any]) -> tuple[str, ...]:
     case_ports = tuple(CASE_PORTS[: len(rule_values)])
     if len(case_ports) < len(rule_values):
         raise_definition_error(f"Switch supports at most {MAX_SWITCH_CASES} rule outputs.")
-    fallback_output = ((config.get("options") or {}).get("fallbackOutput") or "extra").strip()
+    fallback_output = str(
+        config.get("fallbackOutput")
+        or "extra"
+    ).strip()
     if fallback_output != "none":
         return (*case_ports, FALLBACK_PORT)
     return case_ports
@@ -118,9 +140,7 @@ def _execute_switch(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecut
     else:
         matched_rule_index = None
         for index, rule in enumerate(_get_switch_rule_values(runtime.config), start=1):
-            conditions = rule.get("conditions")
-            if not isinstance(conditions, dict):
-                continue
+            conditions = _build_switch_rule_condition_block(rule)
             if evaluate_condition_block(runtime, conditions):
                 matched_rule_index = index
                 matched_case = f"case_{index}"
@@ -175,17 +195,55 @@ NODE_DEFINITION = CatalogNodeDefinition(
         ParameterDefinition(
             key="rules",
             label="Routing Rules",
-            value_type="json",
+            value_type="object",
+            field_type="fixed_collection",
             required=False,
-            description="Optional switch rules payload.",
-            placeholder='{"values":[{"conditions":{"conditions":[{"leftPath":"trigger.payload.status","operator":"equals","rightValue":"queued"}],"combinator":"and"}}]}',
-            rows=6,
+            description="Each rule maps a condition to one numbered output.",
             ui_group="input",
             display_options={
                 "show": {
                     "mode": ("rules",),
                 },
             },
+            collection_options=(
+                ParameterCollectionOptionDefinition(
+                    key="values",
+                    label="Rule",
+                    multiple=True,
+                    fields=(
+                        ParameterDefinition(
+                            key="leftPath",
+                            label="Left Path",
+                            value_type="string",
+                            required=True,
+                            description="Workflow context path to evaluate.",
+                            placeholder="incident.summary.severity",
+                        ),
+                        ParameterDefinition(
+                            key="operator",
+                            label="Operator",
+                            value_type="string",
+                            required=True,
+                            default="equals",
+                            no_data_expression=True,
+                            options=(
+                                ParameterOptionDefinition(value="equals", label="Equals"),
+                                ParameterOptionDefinition(value="not_equals", label="Does not equal"),
+                                ParameterOptionDefinition(value="contains", label="Contains"),
+                                ParameterOptionDefinition(value="greater_than", label="Greater than"),
+                                ParameterOptionDefinition(value="less_than", label="Less than"),
+                            ),
+                        ),
+                        ParameterDefinition(
+                            key="rightValue",
+                            label="Right Value",
+                            value_type="string",
+                            required=False,
+                            placeholder="critical",
+                        ),
+                    ),
+                ),
+            ),
         ),
         ParameterDefinition(
             key="numberOutputs",
@@ -198,6 +256,25 @@ NODE_DEFINITION = CatalogNodeDefinition(
             display_options={
                 "show": {
                     "mode": ("expression",),
+                },
+            },
+        ),
+        ParameterDefinition(
+            key="fallbackOutput",
+            label="Fallback Output",
+            value_type="string",
+            required=False,
+            description="Choose whether to expose a fallback branch when no rule matches.",
+            default="extra",
+            no_data_expression=True,
+            ui_group="advanced",
+            options=(
+                ParameterOptionDefinition(value="extra", label="Fallback branch"),
+                ParameterOptionDefinition(value="none", label="No fallback"),
+            ),
+            display_options={
+                "show": {
+                    "mode": ("rules",),
                 },
             },
         ),

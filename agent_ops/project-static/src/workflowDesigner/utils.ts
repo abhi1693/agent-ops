@@ -75,6 +75,140 @@ export function stringifyConfigValue(value: unknown, pretty = false): string {
   return String(value);
 }
 
+type ConfigPathSegment = string | number;
+
+function parseConfigPath(path: string): ConfigPathSegment[] {
+  return path
+    .split('.')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+    .map((segment) => (/^\d+$/.test(segment) ? Number.parseInt(segment, 10) : segment));
+}
+
+export function getConfigValueAtPath(
+  config: Record<string, unknown> | undefined,
+  path: string,
+): unknown {
+  let current: unknown = config;
+  for (const segment of parseConfigPath(path)) {
+    if (typeof segment === 'number') {
+      if (!Array.isArray(current) || segment >= current.length) {
+        return undefined;
+      }
+      current = current[segment];
+      continue;
+    }
+    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function pruneEmptyConfigContainers(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    const nextValue = value
+      .map((item) => pruneEmptyConfigContainers(item))
+      .filter((item) => item !== undefined);
+    return nextValue.length > 0 ? nextValue : undefined;
+  }
+
+  if (value && typeof value === 'object') {
+    const nextValue = Object.entries(value as Record<string, unknown>).reduce<Record<string, unknown>>(
+      (accumulator, [key, item]) => {
+        const nextItem = pruneEmptyConfigContainers(item);
+        if (nextItem !== undefined) {
+          accumulator[key] = nextItem;
+        }
+        return accumulator;
+      },
+      {},
+    );
+    return Object.keys(nextValue).length > 0 ? nextValue : undefined;
+  }
+
+  return value;
+}
+
+export function setConfigValueAtPath(
+  config: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): Record<string, unknown> {
+  const segments = parseConfigPath(path);
+  if (segments.length === 0) {
+    return config;
+  }
+
+  const root: Record<string, unknown> = { ...config };
+  let current: unknown = root;
+
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const segment = segments[index];
+    const nextSegment = segments[index + 1];
+
+    if (typeof segment === 'number') {
+      if (!Array.isArray(current)) {
+        return config;
+      }
+
+      const nextCurrent = current[segment];
+      const nextContainer =
+        nextCurrent && typeof nextCurrent === 'object'
+          ? Array.isArray(nextCurrent)
+            ? [...nextCurrent]
+            : { ...(nextCurrent as Record<string, unknown>) }
+          : typeof nextSegment === 'number'
+            ? []
+            : {};
+      current[segment] = nextContainer;
+      current = nextContainer;
+      continue;
+    }
+
+    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+      return config;
+    }
+
+    const currentRecord = current as Record<string, unknown>;
+    const nextCurrent = currentRecord[segment];
+    const nextContainer =
+      nextCurrent && typeof nextCurrent === 'object'
+        ? Array.isArray(nextCurrent)
+          ? [...nextCurrent]
+          : { ...(nextCurrent as Record<string, unknown>) }
+        : typeof nextSegment === 'number'
+          ? []
+          : {};
+    currentRecord[segment] = nextContainer;
+    current = nextContainer;
+  }
+
+  const lastSegment = segments[segments.length - 1];
+  const normalizedValue = pruneEmptyConfigContainers(value);
+
+  if (typeof lastSegment === 'number') {
+    if (!Array.isArray(current)) {
+      return config;
+    }
+    if (normalizedValue === undefined) {
+      current.splice(lastSegment, 1);
+    } else {
+      current[lastSegment] = normalizedValue;
+    }
+  } else if (current && typeof current === 'object' && !Array.isArray(current)) {
+    const currentRecord = current as Record<string, unknown>;
+    if (normalizedValue === undefined) {
+      delete currentRecord[lastSegment];
+    } else {
+      currentRecord[lastSegment] = normalizedValue;
+    }
+  }
+
+  return (pruneEmptyConfigContainers(root) as Record<string, unknown>) ?? {};
+}
+
 export function getConfigString(
   config: Record<string, unknown> | undefined,
   key: string,
@@ -134,6 +268,52 @@ export function getTemplateFieldValue(
   field: WorkflowNodeTemplateField,
 ): string {
   return getConfigString(node.config, field.key, field.type === 'textarea');
+}
+
+export function getTemplateFieldValueAtPath(
+  node: WorkflowNode,
+  path: string,
+  prettyJson = false,
+): string {
+  return stringifyConfigValue(getConfigValueAtPath(node.config, path), prettyJson);
+}
+
+export function normalizeFieldInputValue(
+  field: Pick<WorkflowNodeTemplateField, 'type' | 'value_type'>,
+  value: string,
+): unknown {
+  if (value === '') {
+    return undefined;
+  }
+
+  if (field.type === 'textarea' && field.value_type === 'json') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+
+  if (field.value_type === 'integer') {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isNaN(parsed) ? value : parsed;
+  }
+
+  if (field.value_type === 'number') {
+    const parsed = Number.parseFloat(value);
+    return Number.isNaN(parsed) ? value : parsed;
+  }
+
+  if (field.value_type === 'boolean') {
+    if (value === 'true') {
+      return true;
+    }
+    if (value === 'false') {
+      return false;
+    }
+  }
+
+  return value;
 }
 
 function getNodeFieldInputModes(

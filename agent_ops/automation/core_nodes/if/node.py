@@ -3,7 +3,9 @@ from __future__ import annotations
 from automation.catalog.definitions import (
     CatalogNodeDefinition,
     OutputPortDefinition,
+    ParameterCollectionOptionDefinition,
     ParameterDefinition,
+    ParameterOptionDefinition,
 )
 from automation.catalog.validation import (
     raise_definition_error,
@@ -15,6 +17,22 @@ from automation.runtime_types import WorkflowNodeExecutionContext, WorkflowNodeE
 
 TRUE_PORT = "true"
 FALSE_PORT = "false"
+
+
+def _build_condition_block(config: dict) -> dict:
+    raw_conditions = config.get("conditions")
+    if isinstance(raw_conditions, dict):
+        raw_values = raw_conditions.get("conditions")
+        if isinstance(raw_values, list):
+            return {
+                "conditions": [item for item in raw_values if isinstance(item, dict)],
+                "combinator": str(config.get("combinator") or "and").strip().lower() or "and",
+            }
+
+    return {
+        "conditions": [],
+        "combinator": str(config.get("combinator") or "and").strip().lower() or "and",
+    }
 
 
 def _validate_core_if_config(
@@ -34,11 +52,9 @@ def _validate_core_if_config(
         node_ids=node_ids,
         outgoing_targets=outgoing_targets,
     )
-    conditions_block = config.get("conditions")
-    if not isinstance(conditions_block, dict):
-        raise_definition_error(f'Node "{node_id}" must define config.conditions as a condition block.')
+    conditions_block = _build_condition_block(config)
     raw_conditions = conditions_block.get("conditions")
-    if not isinstance(raw_conditions, list) or not raw_conditions:
+    if not raw_conditions:
         raise_definition_error(f'Node "{node_id}" conditions block must define at least one condition.')
     if len(outgoing_targets_by_source_port.get(TRUE_PORT, [])) != 1:
         raise_definition_error(f'Node "{node_id}" must connect exactly one "{TRUE_PORT}" edge.')
@@ -49,7 +65,7 @@ def _validate_core_if_config(
 
 
 def _execute_if(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecutionResult:
-    conditions_block = runtime.config["conditions"]
+    conditions_block = _build_condition_block(runtime.config)
     matched = evaluate_condition_block(runtime, conditions_block)
     output = {
         "matched": matched,
@@ -85,12 +101,83 @@ NODE_DEFINITION = CatalogNodeDefinition(
         ParameterDefinition(
             key="conditions",
             label="Conditions",
-            value_type="json",
+            value_type="object",
+            field_type="fixed_collection",
             required=True,
-            description="Condition block with conditions and combinator.",
-            placeholder='{"conditions":[{"leftPath":"trigger.payload.status","operator":"equals","rightValue":"ok"}],"combinator":"and"}',
-            rows=5,
+            description="Add one or more conditions that control the true or false branch.",
             ui_group="input",
+            collection_options=(
+                ParameterCollectionOptionDefinition(
+                    key="conditions",
+                    label="Condition",
+                    multiple=True,
+                    fields=(
+                        ParameterDefinition(
+                            key="leftPath",
+                            label="Left Path",
+                            value_type="string",
+                            required=True,
+                            description="Workflow context path to evaluate.",
+                            placeholder="trigger.payload.status",
+                        ),
+                        ParameterDefinition(
+                            key="operator",
+                            label="Operator",
+                            value_type="string",
+                            required=True,
+                            default="equals",
+                            no_data_expression=True,
+                            options=(
+                                ParameterOptionDefinition(value="equals", label="Equals"),
+                                ParameterOptionDefinition(value="not_equals", label="Does not equal"),
+                                ParameterOptionDefinition(value="contains", label="Contains"),
+                                ParameterOptionDefinition(value="not_contains", label="Does not contain"),
+                                ParameterOptionDefinition(value="greater_than", label="Greater than"),
+                                ParameterOptionDefinition(value="less_than", label="Less than"),
+                                ParameterOptionDefinition(value="starts_with", label="Starts with"),
+                                ParameterOptionDefinition(value="ends_with", label="Ends with"),
+                                ParameterOptionDefinition(value="is_empty", label="Is empty"),
+                                ParameterOptionDefinition(value="not_empty", label="Is not empty"),
+                            ),
+                        ),
+                        ParameterDefinition(
+                            key="rightValue",
+                            label="Right Value",
+                            value_type="string",
+                            required=False,
+                            placeholder="production",
+                            display_options={
+                                "show": {
+                                    "operator": (
+                                        "equals",
+                                        "not_equals",
+                                        "contains",
+                                        "not_contains",
+                                        "greater_than",
+                                        "less_than",
+                                        "starts_with",
+                                        "ends_with",
+                                    ),
+                                },
+                            },
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        ParameterDefinition(
+            key="combinator",
+            label="Match",
+            value_type="string",
+            required=False,
+            description="How multiple conditions should be combined.",
+            default="and",
+            no_data_expression=True,
+            ui_group="advanced",
+            options=(
+                ParameterOptionDefinition(value="and", label="All conditions"),
+                ParameterOptionDefinition(value="or", label="Any condition"),
+            ),
         ),
     ),
 )

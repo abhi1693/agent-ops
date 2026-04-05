@@ -1130,8 +1130,9 @@ class WorkflowViewTests(TestCase):
                     "type": "core.set",
                     "label": "Set value",
                     "config": {
+                        "mode": "raw",
                         "output_key": "tool.output",
-                        "value": "Service {{ trigger.payload.service }}",
+                        "json_output": '"Service {{ trigger.payload.service }}"',
                     },
                     "position": {"x": 320, "y": 40},
                 },

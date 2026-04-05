@@ -5,13 +5,17 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 
-from automation.catalog.definitions import CatalogNodeDefinition, ParameterDefinition, ParameterOptionDefinition
+from automation.catalog.definitions import (
+    CatalogNodeDefinition,
+    ParameterCollectionOptionDefinition,
+    ParameterDefinition,
+    ParameterOptionDefinition,
+)
 from automation.runtime_types import WorkflowNodeExecutionContext, WorkflowNodeExecutionResult
 from automation.tools.base import (
     _build_runtime_binding_context,
     _render_runtime_json,
     _render_runtime_string,
-    _validate_optional_string,
     _validate_required_json_template,
     _validate_required_string,
 )
@@ -22,12 +26,10 @@ def _validate_core_set_config(*, config, node_id, **_) -> None:
     mode = str(config.get("mode") or "manual").strip().lower()
     if mode == "raw":
         _validate_required_json_template(config, "json_output", node_id=node_id)
-    elif _extract_manual_mapping_entries(config):
         return
-    elif "value" in config:
-        _validate_optional_string(config, "value", node_id=node_id)
-    else:
-        raise ValidationError({"definition": f'Node "{node_id}" must define a value, json output, or manual mapping.'})
+    if _extract_manual_mapping_entries(config):
+        return
+    raise ValidationError({"definition": f'Node "{node_id}" must define json output or manual mapping.'})
 
 
 def _render_mapping_value(runtime: WorkflowNodeExecutionContext, value: Any) -> Any:
@@ -51,33 +53,38 @@ def _extract_manual_mapping_entries(config: dict[str, Any]) -> list[dict[str, An
     return []
 
 
+def _resolve_mapping_entry_value(entry: dict[str, Any]) -> Any:
+    entry_type = str(entry.get("type") or "").strip()
+    if entry_type == "numberValue" and "numberValue" in entry:
+        return entry.get("numberValue")
+    if entry_type == "booleanValue" and "booleanValue" in entry:
+        return entry.get("booleanValue")
+    if entry_type == "arrayValue" and "arrayValue" in entry:
+        return entry.get("arrayValue")
+    if entry_type == "objectValue" and "objectValue" in entry:
+        return entry.get("objectValue")
+    if entry_type == "stringValue" and "stringValue" in entry:
+        return entry.get("stringValue")
+    return None
+
+
 def _build_manual_mapping_output(runtime: WorkflowNodeExecutionContext) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     for entry in _extract_manual_mapping_entries(runtime.config):
         name = str(entry.get("name") or entry.get("key") or "").strip()
         if not name:
             continue
-        if "jsonValue" in entry:
-            payload[name] = _render_mapping_value(runtime, entry.get("jsonValue"))
-            continue
-        if "value" in entry:
-            payload[name] = _render_mapping_value(runtime, entry.get("value"))
-            continue
-        payload[name] = None
+        payload[name] = _render_mapping_value(runtime, _resolve_mapping_entry_value(entry))
     return payload
 
 
 def _execute_set(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecutionResult:
     output_key = _render_runtime_string(runtime, "output_key", required=True, default_mode="static")
     mode = str(runtime.config.get("mode") or "manual").strip().lower()
-    manual_mapping_output = _build_manual_mapping_output(runtime)
-    value = runtime.config.get("value")
     if mode == "raw":
         value = _render_runtime_json(runtime, "json_output", default_mode="expression")
-    elif manual_mapping_output:
-        value = manual_mapping_output
-    elif isinstance(value, str):
-        value = _render_runtime_string(runtime, "value", default_mode="expression")
+    else:
+        value = _build_manual_mapping_output(runtime)
     runtime.set_path_value(runtime.context, output_key, value)
     return WorkflowNodeExecutionResult(
         next_node_id=runtime.next_node_id,
@@ -130,20 +137,6 @@ NODE_DEFINITION = CatalogNodeDefinition(
             ui_group="result",
         ),
         ParameterDefinition(
-            key="value",
-            label="Value",
-            value_type="string",
-            required=False,
-            description="Literal or templated value to store.",
-            placeholder="{{ trigger.payload.message }}",
-            ui_group="input",
-            display_options={
-                "show": {
-                    "mode": ("manual",),
-                },
-            },
-        ),
-        ParameterDefinition(
             key="json_output",
             label="JSON Output",
             value_type="json",
@@ -157,6 +150,118 @@ NODE_DEFINITION = CatalogNodeDefinition(
                     "mode": ("raw",),
                 },
             },
+        ),
+        ParameterDefinition(
+            key="fields",
+            label="Fields to Set",
+            value_type="object",
+            field_type="fixed_collection",
+            required=False,
+            description="Add one or more fields to write into workflow context.",
+            ui_group="input",
+            display_options={
+                "show": {
+                    "mode": ("manual",),
+                },
+            },
+            collection_options=(
+                ParameterCollectionOptionDefinition(
+                    key="values",
+                    label="Field",
+                    multiple=True,
+                    fields=(
+                        ParameterDefinition(
+                            key="name",
+                            label="Name",
+                            value_type="string",
+                            required=True,
+                            description="Field name to write. Supports dot notation.",
+                            placeholder="ticket.id",
+                        ),
+                        ParameterDefinition(
+                            key="type",
+                            label="Type",
+                            value_type="string",
+                            required=False,
+                            default="stringValue",
+                            no_data_expression=True,
+                            options=(
+                                ParameterOptionDefinition(value="stringValue", label="String"),
+                                ParameterOptionDefinition(value="numberValue", label="Number"),
+                                ParameterOptionDefinition(value="booleanValue", label="Boolean"),
+                                ParameterOptionDefinition(value="arrayValue", label="Array"),
+                                ParameterOptionDefinition(value="objectValue", label="Object"),
+                            ),
+                        ),
+                        ParameterDefinition(
+                            key="stringValue",
+                            label="Value",
+                            value_type="string",
+                            required=False,
+                            placeholder="{{ trigger.payload.message }}",
+                            display_options={
+                                "show": {
+                                    "type": ("stringValue",),
+                                },
+                            },
+                        ),
+                        ParameterDefinition(
+                            key="numberValue",
+                            label="Value",
+                            value_type="number",
+                            required=False,
+                            placeholder="42",
+                            display_options={
+                                "show": {
+                                    "type": ("numberValue",),
+                                },
+                            },
+                        ),
+                        ParameterDefinition(
+                            key="booleanValue",
+                            label="Value",
+                            value_type="boolean",
+                            required=False,
+                            default=True,
+                            options=(
+                                ParameterOptionDefinition(value="true", label="True"),
+                                ParameterOptionDefinition(value="false", label="False"),
+                            ),
+                            display_options={
+                                "show": {
+                                    "type": ("booleanValue",),
+                                },
+                            },
+                        ),
+                        ParameterDefinition(
+                            key="arrayValue",
+                            label="Value",
+                            value_type="json",
+                            required=False,
+                            rows=4,
+                            placeholder='["item-one", "item-two"]',
+                            display_options={
+                                "show": {
+                                    "type": ("arrayValue",),
+                                },
+                            },
+                        ),
+                        ParameterDefinition(
+                            key="objectValue",
+                            label="Value",
+                            value_type="json",
+                            required=False,
+                            rows=4,
+                            placeholder='{"ticketId":"{{ trigger.payload.ticket_id }}"}',
+                            display_options={
+                                "show": {
+                                    "type": ("objectValue",),
+                                },
+                            },
+                        ),
+                    ),
+                ),
+            ),
         ),
     ),
 )
