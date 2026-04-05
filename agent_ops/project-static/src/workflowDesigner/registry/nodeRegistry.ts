@@ -1,4 +1,5 @@
 import { getNodeCategoryForKind } from './categories';
+import { getCatalogSectionForDefinition } from './nodeSemantics';
 import type {
   WorkflowConnection,
   WorkflowCatalogSection,
@@ -45,23 +46,7 @@ function isChatModelDefinition(definition: WorkflowNodeDefinition): boolean {
 }
 
 function normalizeCatalogSection(definition: WorkflowNodeDefinition): WorkflowNodeCatalogSection {
-  if (definition.catalog_section) {
-    return definition.catalog_section;
-  }
-
-  if (definition.kind === 'trigger') {
-    return 'triggers';
-  }
-
-  if (definition.type === 'core.set') {
-    return 'data';
-  }
-
-  if (definition.kind === 'agent' || definition.kind === 'condition' || definition.kind === 'response') {
-    return 'flow';
-  }
-
-  return 'apps';
+  return getCatalogSectionForDefinition(definition);
 }
 
 export function buildNodeRegistry(

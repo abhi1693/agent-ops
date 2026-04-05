@@ -8,6 +8,10 @@ import type {
 } from '../types';
 import { escapeHtml, formatKindLabel } from '../utils';
 import { isModelDefinition } from '../registry/modelDefinitions';
+import {
+  isManualTriggerDefinition,
+  isScheduleTriggerDefinition,
+} from '../registry/nodeSemantics';
 import { renderPaletteDefinitions, renderPaletteSections } from './browserPanel';
 
 export type BrowserView =
@@ -314,8 +318,8 @@ export function renderBrowserState(params: BrowserRenderParams): BrowserRenderRe
 
   if (params.browserView.kind === 'trigger-root') {
     const triggerDefinitions = availableDefinitions.filter((definition) => definition.kind === 'trigger');
-    const manualTrigger = triggerDefinitions.find((definition) => definition.type === 'core.manual_trigger');
-    const scheduleTrigger = triggerDefinitions.find((definition) => definition.type === 'core.schedule_trigger');
+    const manualTrigger = triggerDefinitions.find((definition) => isManualTriggerDefinition(definition));
+    const scheduleTrigger = triggerDefinitions.find((definition) => isScheduleTriggerDefinition(definition));
     const appTriggerDefinitions = getAppTriggerDefinitions(availableDefinitions);
     const rootItems = [
       ...(manualTrigger ? [renderBrowserListItem({

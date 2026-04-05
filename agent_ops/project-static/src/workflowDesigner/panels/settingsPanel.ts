@@ -6,6 +6,7 @@ import type {
   WorkflowNodeTemplateField,
   WorkflowNodeTemplateOption,
 } from '../types';
+import { isWebhookTriggerDefinition } from '../registry/nodeSemantics';
 import { escapeHtml } from '../utils';
 import {
   getConfigString,
@@ -122,7 +123,7 @@ function renderWebhookTriggerSection(params: {
   nodeDefinition: WorkflowNodeDefinition;
   webhookUrl?: string;
 }): string {
-  if (params.nodeDefinition.type !== 'core.webhook_trigger' || !params.webhookUrl) {
+  if (!isWebhookTriggerDefinition(params.nodeDefinition) || !params.webhookUrl) {
     return '';
   }
 

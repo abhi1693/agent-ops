@@ -1,4 +1,5 @@
 import type { ExecutionElements } from '../dom';
+import { isWebhookTriggerDefinition } from '../registry/nodeSemantics';
 import type { WorkflowExecutionPresentation, WorkflowNode } from '../types';
 import { escapeHtml, formatKindLabel, isNodeDisabled } from '../utils';
 
@@ -46,6 +47,7 @@ export function createWorkflowDesignerExecutionController(params: {
   csrfToken: string;
   execution: ExecutionElements | null;
   executionPresentation: WorkflowExecutionPresentation;
+  getNodeDefinition: (nodeId: string | null | undefined) => { capabilities?: string[] } | undefined;
   getWorkflowHasWebhookTriggers: () => boolean;
   getInitialExecutionNodeId: (nodeId: string | null) => string | null;
   getNode: (nodeId: string | null | undefined) => WorkflowNode | undefined;
@@ -79,6 +81,7 @@ export function createWorkflowDesignerExecutionController(params: {
     csrfToken,
     execution,
     executionPresentation,
+    getNodeDefinition,
     getWorkflowHasWebhookTriggers,
     getInitialExecutionNodeId,
     getNode,
@@ -552,7 +555,7 @@ export function createWorkflowDesignerExecutionController(params: {
     const nodeId = options?.nodeId ?? null;
     const selectedNode = getNode(nodeId);
     const isWebhookNodeRun = Boolean(
-      selectedNode?.kind === 'trigger' && selectedNode.type?.toLowerCase().includes('webhook'),
+      selectedNode?.kind === 'trigger' && isWebhookTriggerDefinition(getNodeDefinition(nodeId)),
     );
     const isWebhookWorkflowRun = !nodeId && getWorkflowHasWebhookTriggers();
     const inputData = parseExecutionInput();

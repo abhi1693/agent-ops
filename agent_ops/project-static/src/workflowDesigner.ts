@@ -38,6 +38,7 @@ import {
   getFieldOptionsWithCurrentValue,
 } from './workflowDesigner/presenters/nodePresentation';
 import { buildNodeRegistry, getAvailablePaletteSections } from './workflowDesigner/registry/nodeRegistry';
+import { isWebhookTriggerDefinition } from './workflowDesigner/registry/nodeSemantics';
 import { normalizeWorkflowDefinition, serializeWorkflowDefinition } from './workflowDesigner/schema/workflowSchema';
 import { createWorkflowDesignerGraphController } from './workflowDesigner/state/graphController';
 import { createGraphStore } from './workflowDesigner/state/graphStore';
@@ -133,7 +134,7 @@ function createWorkflowNode(
   overridePosition?: { x: number; y: number },
 ): WorkflowNode {
   const config = cloneValue(nodeDefinition.config ?? {}) as Record<string, unknown>;
-  if (nodeDefinition.type === 'core.webhook_trigger') {
+  if (isWebhookTriggerDefinition(nodeDefinition)) {
     const existingPath = typeof config.path === 'string' ? config.path.trim() : '';
     if (!existingPath) {
       config.path = createWebhookPathId();
@@ -1064,8 +1065,9 @@ export function initWorkflowDesigner(): void {
     csrfToken,
     execution,
     executionPresentation: workflowCatalog.presentation.execution,
+    getNodeDefinition: (nodeId) => getNodeDefinition(getNode(nodeId ?? null)),
     getWorkflowHasWebhookTriggers: () => workflowDefinition.nodes.some(
-      (node: WorkflowNode) => node.kind === 'trigger' && node.type.toLowerCase().includes('webhook'),
+      (node: WorkflowNode) => node.kind === 'trigger' && isWebhookTriggerDefinition(getNodeDefinition(node)),
     ),
     getInitialExecutionNodeId,
     getNode: (nodeId) => getNode(nodeId ?? null),
