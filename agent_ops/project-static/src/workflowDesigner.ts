@@ -161,9 +161,30 @@ export function initWorkflowDesigner(): void {
   const execution = getExecutionElements(root);
   const workflowConnectionAddUrl = root.dataset.workflowConnectionAddUrl ?? '';
   const workflowConnectionsUrl = root.dataset.workflowConnectionsUrl ?? '';
+  const workflowSaveUrl = root.dataset.workflowSaveUrl ?? '';
   const workflowRunUrl = root.dataset.workflowRunUrl ?? '';
   const workflowNodeRunUrlTemplate = root.dataset.workflowNodeRunUrlTemplate ?? '';
   const csrfToken = root.querySelector<HTMLInputElement>('input[name="csrfmiddlewaretoken"]')?.value ?? '';
+  const autosaveStatus = root.querySelector<HTMLElement>('[data-workflow-save-status]');
+
+  root.addEventListener('submit', (event) => {
+    event.preventDefault();
+  });
+
+  function setAutosaveStatus(state: 'error' | 'saved' | 'saving', message?: string): void {
+    if (!autosaveStatus) {
+      return;
+    }
+
+    autosaveStatus.dataset.state = state;
+    autosaveStatus.textContent = message ?? (
+      state === 'saving'
+        ? 'Saving changes...'
+        : state === 'error'
+          ? 'Autosave failed'
+          : 'All changes saved'
+    );
+  }
 
   const workflowCatalog = parseJsonScript<WorkflowCatalogPayload>('workflow-catalog-data', {
     definitions: [],
@@ -418,6 +439,15 @@ export function initWorkflowDesigner(): void {
     },
     {},
   );
+  const workflowNodeConfigByType = workflowCatalog.definitions.reduce<Record<string, Record<string, unknown>>>(
+    (accumulator, definition) => {
+      accumulator[definition.type] = definition.config && typeof definition.config === 'object'
+        ? { ...definition.config }
+        : {};
+      return accumulator;
+    },
+    {},
+  );
   const workflowConnectionSlotKeysByType = workflowCatalog.definitions.reduce<Record<string, string[]>>(
     (accumulator, definition) => {
       accumulator[definition.type] = (definition.connection_slots ?? []).map((slot) => slot.key);
@@ -431,8 +461,14 @@ export function initWorkflowDesigner(): void {
     nodes: [],
   });
   const persistedDefinition = parsePersistedDefinition(canvas.definitionInput) ?? fallbackDefinition;
+  const persistedAutosaveRevision = typeof (persistedDefinition as { autosave_revision?: unknown }).autosave_revision === 'number'
+    && Number.isFinite((persistedDefinition as { autosave_revision?: number }).autosave_revision)
+    && (persistedDefinition as { autosave_revision?: number }).autosave_revision! >= 0
+    ? (persistedDefinition as { autosave_revision?: number }).autosave_revision!
+    : 0;
   const graphStore = createGraphStore({
     definition: normalizeWorkflowDefinition(persistedDefinition, {
+      configByType: workflowNodeConfigByType,
       connectionSlotKeysByType: workflowConnectionSlotKeysByType,
       kindByType: workflowNodeKindsByType,
     }),
@@ -445,6 +481,8 @@ export function initWorkflowDesigner(): void {
     },
   });
   const workflowDefinition = graphStore.definition;
+  const autosaveController = createAutosaveController();
+  const autosaveRevisionStorageKey = `workflow-designer-autosave-revision:${workflowSaveUrl || window.location.pathname}`;
   let workflowConnections = parseJsonScript<WorkflowConnection[]>('workflow-connections-data', []);
   const nodeRegistry = buildNodeRegistry(
     workflowCatalog.definitions,
@@ -467,6 +505,7 @@ export function initWorkflowDesigner(): void {
     onChange(viewport) {
       graphStore.setViewport(viewport);
       graphStore.commit();
+      autosaveController.schedule();
       renderEdges();
       renderNodeContextMenu();
       renderCanvasHud();
@@ -525,6 +564,7 @@ export function initWorkflowDesigner(): void {
 
   function syncDefinitionInput(): void {
     graphStore.commit();
+    autosaveController.schedule();
   }
 
   function getNode(nodeId: string | null): WorkflowNode | undefined {
@@ -551,6 +591,197 @@ export function initWorkflowDesigner(): void {
       }),
       input_data: inputData,
     });
+  }
+
+  function buildAutosaveRequestBody(revision: number): string {
+    return JSON.stringify({
+      definition: serializeWorkflowDefinition(workflowDefinition, {
+        connectionSlotKeysByType: workflowConnectionSlotKeysByType,
+      }),
+      revision,
+    });
+  }
+
+  async function getAutosaveErrorMessage(response: Response): Promise<string> {
+    let payload: { detail?: unknown } | null = null;
+
+    try {
+      payload = await response.json() as { detail?: unknown };
+    } catch (error) {
+      console.error(error);
+    }
+
+    if (typeof payload?.detail === 'string' && payload.detail.trim()) {
+      return payload.detail;
+    }
+
+    return `Autosave failed (${response.status}).`;
+  }
+
+  function createAutosaveController(): {
+    flush: () => void;
+    markReady: () => void;
+    schedule: () => void;
+  } {
+    if (!workflowSaveUrl) {
+      if (autosaveStatus) {
+        autosaveStatus.hidden = true;
+      }
+
+      return {
+        flush() {},
+        markReady() {},
+        schedule() {},
+      };
+    }
+
+    let isReady = false;
+    let debounceHandle: number | null = null;
+    let isSaving = false;
+    let shouldSaveAgain = false;
+    let issuedRevision = (() => {
+      try {
+        const storedValue = window.sessionStorage.getItem(autosaveRevisionStorageKey);
+        const parsedValue = storedValue ? Number.parseInt(storedValue, 10) : 0;
+        if (Number.isFinite(parsedValue) && parsedValue >= 0) {
+          return Math.max(parsedValue, persistedAutosaveRevision);
+        }
+        return persistedAutosaveRevision;
+      } catch (error) {
+        console.error(error);
+        return persistedAutosaveRevision;
+      }
+    })();
+    let draftRevision = issuedRevision;
+    let savedRevision = issuedRevision;
+
+    function persistIssuedRevision(): void {
+      try {
+        window.sessionStorage.setItem(autosaveRevisionStorageKey, String(issuedRevision));
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    function clearDebounceTimer(): void {
+      if (debounceHandle === null) {
+        return;
+      }
+
+      window.clearTimeout(debounceHandle);
+      debounceHandle = null;
+    }
+
+    async function saveNow(): Promise<void> {
+      if (draftRevision <= savedRevision) {
+        setAutosaveStatus('saved');
+        return;
+      }
+
+      if (isSaving) {
+        shouldSaveAgain = true;
+        return;
+      }
+
+      isSaving = true;
+      shouldSaveAgain = false;
+      setAutosaveStatus('saving');
+      const revisionToSave = draftRevision;
+
+      try {
+        const response = await fetch(workflowSaveUrl, {
+          body: buildAutosaveRequestBody(revisionToSave),
+          credentials: 'same-origin',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+          },
+          method: 'POST',
+        });
+
+        if (!response.ok) {
+          throw new Error(await getAutosaveErrorMessage(response));
+        }
+
+        const payload = await response.json() as { detail?: unknown; stale?: unknown };
+        if (payload.stale === true) {
+          throw new Error(typeof payload.detail === 'string' && payload.detail.trim()
+            ? payload.detail
+            : 'Autosave conflict detected.');
+        }
+
+        savedRevision = Math.max(savedRevision, revisionToSave);
+        setAutosaveStatus(savedRevision >= draftRevision ? 'saved' : 'saving');
+      } catch (error) {
+        console.error(error);
+        const message = error instanceof Error && error.message
+          ? error.message
+          : 'Autosave failed';
+        setAutosaveStatus('error', message);
+      } finally {
+        isSaving = false;
+
+        if (shouldSaveAgain || savedRevision < draftRevision) {
+          shouldSaveAgain = false;
+          debounceHandle = window.setTimeout(() => {
+            debounceHandle = null;
+            void saveNow();
+          }, 250);
+        }
+      }
+    }
+
+    return {
+      flush() {
+        if (!isReady || draftRevision <= savedRevision) {
+          return;
+        }
+
+        clearDebounceTimer();
+        const revisionToSave = draftRevision;
+        void fetch(workflowSaveUrl, {
+          body: buildAutosaveRequestBody(revisionToSave),
+          credentials: 'same-origin',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+          },
+          keepalive: true,
+          method: 'POST',
+        })
+          .then((response) => {
+            if (response.ok) {
+              savedRevision = Math.max(savedRevision, revisionToSave);
+            }
+          })
+          .catch((error) => {
+            console.error(error);
+          });
+      },
+      markReady() {
+        isReady = true;
+        setAutosaveStatus('saved');
+      },
+      schedule() {
+        if (!isReady) {
+          return;
+        }
+
+        issuedRevision += 1;
+        draftRevision = issuedRevision;
+        persistIssuedRevision();
+        setAutosaveStatus('saving');
+
+        clearDebounceTimer();
+
+        debounceHandle = window.setTimeout(() => {
+          debounceHandle = null;
+          void saveNow();
+        }, 500);
+      },
+    };
   }
 
   function getNodeRunUrl(nodeId: string): string {
@@ -1121,6 +1352,10 @@ export function initWorkflowDesigner(): void {
   renderCanvas();
   renderBrowser();
   renderSettingsPanel();
+  autosaveController.markReady();
+  window.addEventListener('pagehide', () => {
+    autosaveController.flush();
+  });
 }
 
 function parseDesignerJsonValue<T>(value: string | null): T | null {

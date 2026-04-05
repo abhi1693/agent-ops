@@ -10,6 +10,7 @@ import type {
 const WORKFLOW_DEFINITION_VERSION = 2;
 
 type WorkflowSchemaOptions = {
+  configByType?: Record<string, Record<string, unknown>>;
   connectionSlotKeysByType?: Record<string, string[]>;
   kindByType?: Record<string, string>;
 };
@@ -17,6 +18,13 @@ type WorkflowSchemaOptions = {
 function getConnectionSlotKeys(type: string, options?: WorkflowSchemaOptions): string[] {
   const slotKeys = options?.connectionSlotKeysByType?.[type];
   return Array.isArray(slotKeys) ? slotKeys : [];
+}
+
+function getDefaultConfig(type: string, options?: WorkflowSchemaOptions): Record<string, unknown> {
+  const config = options?.configByType?.[type];
+  return config && typeof config === 'object' && !Array.isArray(config)
+    ? { ...config }
+    : {};
 }
 
 function normalizeNode(value: unknown, options?: WorkflowSchemaOptions): WorkflowNode | null {
@@ -42,11 +50,13 @@ function normalizeNode(value: unknown, options?: WorkflowSchemaOptions): Workflo
     return null;
   }
 
+  const defaultConfig = getDefaultConfig(type, options);
   const persistedConfig =
     node.config && typeof node.config === 'object' && !Array.isArray(node.config) ? node.config : {};
   const persistedParameters =
     node.parameters && typeof node.parameters === 'object' && !Array.isArray(node.parameters) ? node.parameters : {};
   const config: Record<string, unknown> = {
+    ...defaultConfig,
     ...persistedConfig,
     ...persistedParameters,
   };

@@ -27,6 +27,7 @@ from .views import (
     WorkflowCreateView,
     WorkflowDeleteView,
     WorkflowDesignerConnectionsView,
+    WorkflowDesignerSaveView,
     WorkflowDesignerView,
     WorkflowDesignerNodeRunView,
     WorkflowDesignerRunView,
@@ -89,6 +90,7 @@ urlpatterns = [
     path("workflows/add/", WorkflowCreateView.as_view(), name="workflow_add"),
     path("workflows/<int:pk>/", WorkflowDetailView.as_view(), name="workflow_detail"),
     path("workflows/<int:pk>/designer/", WorkflowDesignerView.as_view(), name="workflow_designer"),
+    path("workflows/<int:pk>/designer/save/", WorkflowDesignerSaveView.as_view(), name="workflow_designer_save"),
     path("workflows/<int:pk>/designer/connections/", WorkflowDesignerConnectionsView.as_view(), name="workflow_designer_connections"),
     path("workflows/<int:pk>/designer/run/", WorkflowDesignerRunView.as_view(), name="workflow_designer_run"),
     path(

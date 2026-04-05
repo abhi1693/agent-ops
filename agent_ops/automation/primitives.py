@@ -342,12 +342,16 @@ def canonicalize_workflow_definition(definition: dict | None) -> dict:
     if not isinstance(viewport, dict):
         viewport = {"x": 0, "y": 0, "zoom": 1}
 
-    return {
+    canonical_definition = {
         "definition_version": WORKFLOW_DEFINITION_VERSION,
         "nodes": canonical_nodes if raw_nodes is not None else definition.get("nodes"),
         "edges": canonical_edges if raw_edges is not None else definition.get("edges"),
         "viewport": viewport,
     }
+    autosave_revision = definition.get("autosave_revision")
+    if isinstance(autosave_revision, int) and autosave_revision >= 0:
+        canonical_definition["autosave_revision"] = autosave_revision
+    return canonical_definition
 
 
 def normalize_workflow_definition_nodes(definition: dict | None) -> dict:

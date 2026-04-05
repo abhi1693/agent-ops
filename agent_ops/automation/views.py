@@ -1280,6 +1280,7 @@ class WorkflowDesignerView(RestrictedObjectEditMixin, ObjectEditView):
                 "workflow_nodes": normalized_definition.get("nodes", []),
                 "workflow_list_url": reverse("workflow_list"),
                 "workflow_detail_url": self.object.get_absolute_url(),
+                "workflow_designer_save_url": reverse("workflow_designer_save", args=[self.object.pk]),
                 "workflow_edit_url": reverse("workflow_edit", args=[self.object.pk]),
                 "workflow_changelog_url": reverse("workflow_changelog", args=[self.object.pk]),
                 "workflow_designer_run_url": reverse("workflow_designer_run", args=[self.object.pk]),
@@ -1290,6 +1291,81 @@ class WorkflowDesignerView(RestrictedObjectEditMixin, ObjectEditView):
             }
         )
         return context
+
+
+class WorkflowDesignerSaveView(View):
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        try:
+            payload = _parse_json_request_payload(request)
+            if "definition" not in payload:
+                raise ValidationError({"definition": "This field is required."})
+            revision = payload.get("revision")
+            revision_value = None
+            if revision not in (None, ""):
+                if not isinstance(revision, int):
+                    raise ValidationError({"revision": "Revision must be an integer."})
+                if revision < 0:
+                    raise ValidationError({"revision": "Revision must be zero or greater."})
+                revision_value = revision
+
+            with transaction.atomic():
+                workflow = (
+                    Workflow.objects.select_for_update()
+                    .order_by("pk")
+                    .filter(pk=kwargs["pk"])
+                    .first()
+                )
+                if workflow is None:
+                    return JsonResponse({"detail": "Workflow not found."}, status=404)
+
+                assert_object_action_allowed(workflow, request=request, action="change")
+                latest_revision = 0
+                if isinstance(workflow.definition, dict):
+                    persisted_revision = workflow.definition.get("autosave_revision")
+                    if isinstance(persisted_revision, int) and persisted_revision >= 0:
+                        latest_revision = persisted_revision
+
+                if revision_value is not None and revision_value < latest_revision:
+                    return JsonResponse(
+                        {
+                            "detail": "Stale autosave ignored.",
+                            "stale": True,
+                            "workflow": {
+                                "edge_count": workflow.edge_count,
+                                "id": workflow.pk,
+                                "node_count": workflow.node_count,
+                            },
+                        }
+                    )
+
+                next_definition = payload["definition"]
+                if revision_value is not None and isinstance(next_definition, dict):
+                    next_definition = {
+                        **next_definition,
+                        "autosave_revision": revision_value,
+                    }
+                form = WorkflowDesignerForm(
+                    data={"definition": json.dumps(next_definition)},
+                    instance=workflow,
+                )
+                if not form.is_valid():
+                    raise _build_form_validation_error(form)
+                workflow = form.save()
+        except ValidationError as exc:
+            return JsonResponse({"detail": _flatten_validation_error(exc)}, status=400)
+
+        return JsonResponse(
+            {
+                "detail": "Workflow saved.",
+                "workflow": {
+                    "edge_count": workflow.edge_count,
+                    "id": workflow.pk,
+                    "node_count": workflow.node_count,
+                },
+            }
+        )
 
 
 class WorkflowDesignerConnectionsView(View):

@@ -1123,8 +1123,42 @@ tr[data-virtual='true'] {
 .workflow-editor-toolbar-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+.workflow-editor-toolbar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-right: 0.25rem;
+  color: var(--tblr-secondary);
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.workflow-editor-toolbar-status::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: currentcolor;
+  opacity: 0.35;
+}
+
+.workflow-editor-toolbar-status[data-state='saving'] {
+  color: var(--tblr-primary);
+}
+
+.workflow-editor-toolbar-status[data-state='saved'] {
+  color: var(--tblr-success);
+}
+
+.workflow-editor-toolbar-status[data-state='error'] {
+  color: var(--tblr-danger);
 }
 
 .workflow-editor-canvas-shell {

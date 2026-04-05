@@ -838,6 +838,136 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(self.workflow.definition["edges"][2]["source_port"], "ai_languageModel")
         self.assertEqual(self.workflow.definition["edges"][2]["target_port"], "ai_languageModel")
 
+    def test_workflow_designer_save_endpoint_updates_definition(self):
+        self.client.force_login(self.staff_user)
+        updated_definition = {
+            "nodes": [
+                {
+                    "id": "trigger-1",
+                    "kind": "trigger",
+                    "label": "New task",
+                    "type": "core.manual_trigger",
+                    "position": {"x": 32, "y": 40},
+                },
+                {
+                    "id": "response-1",
+                    "kind": "response",
+                    "label": "Autosaved response",
+                    "type": "core.response",
+                    "config": {
+                        "template": "Completed {{ trigger.payload.ticket_id }}",
+                    },
+                    "position": {"x": 320, "y": 40},
+                },
+            ],
+            "edges": [
+                {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+            ],
+        }
+
+        response = self.client.post(
+            reverse("workflow_designer_save", args=[self.workflow.pk]),
+            data=json.dumps({"definition": updated_definition}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["detail"], "Workflow saved.")
+        self.assertEqual(payload["workflow"]["node_count"], 2)
+        self.assertEqual(payload["workflow"]["edge_count"], 1)
+        self.workflow.refresh_from_db()
+        self.assertEqual(self.workflow.definition["definition_version"], 2)
+        self.assertEqual(self.workflow.definition["nodes"][1]["name"], "Autosaved response")
+        self.assertEqual(
+            self.workflow.definition["nodes"][1]["parameters"],
+            {"template": "Completed {{ trigger.payload.ticket_id }}"},
+        )
+
+    def test_workflow_designer_save_endpoint_rejects_unsupported_definition(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("workflow_designer_save", args=[self.workflow.pk]),
+            data=json.dumps({"definition": _unsupported_definition("Unsupported task")}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("only supports v2 catalog nodes", response.json()["detail"])
+
+    def test_workflow_designer_save_endpoint_ignores_stale_revision(self):
+        self.client.force_login(self.staff_user)
+        newer_definition = {
+            "nodes": [
+                {
+                    "id": "trigger-1",
+                    "kind": "trigger",
+                    "label": "New task",
+                    "type": "core.manual_trigger",
+                    "position": {"x": 32, "y": 40},
+                },
+                {
+                    "id": "response-1",
+                    "kind": "response",
+                    "label": "Newer response",
+                    "type": "core.response",
+                    "config": {
+                        "template": "newer",
+                    },
+                    "position": {"x": 320, "y": 40},
+                },
+            ],
+            "edges": [
+                {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+            ],
+        }
+        stale_definition = {
+            "nodes": [
+                {
+                    "id": "trigger-1",
+                    "kind": "trigger",
+                    "label": "New task",
+                    "type": "core.manual_trigger",
+                    "position": {"x": 32, "y": 40},
+                },
+                {
+                    "id": "response-1",
+                    "kind": "response",
+                    "label": "Stale response",
+                    "type": "core.response",
+                    "config": {
+                        "template": "stale",
+                    },
+                    "position": {"x": 320, "y": 40},
+                },
+            ],
+            "edges": [
+                {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+            ],
+        }
+
+        newer_response = self.client.post(
+            reverse("workflow_designer_save", args=[self.workflow.pk]),
+            data=json.dumps({"definition": newer_definition, "revision": 2}),
+            content_type="application/json",
+        )
+        stale_response = self.client.post(
+            reverse("workflow_designer_save", args=[self.workflow.pk]),
+            data=json.dumps({"definition": stale_definition, "revision": 1}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(newer_response.status_code, 200)
+        self.assertEqual(stale_response.status_code, 200)
+        self.assertTrue(stale_response.json()["stale"])
+        self.workflow.refresh_from_db()
+        self.assertEqual(self.workflow.definition["nodes"][1]["name"], "Newer response")
+        self.assertEqual(
+            self.workflow.definition["nodes"][1]["parameters"],
+            {"template": "newer"},
+        )
+
     def test_workflow_designer_rejects_unsupported_definition_submission(self):
         self.client.force_login(self.staff_user)
 
