@@ -74,6 +74,13 @@ export type WorkflowChromePresentation = {
   settings_panel: {
     aria_label: string;
     close_label: string;
+    input_description: string;
+    input_title: string;
+    output_description: string;
+    output_title: string;
+    settings_empty: string;
+    settings_tab: string;
+    parameters_tab: string;
     title: string;
   };
   toolbar: {

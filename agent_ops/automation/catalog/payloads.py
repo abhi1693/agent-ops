@@ -155,6 +155,13 @@ WORKFLOW_DESIGNER_PRESENTATION: dict[str, Any] = {
         "settings_panel": {
             "aria_label": "Node settings",
             "close_label": "Close node settings",
+            "input_description": "Latest results from previous nodes on the main path.",
+            "input_title": "Input",
+            "output_description": "Latest current-node result plus the full execution inspector.",
+            "output_title": "Output",
+            "parameters_tab": "Parameters",
+            "settings_empty": "No additional settings for this node.",
+            "settings_tab": "Settings",
             "title": "Node settings",
         },
         "toolbar": {
@@ -296,6 +303,18 @@ WORKFLOW_DESIGNER_PRESENTATION: dict[str, Any] = {
                     "type": "Type",
                 },
                 "title": "Docs",
+            },
+            "execution": {
+                "description": "Inspect the latest upstream results and rerun this node without leaving the settings drawer.",
+                "fields": {
+                    "current_result": "Current node result",
+                    "empty": "Run this node or the full workflow to inspect results here.",
+                    "no_current": "This node has not produced a result in the latest run.",
+                    "no_previous": "This node has no previous nodes on the main path.",
+                    "no_result": "No result in the latest run.",
+                    "previous_results": "Previous node results",
+                },
+                "title": "Execution data",
             },
         },
     },

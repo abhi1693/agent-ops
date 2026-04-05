@@ -147,6 +147,17 @@
                     <div class="workflow-editor-settings-description" data-workflow-settings-description></div>
                   </div>
                   <div class="workflow-editor-settings-actions">
+                    {% if can_execute %}
+                      <button
+                        type="button"
+                        class="btn btn-danger btn-sm"
+                        data-workflow-run-selected-node
+                        hidden
+                      >
+                        <i class="mdi mdi-play"></i>
+                        <span class="ms-1">{{ workflow_catalog.presentation.execution.run_button.idle }}</span>
+                      </button>
+                    {% endif %}
                     <button
                       type="button"
                       class="workflow-editor-settings-close"
@@ -160,7 +171,76 @@
               </header>
 
               <div class="workflow-editor-settings-content">
-                <div class="workflow-editor-settings-body" data-workflow-settings-fields></div>
+                {% if can_execute %}
+                  <aside class="workflow-editor-settings-pane workflow-editor-settings-input-panel" aria-label="{{ workflow_catalog.presentation.chrome.settings_panel.input_title }}">
+                    <div class="workflow-editor-settings-pane-head">
+                      <div class="workflow-editor-settings-pane-eyebrow">{{ workflow_catalog.presentation.chrome.settings_panel.input_title }}</div>
+                    </div>
+                    <div class="workflow-editor-settings-pane-body" data-workflow-settings-input></div>
+                  </aside>
+                {% endif %}
+
+                <section class="workflow-editor-settings-main">
+                  <div class="workflow-editor-settings-body" data-workflow-settings-fields></div>
+                </section>
+
+                {% if can_execute %}
+                  <aside class="workflow-editor-settings-pane workflow-editor-settings-output-panel" aria-label="{{ workflow_catalog.presentation.chrome.settings_panel.output_title }}">
+                    <div class="workflow-editor-settings-pane-head">
+                      <div class="workflow-editor-settings-pane-eyebrow">{{ workflow_catalog.presentation.chrome.settings_panel.output_title }}</div>
+                    </div>
+
+                    <div class="workflow-editor-settings-pane-body">
+                      <div class="workflow-editor-execution-copy" data-workflow-execution-copy hidden>
+                        <div class="workflow-editor-execution-inline-head">
+                          <div class="workflow-editor-execution-inline-title">{{ workflow_catalog.presentation.chrome.execution_panel.title }}</div>
+                          <span class="badge text-bg-secondary" data-workflow-execution-status>{{ workflow_catalog.presentation.execution.default_status.label }}</span>
+                        </div>
+                        <div class="workflow-editor-execution-inline-node">
+                          <div class="workflow-editor-execution-node-label">{{ workflow_catalog.presentation.execution.inspector.overview.selected_node }}</div>
+                          <div class="workflow-editor-execution-node-value" data-workflow-execution-selected-node>{{ workflow_catalog.presentation.execution.inspector.overview.idle_value }}</div>
+                        </div>
+                      </div>
+
+                      <div data-workflow-settings-current-output></div>
+
+                      <div class="alert alert-danger mb-0" role="alert" data-workflow-execution-error hidden></div>
+
+                      <div class="workflow-editor-execution-result-wrap">
+                        <div class="workflow-editor-pane-empty-state workflow-editor-pane-empty-state--output" data-workflow-execution-empty>
+                          <div class="workflow-editor-pane-empty-icon" aria-hidden="true">
+                            <i class="mdi mdi-arrow-right"></i>
+                          </div>
+                          <div class="workflow-editor-pane-empty-title">No output data</div>
+                          <button
+                            type="button"
+                            class="btn btn-danger btn-sm"
+                            data-workflow-run-selected-node
+                          >
+                            <i class="mdi mdi-play"></i>
+                            <span class="ms-1">{{ workflow_catalog.presentation.execution.run_button.idle }}</span>
+                          </button>
+                          <div class="workflow-editor-pane-empty-caption">
+                            Run the selected node to inspect output, trace, and context here.
+                          </div>
+                        </div>
+                        <div data-workflow-execution-result hidden>
+                          <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+                            <div>
+                              <div class="fw-semibold" data-workflow-execution-title>{{ workflow_catalog.presentation.execution.result_labels.workflow_run }}</div>
+                              <div class="text-secondary small" data-workflow-execution-summary></div>
+                            </div>
+                            <span class="badge text-bg-secondary" data-workflow-execution-badge>{{ workflow_catalog.presentation.execution.default_status.label }}</span>
+                          </div>
+
+                          <div class="alert alert-danger mb-3" role="alert" data-workflow-execution-run-error hidden></div>
+
+                          <div class="workflow-editor-execution-inspector" data-workflow-execution-body></div>
+                        </div>
+                      </div>
+                    </div>
+                  </aside>
+                {% endif %}
               </div>
             </section>
           </div>
@@ -226,59 +306,6 @@
           ></div>
         </div>
         </section>
-        {% if can_execute %}
-          <aside class="workflow-editor-execution-panel" aria-label="{{ workflow_catalog.presentation.chrome.execution_panel.aria_label }}">
-            <div class="workflow-editor-execution-card">
-              <div class="workflow-editor-execution-copy">
-                <div class="workflow-editor-execution-head">
-                  <div>
-                    <h3 class="workflow-editor-execution-title">{{ workflow_catalog.presentation.chrome.execution_panel.title }}</h3>
-                    <div class="workflow-editor-execution-description">
-                      {{ workflow_catalog.presentation.chrome.execution_panel.description }}
-                    </div>
-                  </div>
-                  <span class="badge text-bg-secondary" data-workflow-execution-status>{{ workflow_catalog.presentation.execution.default_status.label }}</span>
-                </div>
-                <div class="workflow-editor-execution-node-row">
-                  <div class="workflow-editor-execution-node-copy">
-                    <div class="workflow-editor-execution-node-label">{{ workflow_catalog.presentation.execution.inspector.overview.selected_node }}</div>
-                    <div class="workflow-editor-execution-node-value" data-workflow-execution-selected-node>{{ workflow_catalog.presentation.execution.inspector.overview.idle_value }}</div>
-                  </div>
-                  <button
-                    type="button"
-                    class="btn btn-outline-primary btn-sm"
-                    data-workflow-run-selected-node
-                    hidden
-                  >
-                    <i class="mdi mdi-play"></i>
-                    <span class="ms-1">{{ workflow_catalog.presentation.execution.run_button.idle }}</span>
-                  </button>
-                </div>
-              </div>
-
-              <div class="alert alert-danger mb-0" role="alert" data-workflow-execution-error hidden></div>
-
-              <div class="workflow-editor-execution-result-wrap">
-                <div class="empty-state" data-workflow-execution-empty>
-                  {{ workflow_catalog.presentation.chrome.execution_panel.empty }}
-                </div>
-                <div data-workflow-execution-result hidden>
-                  <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
-                    <div>
-                      <div class="fw-semibold" data-workflow-execution-title>{{ workflow_catalog.presentation.execution.result_labels.workflow_run }}</div>
-                      <div class="text-secondary small" data-workflow-execution-summary></div>
-                    </div>
-                    <span class="badge text-bg-secondary" data-workflow-execution-badge>{{ workflow_catalog.presentation.execution.default_status.label }}</span>
-                  </div>
-
-                  <div class="alert alert-danger mb-3" role="alert" data-workflow-execution-run-error hidden></div>
-
-                  <div class="workflow-editor-execution-inspector" data-workflow-execution-body></div>
-                </div>
-              </div>
-            </div>
-          </aside>
-        {% endif %}
       </section>
     </section>
   </form>

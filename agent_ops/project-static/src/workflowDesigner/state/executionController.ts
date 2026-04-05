@@ -2,7 +2,7 @@ import type { ExecutionElements } from '../dom';
 import type { WorkflowExecutionPresentation, WorkflowNode } from '../types';
 import { escapeHtml, formatKindLabel, isNodeDisabled } from '../utils';
 
-type DesignerRunResponse = {
+export type DesignerRunResponse = {
   message: string;
   mode: string;
   node?: {
@@ -33,7 +33,7 @@ type DesignerRunResponse = {
 
 export type ExecutionInspectorTab = 'overview' | 'output' | 'input' | 'context' | 'steps' | 'trace';
 
-type DesignerRunStep = {
+export type DesignerRunStep = {
   kind?: string;
   label?: string;
   node_id?: string;
@@ -61,6 +61,7 @@ export function createWorkflowDesignerExecutionController(params: {
   getActiveExecutionNodeId: () => string | null;
   getExecutionActiveNodeIds: () => string[];
   getExecutionFailedNodeIds: () => string[];
+  getLastExecutionPayload: () => DesignerRunResponse | null;
   getExecutionSucceededNodeId: () => string | null;
   getIsExecutionPending: () => boolean;
   renderExecutionNodeAction: () => void;
@@ -172,13 +173,13 @@ export function createWorkflowDesignerExecutionController(params: {
   }
 
   function resolveDefaultExecutionTab(payload: DesignerRunResponse): ExecutionInspectorTab {
+    if (parseJsonValue(payload.run.output_json) !== null) {
+      return 'output';
+    }
+
     const parsedSteps = parseJsonValue<DesignerRunStep[]>(payload.run.steps_json);
     if (Array.isArray(parsedSteps) && parsedSteps.length > 0) {
       return 'steps';
-    }
-
-    if (parseJsonValue(payload.run.output_json) !== null) {
-      return 'output';
     }
 
     return 'overview';
@@ -196,6 +197,9 @@ export function createWorkflowDesignerExecutionController(params: {
     const parsedSteps = parseJsonValue<DesignerRunStep[]>(payload.run.steps_json);
     const steps = Array.isArray(parsedSteps) ? parsedSteps : [];
     const tabs = executionPresentation.inspector.tabs;
+    const orderedTabs = (
+      ['output', 'context', 'input', 'overview', 'steps', 'trace'] as ExecutionInspectorTab[]
+    ).filter((tabKey) => Object.prototype.hasOwnProperty.call(tabs, tabKey));
     const overviewLabels = executionPresentation.inspector.overview;
     const selectedStep = steps[selectedExecutionStepIndex] ?? null;
 
@@ -327,7 +331,7 @@ export function createWorkflowDesignerExecutionController(params: {
 
     execution.resultBody.innerHTML = `
       <div class="workflow-editor-execution-tab-list" role="tablist" aria-label="Execution inspector">
-        ${(Object.keys(tabs) as ExecutionInspectorTab[])
+        ${orderedTabs
           .map(
             (tabKey) => `
               <button
@@ -410,6 +414,9 @@ export function createWorkflowDesignerExecutionController(params: {
     }
 
     execution.resultEmpty.hidden = true;
+    if (execution.copy) {
+      execution.copy.hidden = false;
+    }
     execution.result.hidden = false;
     execution.resultTitle.textContent = modeLabel;
     execution.resultSummary.textContent = summaryParts.join(' · ');
@@ -540,11 +547,15 @@ export function createWorkflowDesignerExecutionController(params: {
   }
 
   function renderExecutionNodeAction(): void {
-    if (!execution?.nodeRunButton) {
+    if (!execution) {
       return;
     }
 
     const selectedNode = getNode(getSelectedNodeId());
+    const hasExecutionPayload = Boolean(lastExecutionPayload);
+    if (execution.copy) {
+      execution.copy.hidden = !hasExecutionPayload;
+    }
     if (execution.selectedNode) {
       execution.selectedNode.textContent = selectedNode
         ? selectedNode.label || selectedNode.id
@@ -552,24 +563,28 @@ export function createWorkflowDesignerExecutionController(params: {
     }
 
     if (!selectedNode) {
-      execution.nodeRunButton.hidden = true;
-      execution.nodeRunButton.disabled = true;
-      execution.nodeRunButton.innerHTML = `
-        <i class="mdi mdi-play"></i>
-        <span class="ms-1">${executionPresentation.run_button.idle}</span>
-      `;
+      execution.nodeRunButtons.forEach((button) => {
+        button.hidden = true;
+        button.disabled = true;
+        button.innerHTML = `
+          <i class="mdi mdi-play"></i>
+          <span class="ms-1">${executionPresentation.run_button.idle}</span>
+        `;
+      });
       return;
     }
 
     const isNodeExecutionPending =
       executionActiveNodeIds.includes(selectedNode.id)
       || (isExecutionPending && activeExecutionNodeId === selectedNode.id);
-    execution.nodeRunButton.hidden = false;
-    execution.nodeRunButton.disabled = isExecutionPending || isNodeDisabled(selectedNode);
-    execution.nodeRunButton.innerHTML = `
-      <i class="mdi ${isNodeExecutionPending ? 'mdi-loading mdi-spin' : 'mdi-play'}"></i>
-      <span class="ms-1">${isNodeExecutionPending ? executionPresentation.run_button.running : executionPresentation.run_button.idle}</span>
-    `;
+    execution.nodeRunButtons.forEach((button) => {
+      button.hidden = false;
+      button.disabled = isExecutionPending || isNodeDisabled(selectedNode);
+      button.innerHTML = `
+        <i class="mdi ${isNodeExecutionPending ? 'mdi-loading mdi-spin' : 'mdi-play'}"></i>
+        <span class="ms-1">${isNodeExecutionPending ? executionPresentation.run_button.running : executionPresentation.run_button.idle}</span>
+      `;
+    });
   }
 
   return {
@@ -577,6 +592,7 @@ export function createWorkflowDesignerExecutionController(params: {
     getActiveExecutionNodeId: () => activeExecutionNodeId,
     getExecutionActiveNodeIds: () => executionActiveNodeIds,
     getExecutionFailedNodeIds: () => executionFailedNodeIds,
+    getLastExecutionPayload: () => lastExecutionPayload,
     getExecutionSucceededNodeId: () => executionSucceededNodeId,
     getIsExecutionPending: () => isExecutionPending,
     renderExecutionNodeAction,

@@ -42,7 +42,11 @@ import { normalizeWorkflowDefinition, serializeWorkflowDefinition } from './work
 import { createWorkflowDesignerGraphController } from './workflowDesigner/state/graphController';
 import { createGraphStore } from './workflowDesigner/state/graphStore';
 import { createWorkflowDesignerCanvasController } from './workflowDesigner/state/canvasController';
-import { createWorkflowDesignerExecutionController } from './workflowDesigner/state/executionController';
+import {
+  createWorkflowDesignerExecutionController,
+  type DesignerRunResponse,
+  type DesignerRunStep,
+} from './workflowDesigner/state/executionController';
 import { createWorkflowDesignerRenderController } from './workflowDesigner/state/renderController';
 import { createWorkflowDesignerSelectionController } from './workflowDesigner/state/selectionController';
 import type {
@@ -58,6 +62,7 @@ import type {
 import {
   cloneValue,
   createId,
+  escapeHtml,
   formatKindLabel,
   isTemplateFieldVisible,
   parseJsonScript,
@@ -196,6 +201,13 @@ export function initWorkflowDesigner(): void {
         settings_panel: {
           aria_label: 'Node settings',
           close_label: 'Close node settings',
+          input_description: 'Latest results from previous nodes on the main path.',
+          input_title: 'Input',
+          output_description: 'Latest current-node result plus the full execution inspector.',
+          output_title: 'Output',
+          parameters_tab: 'Parameters',
+          settings_empty: 'No additional settings for this node.',
+          settings_tab: 'Settings',
           title: 'Node settings',
         },
         toolbar: {
@@ -597,14 +609,31 @@ export function initWorkflowDesigner(): void {
     );
   }
 
+  let selectedSettingsTab: 'parameters' | 'settings' = 'parameters';
+  let selectedSettingsTabNodeId: string | null = null;
+
   function renderSettingsPanel(): void {
     const settingsNode = getNode(getSettingsNodeId());
     const nodeDefinition = getNodeDefinition(settingsNode);
+    const settingsInput = canvas.settingsPanel.querySelector<HTMLElement>('[data-workflow-settings-input]');
+    const settingsCurrentOutput = canvas.settingsPanel.querySelector<HTMLElement>('[data-workflow-settings-current-output]');
     if (!settingsNode || !nodeDefinition) {
+      selectedSettingsTabNodeId = null;
       canvas.settingsPanel.hidden = true;
       canvas.settingsFields.innerHTML = '';
+      if (settingsInput) {
+        settingsInput.innerHTML = '';
+      }
+      if (settingsCurrentOutput) {
+        settingsCurrentOutput.innerHTML = '';
+      }
       renderExecutionNodeAction();
       return;
+    }
+
+    if (selectedSettingsTabNodeId !== settingsNode.id) {
+      selectedSettingsTab = 'parameters';
+      selectedSettingsTabNodeId = settingsNode.id;
     }
 
     const activeSettingsNode = settingsNode;
@@ -630,27 +659,73 @@ export function initWorkflowDesigner(): void {
       nodeDefinition: activeNodeDefinition,
       presentation: workflowCatalog.presentation.settings,
     });
-    const settingsMarkup = [fieldMarkup, connectionMarkup]
-      .filter((sectionMarkup) => sectionMarkup.length > 0)
-      .join('');
+    const lastExecutionPayload = getLastExecutionPayload();
+    const inputPaneMarkup = renderSettingsInputPaneMarkup({
+      getNode: (nodeId) => getNode(nodeId ?? null),
+      getNodeDefinition,
+      node: activeSettingsNode,
+      payload: lastExecutionPayload,
+      presentation: workflowCatalog.presentation,
+      workflowDefinition,
+    });
+    const parameterTabMarkup =
+      fieldMarkup
+      || `<div class="workflow-editor-settings-empty">${workflowCatalog.presentation.settings.empty}</div>`;
+    const settingsTabMarkup =
+      [
+        renderSettingsOverviewSection({
+          nodeDefinitionLabel: nodeDefinition.label,
+          nodeId: settingsNode.id,
+          presentation: workflowCatalog.presentation.settings,
+        }),
+        renderSettingsIdentitySection({
+          nodeId: settingsNode.id,
+          nodeLabel: settingsNode.label,
+          presentation: workflowCatalog.presentation.settings,
+        }),
+        connectionMarkup,
+      ]
+        .filter((sectionMarkup) => sectionMarkup.length > 0)
+        .join('')
+      || `<div class="workflow-editor-settings-empty">${escapeHtml(
+        workflowCatalog.presentation.chrome.settings_panel.settings_empty,
+      )}</div>`;
 
     const description = nodeDefinition.description || nodeDefinition.label;
     canvas.settingsPanel.hidden = false;
     canvas.settingsTitle.textContent = settingsNode.label || nodeDefinition.label;
     canvas.settingsDescription.textContent = description;
     canvas.settingsFields.innerHTML = `
-      ${renderSettingsOverviewSection({
-        nodeDefinitionLabel: nodeDefinition.label,
-        nodeId: settingsNode.id,
-        presentation: workflowCatalog.presentation.settings,
-      })}
-      ${renderSettingsIdentitySection({
-        nodeId: settingsNode.id,
-        nodeLabel: settingsNode.label,
-        presentation: workflowCatalog.presentation.settings,
-      })}
-      ${settingsMarkup || `<div class="workflow-editor-settings-empty">${workflowCatalog.presentation.settings.empty}</div>`}
+      <div class="workflow-editor-settings-tab-list" role="tablist" aria-label="Node editor tabs">
+        <button
+          type="button"
+          class="workflow-editor-settings-tab${selectedSettingsTab === 'parameters' ? ' is-active' : ''}"
+          data-workflow-settings-tab="parameters"
+          role="tab"
+          aria-selected="${selectedSettingsTab === 'parameters' ? 'true' : 'false'}"
+        >
+          ${escapeHtml(workflowCatalog.presentation.chrome.settings_panel.parameters_tab)}
+        </button>
+        <button
+          type="button"
+          class="workflow-editor-settings-tab${selectedSettingsTab === 'settings' ? ' is-active' : ''}"
+          data-workflow-settings-tab="settings"
+          role="tab"
+          aria-selected="${selectedSettingsTab === 'settings' ? 'true' : 'false'}"
+        >
+          ${escapeHtml(workflowCatalog.presentation.chrome.settings_panel.settings_tab)}
+        </button>
+      </div>
+      <div class="workflow-editor-settings-tab-panel">
+        ${selectedSettingsTab === 'parameters' ? parameterTabMarkup : settingsTabMarkup}
+      </div>
     `;
+    if (settingsInput) {
+      settingsInput.innerHTML = inputPaneMarkup;
+    }
+    if (settingsCurrentOutput) {
+      settingsCurrentOutput.innerHTML = '';
+    }
     renderExecutionNodeAction();
   }
 
@@ -718,6 +793,7 @@ export function initWorkflowDesigner(): void {
     getActiveExecutionNodeId,
     getExecutionActiveNodeIds,
     getExecutionFailedNodeIds,
+    getLastExecutionPayload,
     getExecutionSucceededNodeId,
     getIsExecutionPending,
     renderExecutionNodeAction,
@@ -1022,6 +1098,13 @@ export function initWorkflowDesigner(): void {
     runWorkflow: () => {
       void executeDesignerRun(workflowRunUrl);
     },
+    selectSettingsTab: (tab) => {
+      if (selectedSettingsTab === tab) {
+        return;
+      }
+      selectedSettingsTab = tab;
+      renderSettingsPanel();
+    },
     selectExecutionStep,
     selectExecutionTab,
     setSearchQuery,
@@ -1038,4 +1121,190 @@ export function initWorkflowDesigner(): void {
   renderCanvas();
   renderBrowser();
   renderSettingsPanel();
+}
+
+function parseDesignerJsonValue<T>(value: string | null): T | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value) as T;
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
+
+function formatDesignerJsonValue(value: unknown, fallback = '{}'): string {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch (error) {
+    console.error(error);
+    return fallback;
+  }
+}
+
+function buildStepLookup(payload: DesignerRunResponse | null): Map<string, DesignerRunStep> {
+  const steps = parseDesignerJsonValue<DesignerRunStep[]>(payload?.run.steps_json ?? null) ?? [];
+
+  return new Map(
+    steps
+      .filter(
+        (step): step is DesignerRunStep & { node_id: string } =>
+          typeof step.node_id === 'string' && step.node_id.length > 0,
+      )
+      .map((step) => [step.node_id, step]),
+  );
+}
+
+function getMainPathIncomingSourceIds(workflowDefinition: WorkflowDefinition, nodeId: string): string[] {
+  return Array.from(
+    new Set(
+      workflowDefinition.edges
+        .filter(
+          (edge) =>
+            edge.target === nodeId
+            && edge.targetPort !== 'ai_languageModel'
+            && edge.targetPort !== 'ai_tool',
+        )
+        .map((edge) => edge.source),
+    ),
+  );
+}
+
+function renderSettingsInputPaneMarkup(params: {
+  getNode: (nodeId: string | null | undefined) => WorkflowNode | undefined;
+  getNodeDefinition: (node: WorkflowNode | undefined) => WorkflowNodeDefinition | undefined;
+  node: WorkflowNode;
+  payload: DesignerRunResponse | null;
+  presentation: WorkflowCatalogPayload['presentation'];
+  workflowDefinition: WorkflowDefinition;
+}): string {
+  const { getNode, getNodeDefinition, node, payload, presentation, workflowDefinition } = params;
+  const settingsExecutionGroup = presentation.settings.groups.execution ?? {
+    title: 'Execution data',
+    description: 'Inspect upstream results and the latest result for this node.',
+  };
+  const fields = settingsExecutionGroup.fields ?? {};
+  const incomingSourceIds = getMainPathIncomingSourceIds(workflowDefinition, node.id);
+
+  if (!payload) {
+    return renderSettingsPaneEmptyState({
+      action: 'previous',
+      caption: 'Execute previous nodes to view input data.',
+      title: 'No input data',
+    });
+  }
+
+  const stepByNodeId = buildStepLookup(payload);
+  const runMeta = [
+    payload.mode.startsWith('node') ? 'Latest node run' : 'Latest workflow run',
+    `Run #${payload.run.id}`,
+    presentation.execution.statuses[payload.run.status]?.label ?? payload.run.status,
+  ].join(' · ');
+
+  if (incomingSourceIds.length === 0) {
+    return renderSettingsPaneEmptyState({
+      caption: fields.no_previous ?? 'This node has no previous nodes on the main path.',
+      title: 'No input data',
+    });
+  }
+
+  return `
+    <div class="workflow-editor-settings-results-stack">
+      <div class="workflow-editor-settings-help">${escapeHtml(runMeta)}</div>
+      <div class="workflow-editor-settings-results-list">
+        ${incomingSourceIds
+          .map((sourceId) =>
+            renderSettingsResultCard({
+              emptyLabel: fields.no_result ?? 'No result in the latest run.',
+              getNode,
+              getNodeDefinition,
+              nodeId: sourceId,
+              step: stepByNodeId.get(sourceId) ?? null,
+            }),
+          )
+          .join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderSettingsPaneEmptyState(params: {
+  action?: 'previous' | 'selected';
+  caption: string;
+  title: string;
+}): string {
+  const buttonMarkup = (() => {
+    if (params.action === 'previous') {
+      return `
+        <button type="button" class="btn btn-danger btn-sm" data-workflow-run-previous-nodes>
+          <i class="mdi mdi-play"></i>
+          <span class="ms-1">Execute previous nodes</span>
+        </button>
+      `;
+    }
+
+    if (params.action === 'selected') {
+      return `
+        <button type="button" class="btn btn-danger btn-sm" data-workflow-run-selected-node>
+          <i class="mdi mdi-play"></i>
+          <span class="ms-1">Run node</span>
+        </button>
+      `;
+    }
+
+    return '';
+  })();
+
+  return `
+    <div class="workflow-editor-pane-empty-state">
+      <div class="workflow-editor-pane-empty-icon" aria-hidden="true">
+        <i class="mdi mdi-arrow-right"></i>
+      </div>
+      <div class="workflow-editor-pane-empty-title">${escapeHtml(params.title)}</div>
+      ${buttonMarkup}
+      <div class="workflow-editor-pane-empty-caption">${escapeHtml(params.caption)}</div>
+    </div>
+  `;
+}
+
+function renderSettingsResultCard(params: {
+  emptyLabel: string;
+  getNode: (nodeId: string | null | undefined) => WorkflowNode | undefined;
+  getNodeDefinition: (node: WorkflowNode | undefined) => WorkflowNodeDefinition | undefined;
+  nodeId: string;
+  step: DesignerRunStep | null;
+}): string {
+  const node = params.getNode(params.nodeId);
+  const definition = params.getNodeDefinition(node);
+  const title = node?.label || params.step?.label || params.nodeId;
+  const metaParts = [
+    definition ? formatKindLabel(definition.kind) : '',
+    definition?.label ?? '',
+    params.nodeId,
+  ].filter((part) => part);
+
+  return `
+    <div class="workflow-editor-settings-result-card">
+      <div class="workflow-editor-settings-result-head">
+        <div class="workflow-editor-settings-result-title">${escapeHtml(title)}</div>
+        <div class="workflow-editor-settings-result-meta">${escapeHtml(metaParts.join(' · '))}</div>
+      </div>
+      ${
+        params.step
+          ? `<pre class="workflow-json-preview mb-0">${escapeHtml(formatDesignerJsonValue(params.step.result ?? {}, '{}'))}</pre>`
+          : `<div class="workflow-editor-settings-empty">${escapeHtml(params.emptyLabel)}</div>`
+      }
+    </div>
+  `;
 }

@@ -35,6 +35,7 @@ export function registerWorkflowDesignerUiBindings(params: {
   runNode: (nodeId: string) => void;
   runSelectedNode: () => void;
   runWorkflow: () => void;
+  selectSettingsTab: (tab: 'parameters' | 'settings') => void;
   selectExecutionStep: (stepIndex: number) => void;
   selectExecutionTab: (tab: ExecutionInspectorTab) => void;
   setSearchQuery: (value: string) => void;
@@ -81,6 +82,7 @@ export function registerWorkflowDesignerUiBindings(params: {
     runNode,
     runSelectedNode,
     runWorkflow,
+    selectSettingsTab,
     selectExecutionStep,
     selectExecutionTab,
     setSearchQuery,
@@ -150,6 +152,20 @@ export function registerWorkflowDesignerUiBindings(params: {
 
     if (target.closest('[data-workflow-run-selected-node]')) {
       runSelectedNode();
+      return;
+    }
+
+    if (target.closest('[data-workflow-run-previous-nodes]')) {
+      runSelectedNode();
+      return;
+    }
+
+    const settingsTab = target.closest<HTMLElement>('[data-workflow-settings-tab]');
+    if (
+      settingsTab?.dataset.workflowSettingsTab === 'parameters'
+      || settingsTab?.dataset.workflowSettingsTab === 'settings'
+    ) {
+      selectSettingsTab(settingsTab.dataset.workflowSettingsTab);
       return;
     }
 
