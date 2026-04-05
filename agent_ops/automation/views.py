@@ -123,7 +123,7 @@ def _resolve_public_webhook_trigger_request(request) -> tuple[Workflow, dict, di
     for workflow in workflows.iterator():
         nodes = normalize_workflow_definition_nodes(workflow.definition or {}).get("nodes", [])
         for node in nodes:
-            if not isinstance(node, dict) or node.get("type") != "core.webhook_trigger":
+            if not _is_webhook_trigger_node(node):
                 continue
             if get_configured_webhook_path(node.get("config") or {}) != webhook_path:
                 continue
