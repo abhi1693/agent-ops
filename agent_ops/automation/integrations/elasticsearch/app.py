@@ -1,5 +1,9 @@
 from automation.catalog.capabilities import CAPABILITY_AGENT_TOOL
-from automation.catalog.execution import resolve_connection_request_auth, resolve_connection_with_base_url
+from automation.catalog.execution import (
+    get_runtime_connection_slot_value,
+    resolve_connection_request_auth,
+    resolve_connection_with_base_url,
+)
 from automation.catalog.definitions import (
     CatalogNodeDefinition,
     ConnectionHttpAuthDefinition,
@@ -81,7 +85,7 @@ def _execute_elasticsearch_search(runtime: WorkflowNodeExecutionContext) -> Work
         "elasticsearch_search",
         output_key=output_key,
         hit_count=len(hits),
-        connection_id=runtime.config.get("connection_id"),
+        connection_id=get_runtime_connection_slot_value(runtime),
     )
     secret_meta = resolved.secret_metas.get("auth_token")
     if secret_meta is not None:
@@ -97,7 +101,7 @@ ELASTICSEARCH_CONNECTION = ConnectionTypeDefinition(
     integration_id="elasticsearch",
     label="Elasticsearch API",
     auth_kind="http_secret",
-    description="Reusable HTTP connection for Elasticsearch clusters and compatible search endpoints.",
+    description="Reusable HTTP credential for Elasticsearch clusters and compatible search endpoints.",
     http_auth=ConnectionHttpAuthDefinition(
         headers=(
             ConnectionHttpHeaderDefinition(
@@ -120,18 +124,18 @@ ELASTICSEARCH_CONNECTION = ConnectionTypeDefinition(
         ),
         ParameterDefinition(
             key="auth_token",
-            label="Auth Token Secret",
+            label="Auth Token",
             value_type="secret_ref",
             required=False,
-            description="Optional secret reference used in the Authorization header.",
-            placeholder="ELASTICSEARCH_API_KEY",
+            description="Optional authorization token stored with this connection.",
+            placeholder="elastic-auth-token",
         ),
         ParameterDefinition(
             key="auth_scheme",
             label="Auth Scheme",
             value_type="string",
             required=False,
-            description="Authorization scheme used with the connection secret.",
+            description="Authorization scheme applied to the stored auth token.",
             default="ApiKey",
             options=(
                 ParameterOptionDefinition(value="ApiKey", label="ApiKey"),
@@ -167,10 +171,10 @@ APP = IntegrationApp(
             connection_slots=(
                 ConnectionSlotDefinition(
                     key="connection_id",
-                    label="Connection",
+                    label="Credential for Elasticsearch",
                     allowed_connection_types=(ELASTICSEARCH_CONNECTION.id,),
                     required=True,
-                    description="Reusable Elasticsearch connection used for authenticated search requests.",
+                    description="Reusable Elasticsearch credential used for authenticated search requests.",
                 ),
             ),
             parameter_schema=(

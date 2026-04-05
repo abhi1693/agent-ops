@@ -922,7 +922,12 @@ export function initWorkflowDesigner(): void {
       workflowDefinition,
     });
     const parameterTabMarkup =
-      fieldMarkup
+      [
+        fieldMarkup,
+        connectionMarkup,
+      ]
+        .filter((markup) => markup && markup.trim().length > 0)
+        .join('')
       || `<div class="workflow-editor-settings-empty">${workflowCatalog.presentation.settings.empty}</div>`;
     const settingsTabMarkup =
       [
@@ -936,7 +941,6 @@ export function initWorkflowDesigner(): void {
           nodeLabel: settingsNode.label,
           presentation: workflowCatalog.presentation.settings,
         }),
-        connectionMarkup,
       ]
         .filter((sectionMarkup) => sectionMarkup.length > 0)
         .join('')

@@ -94,14 +94,22 @@ export function renderSettingsSection(params: {
     return '';
   }
 
+  const hasSectionHead = params.title.trim().length > 0 || params.description.trim().length > 0;
+
   return `
     <section class="workflow-editor-settings-section">
-      <div class="workflow-editor-settings-section-head">
-        <div class="workflow-editor-settings-section-title">${escapeHtml(params.title)}</div>
-        ${params.description.trim()
-          ? `<div class="workflow-editor-settings-section-description">${escapeHtml(params.description)}</div>`
-          : ''}
-      </div>
+      ${hasSectionHead
+        ? `
+          <div class="workflow-editor-settings-section-head">
+            ${params.title.trim()
+              ? `<div class="workflow-editor-settings-section-title">${escapeHtml(params.title)}</div>`
+              : ''}
+            ${params.description.trim()
+              ? `<div class="workflow-editor-settings-section-description">${escapeHtml(params.description)}</div>`
+              : ''}
+          </div>
+        `
+        : ''}
       <div class="workflow-editor-settings-section-body">
         ${params.body}
       </div>
@@ -157,6 +165,20 @@ function renderWebhookTriggerSection(params: {
         >
       </div>
     `,
+  });
+}
+
+function isConnectionSlotVisible(
+  node: WorkflowNode,
+  slot: NonNullable<WorkflowNodeDefinition['connection_slots']>[number],
+): boolean {
+  if (!slot.visible_when) {
+    return true;
+  }
+
+  return Object.entries(slot.visible_when).every(([configKey, allowedValues]) => {
+    const currentValue = getConfigString(node.config, configKey);
+    return allowedValues.includes(currentValue);
   });
 }
 
@@ -560,12 +582,13 @@ export function renderNodeConnectionSection(params: {
   presentation: WorkflowSettingsPresentation;
 }): string {
   const connectionSlots = params.nodeDefinition.connection_slots ?? [];
-  if (connectionSlots.length === 0) {
+  const visibleConnectionSlots = connectionSlots.filter((slot) => isConnectionSlotVisible(params.node, slot));
+  if (visibleConnectionSlots.length === 0) {
     return '';
   }
 
   const connectionPresentation = params.presentation.groups.connection;
-  const body = connectionSlots
+  const body = visibleConnectionSlots
     .map((slot) => {
       const fieldId = `workflow-node-connection-${params.node.id}-${slot.key}`;
       const currentValue = getConfigString(params.node.config, slot.key);
@@ -590,38 +613,21 @@ export function renderNodeConnectionSection(params: {
           value: currentValue,
         });
       }
+      const selectPlaceholder = selectableConnections.length === 0 ? 'No credentials yet' : 'Select credential';
 
-      const allowedTypes = slot.allowed_connection_types.join(', ');
-      const previewParts: string[] = [];
-      if (slot.required) {
-        previewParts.push('This node needs a compatible connection.');
-      }
-      if (allowedTypes) {
-        previewParts.push(`Allowed types: ${allowedTypes}`);
-      }
-      if (selectableConnections.length === 0) {
-        previewParts.push('No enabled compatible connections are available yet.');
-      }
-      if (currentConnection?.supports_oauth) {
-        previewParts.push(
-          currentConnection.oauth_connected
-            ? 'OAuth account connected.'
-            : 'OAuth authorization still needs to be completed.',
-        );
-      }
-
+      let setupCredentialButton = '';
       const actionButtons: string[] = [];
       if (params.connectionCreateUrl) {
-        actionButtons.push(`
+        setupCredentialButton = `
           <button
             type="button"
             class="btn btn-sm btn-outline-secondary"
             data-workflow-connection-create="${escapeHtml(params.connectionCreateUrl)}"
             data-workflow-connection-default-type="${escapeHtml(slot.allowed_connection_types[0] ?? '')}"
           >
-            New
+            Set up credential
           </button>
-        `);
+        `;
       }
       if (currentConnection?.edit_url) {
         actionButtons.push(`
@@ -654,25 +660,26 @@ export function renderNodeConnectionSection(params: {
             isRequired: slot.required,
             label: slot.label,
           })}
-          <select
-            id="${escapeHtml(fieldId)}"
-            class="form-select workflow-editor-settings-control"
-            data-node-setting-key="${escapeHtml(slot.key)}"
-            data-node-setting-type="select"
-          >
-            <option value="">${escapeHtml(params.presentation.controls.select_placeholder)}</option>
-            ${options
-              .map(
-                (option) => `
-                  <option value="${escapeHtml(option.value)}"${option.value === currentValue ? ' selected' : ''}>
-                    ${escapeHtml(option.label)}
-                  </option>
-                `,
-              )
-              .join('')}
-          </select>
-          ${slot.description ? `<div class="workflow-editor-settings-help">${escapeHtml(slot.description)}</div>` : ''}
-          ${previewParts.length > 0 ? `<div class="workflow-editor-settings-preview">${escapeHtml(previewParts.join(' '))}</div>` : ''}
+          <div class="workflow-editor-settings-credential-row">
+            <select
+              id="${escapeHtml(fieldId)}"
+              class="form-select workflow-editor-settings-control"
+              data-node-setting-key="${escapeHtml(slot.key)}"
+              data-node-setting-type="select"
+            >
+              <option value="">${escapeHtml(selectPlaceholder)}</option>
+              ${options
+                .map(
+                  (option) => `
+                    <option value="${escapeHtml(option.value)}"${option.value === currentValue ? ' selected' : ''}>
+                      ${escapeHtml(option.label)}
+                    </option>
+                  `,
+                )
+                .join('')}
+            </select>
+            ${setupCredentialButton}
+          </div>
           ${actionButtons.length > 0 ? `<div class="workflow-editor-settings-action-row">${actionButtons.join('')}</div>` : ''}
         </div>
       `;
@@ -681,7 +688,7 @@ export function renderNodeConnectionSection(params: {
 
   return renderSettingsSection({
     body,
-    description: connectionPresentation?.description ?? '',
-    title: connectionPresentation?.title ?? 'Connection',
+    description: visibleConnectionSlots.length > 1 ? connectionPresentation?.description ?? '' : '',
+    title: visibleConnectionSlots.length > 1 ? connectionPresentation?.title ?? 'Credentials' : '',
   });
 }

@@ -342,13 +342,6 @@ class Workflow(PrimaryModel):
         blank=True,
         null=True,
     )
-    secret_group = models.ForeignKey(
-        "automation.SecretGroup",
-        on_delete=models.SET_NULL,
-        related_name="workflows",
-        blank=True,
-        null=True,
-    )
     name = models.CharField(max_length=150)
     enabled = models.BooleanField(default=True)
     definition = models.JSONField(default=_default_definition, blank=True)
@@ -427,20 +420,6 @@ class Workflow(PrimaryModel):
 
         if self.organization is None:
             raise ValidationError({"organization": "A workflow must be scoped to at least an organization."})
-
-        if self.secret_group_id:
-            if self.secret_group.organization_id != self.organization_id:
-                raise ValidationError(
-                    {"secret_group": "Secret group must belong to the same organization as the workflow."}
-                )
-            if self.secret_group.workspace_id != self.workspace_id:
-                raise ValidationError(
-                    {"secret_group": "Secret group must use the same workspace scope as the workflow."}
-                )
-            if self.secret_group.environment_id != self.environment_id:
-                raise ValidationError(
-                    {"secret_group": "Secret group must use the same environment scope as the workflow."}
-                )
 
         _validate_unique_scope_name(self)
 

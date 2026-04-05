@@ -16,7 +16,6 @@ from automation.queue import (
     get_workflow_queue_name,
 )
 from automation.runtime_types import WorkflowNodeExecutionContext
-from automation.auth import resolve_workflow_secret_ref
 from automation.workflow_connections import (
     build_auxiliary_connections_by_target,
     get_edge_target_port,
@@ -143,23 +142,6 @@ def _redact_value(
 
     return value
 
-
-def _resolve_scoped_secret(
-    workflow,
-    *,
-    secret_name: str,
-    secret_group_id=None,
-    required: bool = True,
-):
-    return resolve_workflow_secret_ref(
-        workflow,
-        secret_name=secret_name,
-        secret_group_id=secret_group_id,
-        error_field="definition",
-        required=required,
-    )
-
-
 def _evaluate_condition(operator: str, left_value: Any, right_value: Any) -> bool:
     if operator == "equals":
         return left_value == right_value
@@ -238,7 +220,6 @@ def _execute_node(
             render_template=_render_template,
             get_path_value=_get_path_value,
             set_path_value=_set_path_value,
-            resolve_scoped_secret=_resolve_scoped_secret,
             evaluate_condition=_evaluate_condition,
             input_items=input_items,
             inputs_by_source=inputs_by_source,

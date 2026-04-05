@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
 
-from automation.models import Workflow
+from automation.models import Workflow, WorkflowConnection
 from core.models import PrimaryModel
 from tenancy.models import Environment, Organization, Workspace
 
@@ -151,9 +151,8 @@ class WorkflowModelTests(TestCase):
                         "type": "openai.model.chat",
                         "label": "OpenAI chat model",
                         "config": {
-                            "base_url": "https://api.openai.com/v1",
+                            "connection_id": "openai-connection",
                             "model": "gpt-4.1-mini",
-                            "secret_name": "OPENAI_API_KEY",
                         },
                         "position": {"x": 320, "y": 240},
                     },
@@ -206,7 +205,7 @@ class WorkflowModelTests(TestCase):
 
         workflow.full_clean()
 
-    def test_workflow_runtime_requires_exactly_one_trigger_node(self):
+    def test_workflow_runtime_allows_multiple_trigger_nodes(self):
         workflow = Workflow(
             environment=self.environment,
             name="Multiple triggers",
@@ -231,8 +230,7 @@ class WorkflowModelTests(TestCase):
             },
         )
 
-        with self.assertRaises(ValidationError):
-            workflow.full_clean()
+        workflow.full_clean()
 
     def test_workflow_condition_edges_must_use_named_output_ports(self):
         workflow = Workflow(
@@ -470,119 +468,46 @@ class WorkflowModelTests(TestCase):
         self.assertIn('Webhook path "orders/new" is already used', str(context.exception))
 
     def test_workflow_rejects_mcp_tool_secret_headers_in_manual_headers_json(self):
-        workflow = Workflow(
+        connection = WorkflowConnection(
             environment=self.environment,
             name="Invalid MCP headers workflow",
-            definition={
-                "nodes": [
-                    {
-                        "id": "trigger-1",
-                        "kind": "trigger",
-                        "type": "core.manual_trigger",
-                        "label": "Manual",
-                        "position": {"x": 32, "y": 40},
-                    },
-                    {
-                        "id": "tool-1",
-                        "kind": "tool",
-                        "type": "openai.model.chat",
-                        "label": "OpenAI chat model",
-                        "config": {
-                            "base_url": "https://user:hardcoded-secret@api.openai.com/v1",
-                            "model": "gpt-4.1-mini",
-                            "secret_name": "OPENAI_API_KEY",
-                        },
-                        "position": {"x": 320, "y": 40},
-                    },
-                    {
-                        "id": "response-1",
-                        "kind": "response",
-                        "type": "core.response",
-                        "label": "Done",
-                        "config": {
-                            "value_path": "llm.response",
-                        },
-                        "position": {"x": 608, "y": 40},
-                    },
-                ],
-                "edges": [
-                    {"id": "edge-1", "source": "trigger-1", "target": "tool-1"},
-                    {"id": "edge-2", "source": "tool-1", "target": "response-1"},
-                ],
-            },
+            integration_id="openai",
+            connection_type="openai.api",
+        )
+        connection.set_data_values(
+            {
+                "auth_mode": "api_key",
+                "base_url": "https://user:hardcoded-secret@api.openai.com/v1",
+                "api_key": "sk-test-openai",
+            }
         )
 
         with self.assertRaises(ValidationError) as context:
-            workflow.full_clean()
+            connection.full_clean()
 
         self.assertIn("cannot include embedded credentials in the URL", str(context.exception))
-        self.assertIn("Secrets must come from stored Secret objects.", str(context.exception))
+        self.assertIn("Secrets must come from stored workflow connections.", str(context.exception))
 
     def test_workflow_rejects_external_tool_urls_with_embedded_credentials(self):
-        workflow = Workflow(
+        connection = WorkflowConnection(
             environment=self.environment,
             name="Invalid OpenAI URL workflow",
-            definition={
-                "nodes": [
-                    {
-                        "id": "trigger-1",
-                        "kind": "trigger",
-                        "type": "core.manual_trigger",
-                        "label": "Manual",
-                        "position": {"x": 32, "y": 40},
-                    },
-                    {
-                        "id": "agent-1",
-                        "kind": "agent",
-                        "type": "core.agent",
-                        "label": "LLM chat",
-                        "config": {
-                            "template": "hello",
-                            "output_key": "llm.response",
-                        },
-                        "position": {"x": 320, "y": 40},
-                    },
-                    {
-                        "id": "model-1",
-                        "kind": "tool",
-                        "type": "openai.model.chat",
-                        "label": "OpenAI chat model",
-                        "config": {
-                            "base_url": "https://user:password@llm.example.com/v1",
-                            "model": "gpt-4.1-mini",
-                            "secret_name": "OPENAI_API_KEY",
-                        },
-                        "position": {"x": 320, "y": 240},
-                    },
-                    {
-                        "id": "response-1",
-                        "kind": "response",
-                        "type": "core.response",
-                        "label": "Done",
-                        "config": {
-                            "value_path": "llm.response",
-                        },
-                        "position": {"x": 608, "y": 40},
-                    },
-                ],
-                "edges": [
-                    {"id": "edge-1", "source": "trigger-1", "target": "agent-1"},
-                    {"id": "edge-2", "source": "agent-1", "target": "response-1"},
-                    {
-                        "id": "edge-3",
-                        "source": "model-1",
-                        "sourcePort": "ai_languageModel",
-                        "target": "agent-1",
-                        "targetPort": "ai_languageModel",
-                    },
-                ],
-            },
+            integration_id="openai",
+            connection_type="openai.api",
+        )
+        connection.set_data_values(
+            {
+                "auth_mode": "api_key",
+                "base_url": "https://user:password@llm.example.com/v1",
+                "api_key": "sk-test-openai",
+            }
         )
 
         with self.assertRaises(ValidationError) as context:
-            workflow.full_clean()
+            connection.full_clean()
 
         self.assertIn("cannot include embedded credentials", str(context.exception))
+        self.assertIn("Secrets must come from stored workflow connections.", str(context.exception))
 
     def test_workflow_database_constraint_prevents_duplicates_without_full_clean(self):
         Workflow.objects.create(

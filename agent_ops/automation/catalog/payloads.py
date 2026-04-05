@@ -272,7 +272,7 @@ WORKFLOW_DESIGNER_PRESENTATION: dict[str, Any] = {
             },
             "connection": {
                 "description": "",
-                "title": "Connection",
+                "title": "Credentials",
             },
             "overview": {
                 "description": "",

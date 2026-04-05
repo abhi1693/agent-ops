@@ -13,6 +13,15 @@ from automation.runtime_types import WorkflowNodeExecutionContext
 from automation.tools.base import _render_runtime_external_url
 
 
+def get_runtime_connection_slot_value(
+    runtime: WorkflowNodeExecutionContext,
+    *,
+    slot_key: str = "connection_id",
+    multiple: bool = False,
+):
+    return get_connection_slot_value(runtime.config, slot_key=slot_key, multiple=multiple)
+
+
 def resolve_connection_with_base_url(
     runtime: WorkflowNodeExecutionContext,
     *,
@@ -22,7 +31,7 @@ def resolve_connection_with_base_url(
 ) -> tuple[WorkflowResolvedConnection, str]:
     resolved = resolve_workflow_connection_fields(
         runtime,
-        connection_id=get_connection_slot_value(runtime.config, slot_key=connection_slot_key),
+        connection_id=get_runtime_connection_slot_value(runtime, slot_key=connection_slot_key),
         expected_connection_type=connection_type,
     )
     raw_base_url = resolved.values.get(base_url_field)
@@ -45,7 +54,6 @@ def resolve_connection_with_base_url(
         render_template=runtime.render_template,
         get_path_value=runtime.get_path_value,
         set_path_value=runtime.set_path_value,
-        resolve_scoped_secret=runtime.resolve_scoped_secret,
         evaluate_condition=runtime.evaluate_condition,
     )
     base_url = _render_runtime_external_url(
@@ -60,6 +68,7 @@ def resolve_connection_with_base_url(
 __all__ = (
     "build_resolved_connection_request_auth",
     "get_connection_slot_value",
+    "get_runtime_connection_slot_value",
     "resolve_connection_request_auth",
     "resolve_connection_with_base_url",
 )

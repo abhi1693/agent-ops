@@ -346,6 +346,7 @@ export type WorkflowNodeDefinition = {
     label: string;
     multiple?: boolean;
     required?: boolean;
+    visible_when?: Record<string, string[]>;
   }>;
   connection_type?: string | null;
   defaultColor?: string | null;

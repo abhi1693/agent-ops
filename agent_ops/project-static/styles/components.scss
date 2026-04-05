@@ -2643,6 +2643,18 @@ tr[data-virtual='true'] {
   min-width: 0;
 }
 
+.workflow-editor-settings-credential-row {
+  display: grid;
+  gap: 0.6rem;
+}
+
+@media (min-width: 640px) {
+  .workflow-editor-settings-credential-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+}
+
 .workflow-editor-settings-help {
   color: #7b8798;
   font-size: 0.78rem;

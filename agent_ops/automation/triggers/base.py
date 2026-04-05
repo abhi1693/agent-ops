@@ -165,17 +165,6 @@ def _validate_required_string(config: dict[str, Any], key: str, *, node_id: str)
     return value
 
 
-def _validate_optional_secret_group_id(config: dict[str, Any], key: str, *, node_id: str) -> None:
-    value = config.get(key)
-    if value in (None, ""):
-        return
-    if isinstance(value, int):
-        return
-    if isinstance(value, str) and value.strip().isdigit():
-        return
-    _raise_definition_error(f'Node "{node_id}" config.{key} must be a numeric secret group ID.')
-
-
 def _coerce_csv_strings(value: Any, *, field_name: str, node_id: str, default: list[str] | None = None) -> list[str]:
     if value in (None, ""):
         return list(default or [])

@@ -28,7 +28,6 @@ class WorkflowResolvedRequestAuth:
 
 def _build_scope_queryset(runtime):
     queryset = WorkflowConnection.objects.select_related(
-        "secret_group",
         "state",
     ).filter(
         organization=runtime.workflow.organization,
@@ -87,25 +86,30 @@ def _get_connection(runtime, *, connection_id: str | int | None, expected_connec
     return connection
 
 
-def _resolve_secret_value(runtime, *, connection: WorkflowConnection, field_key: str, secret) -> tuple[str, dict[str, str | None]]:
-    secret_value = secret.get_value(obj=runtime.workflow)
-    if not isinstance(secret_value, str) or not secret_value:
+def _resolve_secret_value(
+    runtime,
+    *,
+    connection: WorkflowConnection,
+    field_key: str,
+    secret_value: Any,
+) -> tuple[str, dict[str, str | None]]:
+    if not isinstance(secret_value, str) or not secret_value.strip():
         raise ValidationError(
             {
                 "definition": (
-                    f'Connection "{connection.name}" secret "{secret.name}" for field "{field_key}" must resolve '
+                    f'Connection "{connection.name}" secret field "{field_key}" must resolve '
                     "to a non-empty string."
                 )
             }
         )
 
-    runtime.secret_values.append(secret_value)
+    normalized_secret_value = secret_value.strip()
+    runtime.secret_values.append(normalized_secret_value)
     return (
-        secret_value,
+        normalized_secret_value,
         {
-            "name": secret.name,
-            "provider": secret.provider,
-            "secret_group": secret.secret_group.name if secret.secret_group_id else None,
+            "field_key": field_key,
+            "storage": "database",
         },
     )
 
@@ -162,10 +166,10 @@ def resolve_workflow_connection_fields(
 
     resolved_values: dict[str, Any] = {}
     secret_metas: dict[str, dict[str, str | None]] = {}
-    field_values = connection.field_values or {}
+    data_values = connection.get_data_values()
 
     for field_definition in connection_definition.field_schema:
-        raw_value = field_values.get(field_definition.key)
+        raw_value = data_values.get(field_definition.key)
 
         if field_definition.value_type == "secret_ref":
             if raw_value in (None, ""):
@@ -180,63 +184,11 @@ def resolve_workflow_connection_fields(
                     )
                 continue
 
-            if not isinstance(raw_value, dict):
-                raise ValidationError(
-                    {
-                        "definition": (
-                            f'Connection "{connection.name}" field "{field_definition.key}" must be a JSON object '
-                            "when using a secret reference."
-                        )
-                    }
-                )
-
-            source = raw_value.get("source", "secret")
-            if source != "secret":
-                raise ValidationError(
-                    {
-                        "definition": (
-                            f'Connection "{connection.name}" field "{field_definition.key}" must use source '
-                            '"secret".'
-                        )
-                    }
-                )
-
-            secret_name = raw_value.get("secret_name")
-            if not isinstance(secret_name, str) or not secret_name.strip():
-                raise ValidationError(
-                    {
-                        "definition": (
-                            f'Connection "{connection.name}" field "{field_definition.key}" must define a '
-                            "non-empty secret_name."
-                        )
-                    }
-                )
-            if connection.secret_group is None:
-                raise ValidationError(
-                    {
-                        "definition": (
-                            f'Connection "{connection.name}" must define a secret group before using field '
-                            f'"{field_definition.key}".'
-                        )
-                    }
-                )
-
-            secret = connection.secret_group.get_secret(name=secret_name.strip())
-            if secret is None or not secret.enabled:
-                raise ValidationError(
-                    {
-                        "definition": (
-                            f'Connection "{connection.name}" cannot resolve enabled secret "{secret_name.strip()}" '
-                            f'for field "{field_definition.key}".'
-                        )
-                    }
-                )
-
             secret_value, secret_meta = _resolve_secret_value(
                 runtime,
                 connection=connection,
                 field_key=field_definition.key,
-                secret=secret,
+                secret_value=raw_value,
             )
             resolved_values[field_definition.key] = secret_value
             secret_metas[field_definition.key] = secret_meta

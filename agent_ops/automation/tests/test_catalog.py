@@ -19,7 +19,7 @@ class WorkflowCatalogTests(SimpleTestCase):
     def test_discovers_native_integration_packages(self):
         self.assertEqual(
             discover_integration_module_names(),
-            ("elasticsearch", "github", "openai", "prometheus"),
+            ("elasticsearch", "github", "openai", "prometheus", "webhook"),
         )
 
     def test_build_workflow_catalog_registers_native_core_nodes_and_apps(self):
@@ -41,7 +41,7 @@ class WorkflowCatalogTests(SimpleTestCase):
         )
         self.assertEqual(
             sorted(registry["integration_apps"]),
-            ["elasticsearch", "github", "openai", "prometheus"],
+            ["elasticsearch", "github", "openai", "prometheus", "webhook"],
         )
         self.assertIn("github.trigger.webhook", registry["node_types"])
         self.assertIn("prometheus.action.query", registry["node_types"])
@@ -86,7 +86,7 @@ class WorkflowCatalogTests(SimpleTestCase):
 
         openai_node = registry["node_types"]["openai.model.chat"]
         self.assertEqual(openai_node.connection_slots[0].key, "connection_id")
-        self.assertFalse(openai_node.connection_slots[0].required)
+        self.assertTrue(openai_node.connection_slots[0].required)
         self.assertEqual(openai_node.connection_slots[0].allowed_connection_types, ("openai.api",))
 
         prometheus_node = registry["node_types"]["prometheus.action.query"]
@@ -96,6 +96,62 @@ class WorkflowCatalogTests(SimpleTestCase):
         github_node = registry["node_types"]["github.trigger.webhook"]
         self.assertTrue(github_node.connection_slots[0].required)
         self.assertEqual(github_node.connection_slots[0].allowed_connection_types, ("github.oauth2",))
+
+        core_webhook_node = registry["node_types"]["core.webhook_trigger"]
+        self.assertEqual(len(core_webhook_node.connection_slots), 3)
+        self.assertEqual(
+            [slot.label for slot in core_webhook_node.connection_slots],
+            [
+                "Credential for Basic Auth",
+                "Credential for Header Auth",
+                "Credential for JWT Auth",
+            ],
+        )
+        self.assertEqual(
+            [slot.allowed_connection_types for slot in core_webhook_node.connection_slots],
+            [
+                ("webhook.basic_auth",),
+                ("webhook.header_auth", "webhook.shared_secret"),
+                ("webhook.jwt_auth",),
+            ],
+        )
+
+    def test_auth_backed_nodes_keep_credentials_in_connections_not_node_parameters(self):
+        registry = build_workflow_catalog()
+        auth_node_ids = (
+            "openai.model.chat",
+            "prometheus.action.query",
+            "elasticsearch.action.search",
+            "github.trigger.webhook",
+            "core.webhook_trigger",
+        )
+        disallowed_parameter_keys = {
+            "api_key",
+            "auth_mode",
+            "oauth_client_id",
+            "oauth_client_secret",
+            "oauth_token_url",
+            "bearer_token",
+            "auth_token",
+            "auth_scheme",
+            "webhook_secret",
+            "username",
+            "password",
+            "name",
+            "value",
+            "key_type",
+            "secret",
+            "public_key",
+            "algorithm",
+        }
+
+        for node_id in auth_node_ids:
+            node_definition = registry["node_types"][node_id]
+            self.assertTrue(node_definition.connection_slots, msg=node_id)
+            self.assertTrue(
+                disallowed_parameter_keys.isdisjoint({parameter.key for parameter in node_definition.parameter_schema}),
+                msg=node_id,
+            )
 
     def test_control_nodes_expose_named_output_ports(self):
         registry = build_workflow_catalog()
@@ -126,14 +182,14 @@ class WorkflowCatalogTests(SimpleTestCase):
         self.assertEqual(openai_definition["capabilities"], ["agent:model"])
         self.assertEqual(
             openai_definition["connection_slots"][0]["description"],
-            "Optional reusable OpenAI connection used for authenticated model requests.",
+            "Reusable OpenAI credential used for authenticated model requests.",
         )
         self.assertTrue(model_field["required"])
         self.assertEqual(model_field["value_type"], "string")
         self.assertEqual(model_field["description"], "OpenAI model identifier to execute.")
         self.assertEqual(system_prompt_field["binding"], "template")
         self.assertEqual(payload["presentation"]["settings"]["controls"]["required_badge"], "Required")
-        self.assertEqual(payload["presentation"]["settings"]["groups"]["connection"]["title"], "Connection")
+        self.assertEqual(payload["presentation"]["settings"]["groups"]["connection"]["title"], "Credentials")
         self.assertEqual(payload["presentation"]["settings"]["groups"]["docs"]["fields"]["capabilities"], "Capabilities")
         self.assertEqual(payload["presentation"]["execution"]["inspector"]["tabs"]["steps"], "Steps")
         self.assertEqual(
@@ -160,7 +216,6 @@ class WorkflowCatalogTests(SimpleTestCase):
         http_method_field = next(field for field in webhook_definition["fields"] if field["key"] == "http_method")
         authentication_field = next(field for field in webhook_definition["fields"] if field["key"] == "authentication")
         response_mode_field = next(field for field in webhook_definition["fields"] if field["key"] == "response_mode")
-        secret_field = next(field for field in webhook_definition["fields"] if field["key"] == "secret_name")
 
         self.assertEqual(set_definition["defaultName"], "Edit Fields")
         self.assertEqual(set_definition["subtitle"], "={{config.output_key}}")
@@ -181,6 +236,30 @@ class WorkflowCatalogTests(SimpleTestCase):
         self.assertEqual(http_method_field["value_type"], "string")
         self.assertEqual(authentication_field["type"], "select")
         self.assertEqual(authentication_field["value_type"], "string")
+        self.assertEqual(
+            [option["value"] for option in authentication_field["options"]],
+            ["none", "basicAuth", "headerAuth", "jwtAuth"],
+        )
+        self.assertEqual(
+            [option["label"] for option in authentication_field["options"]],
+            ["None", "Basic Auth", "Header Auth", "JWT Auth"],
+        )
         self.assertEqual(response_mode_field["type"], "select")
         self.assertEqual(response_mode_field["value_type"], "string")
-        self.assertEqual(secret_field["visible_when"], {"authentication": ["secret_header"]})
+        self.assertFalse(any(field["key"] == "secret_name" for field in webhook_definition["fields"]))
+        self.assertEqual(
+            [slot["label"] for slot in webhook_definition["connection_slots"]],
+            [
+                "Credential for Basic Auth",
+                "Credential for Header Auth",
+                "Credential for JWT Auth",
+            ],
+        )
+        self.assertEqual(
+            [slot["allowed_connection_types"] for slot in webhook_definition["connection_slots"]],
+            [
+                ["webhook.basic_auth"],
+                ["webhook.header_auth", "webhook.shared_secret"],
+                ["webhook.jwt_auth"],
+            ],
+        )

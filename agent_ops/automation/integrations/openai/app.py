@@ -15,6 +15,7 @@ from automation.integrations.openai.client import (
     validate_openai_chat_model_config,
 )
 from automation.runtime_types import WorkflowNodeExecutionContext, WorkflowNodeExecutionResult
+from automation.catalog.execution import get_runtime_connection_slot_value
 
 
 OPENAI_CODEX_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -42,7 +43,7 @@ def _execute_openai_chat_model(runtime: WorkflowNodeExecutionContext) -> Workflo
             "model": resolved_config.model,
             "base_url": resolved_config.base_url,
             "api_type": "openai_compatible",
-            "connection_id": runtime.config.get("connection_id"),
+            "connection_id": get_runtime_connection_slot_value(runtime),
         },
     )
 
@@ -52,7 +53,7 @@ OPENAI_CONNECTION = ConnectionTypeDefinition(
     integration_id="openai",
     label="OpenAI API",
     auth_kind="multi_auth",
-    description="Reusable API connection for OpenAI and OpenAI-compatible model endpoints.",
+    description="Reusable API credential for OpenAI and OpenAI-compatible model endpoints.",
     http_auth=ConnectionHttpAuthDefinition(
         headers=(
             ConnectionHttpHeaderDefinition(
@@ -97,10 +98,10 @@ OPENAI_CONNECTION = ConnectionTypeDefinition(
         ),
         ParameterDefinition(
             key="api_key",
-            label="API Key Secret",
+            label="API Key",
             value_type="secret_ref",
             required=False,
-            description="Secret reference containing the API key used for requests.",
+            description="API key used for authenticated requests.",
             placeholder="OPENAI_API_KEY",
         ),
         ParameterDefinition(
@@ -189,10 +190,10 @@ APP = IntegrationApp(
             connection_slots=(
                 ConnectionSlotDefinition(
                     key="connection_id",
-                    label="Connection",
+                    label="Credential for OpenAI",
                     allowed_connection_types=(OPENAI_CONNECTION.id,),
-                    required=False,
-                    description="Optional reusable OpenAI connection used for authenticated model requests.",
+                    required=True,
+                    description="Reusable OpenAI credential used for authenticated model requests.",
                 ),
             ),
             parameter_schema=(

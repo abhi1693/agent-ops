@@ -1,6 +1,7 @@
 import os
 import subprocess
 import tempfile
+from copy import deepcopy
 from json import loads
 from unittest.mock import patch
 from urllib.parse import parse_qs
@@ -14,7 +15,6 @@ from automation.runtime import (
     execute_workflow_node_preview,
     execute_workflow_run,
 )
-from automation.models import Secret, SecretGroup
 from tenancy.models import Environment, Organization, Workspace
 
 
@@ -54,33 +54,41 @@ class WorkflowRuntimeTests(TestCase):
             name="production",
         )
 
-    def _create_secret_group(self, *, name="Workflow secrets"):
-        return SecretGroup.objects.create(
-            environment=self.environment,
-            name=name,
-        )
+    def _create_connection(self, *, data=None, **kwargs):
+        connection = WorkflowConnection.objects.create(**kwargs)
+        if data:
+            connection.set_data_values(data)
+            connection.save(update_fields=("data",))
+        return connection
 
-    def _bind_secret(
-        self,
-        *,
-        workflow,
-        secret_name,
-        variable_name=None,
-        provider="environment-variable",
-        parameters=None,
-        secret_group=None,
-    ):
-        group = secret_group or workflow.secret_group or self._create_secret_group(name=f"{workflow.name} secrets")
-        secret = Secret.objects.create(
-            secret_group=group,
-            provider=provider,
-            name=secret_name,
-            parameters=parameters or {"variable": variable_name or secret_name},
+    def _attach_openai_connection(self, workflow, *, node_id="model-1", api_key="sk-test-openai", name=None):
+        connection = self._create_connection(
+            environment=self.environment,
+            name=name or f"{workflow.name} OpenAI",
+            integration_id="openai",
+            connection_type="openai.api",
+            data={
+                "auth_mode": "api_key",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": api_key,
+            },
         )
-        if workflow.secret_group_id != group.pk:
-            workflow.secret_group = group
-            workflow.save(update_fields=("secret_group",))
-        return secret
+        node = self._node(workflow, node_id)
+        config = dict(node.get("config") or {})
+        config.pop("connection_id", None)
+        config.pop("base_url", None)
+        config.pop("secret_name", None)
+        config.pop("secret_group_id", None)
+        config["connection_id"] = str(connection.pk)
+        node["config"] = config
+        workflow.save(update_fields=("definition",))
+        return connection
+
+    def _node(self, workflow, node_id):
+        for node in workflow.definition.get("nodes", []):
+            if node.get("id") == node_id:
+                return node
+        raise AssertionError(f"Workflow {workflow.pk} does not define node {node_id}.")
 
     def _create_incident_triage_workflow(self):
         return Workflow.objects.create(
@@ -311,10 +319,7 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        self._bind_secret(
-            workflow=workflow,
-            secret_name="OPENAI_API_KEY",
-        )
+        self._attach_openai_connection(workflow)
 
         def fake_urlopen(request, timeout=20):
             self.assertEqual(timeout, 20)
@@ -341,12 +346,11 @@ class WorkflowRuntimeTests(TestCase):
                 }
             )
 
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai"}, clear=False):
-            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
-                run = execute_workflow(
-                    workflow,
-                    input_data={"ticket_id": "T-42"},
-                )
+        with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+            run = execute_workflow(
+                workflow,
+                input_data={"ticket_id": "T-42"},
+            )
 
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.output_data["response"], "Completed Review T-42")
@@ -520,10 +524,7 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        self._bind_secret(
-            workflow=workflow,
-            secret_name="OPENAI_API_KEY",
-        )
+        self._attach_openai_connection(workflow)
 
         def fake_urlopen(request, timeout=20):
             self.assertEqual(timeout, 20)
@@ -931,7 +932,14 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(first_run.workflow_version_id, second_run.workflow_version_id)
         self.assertEqual(WorkflowVersion.objects.count(), 1)
 
-        workflow.definition["nodes"][1]["config"]["template"] = "v2"
+        updated_definition = deepcopy(workflow.definition)
+        for node in updated_definition.get("nodes", []):
+            if node.get("id") == "response-1":
+                node.setdefault("parameters", {})["template"] = "v2"
+                break
+        else:
+            self.fail(f"Workflow {workflow.pk} does not define node response-1.")
+        workflow.definition = updated_definition
         workflow.save(update_fields=("definition",))
 
         third_run = execute_workflow(workflow)
@@ -1061,17 +1069,13 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        self._bind_secret(
-            workflow=workflow,
-            secret_name="OPENAI_API_KEY",
-        )
+        self._attach_openai_connection(workflow)
 
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai"}, clear=False):
-            run = execute_workflow_node_preview(
-                workflow,
-                node_id="model-1",
-                input_data={"ticket_id": "T-42"},
-            )
+        run = execute_workflow_node_preview(
+            workflow,
+            node_id="model-1",
+            input_data={"ticket_id": "T-42"},
+        )
 
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.trigger_mode, "manual:node")
@@ -1398,22 +1402,18 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        secret = self._bind_secret(
-            workflow=workflow,
-            secret_name="OPENAI_API_KEY",
-        )
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="Primary OpenAI",
             integration_id="openai",
             connection_type="openai.api",
-            secret_group=secret.secret_group,
-            field_values={
+            data={
+                "auth_mode": "api_key",
                 "base_url": "https://api.openai.com/v1",
-                "api_key": {"source": "secret", "secret_name": secret.name},
+                "api_key": "sk-test-openai",
             },
         )
-        workflow.definition["nodes"][2]["config"]["connection_id"] = str(connection.pk)
+        self._node(workflow, "model-1")["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
 
         def fake_urlopen(request, timeout=20):
@@ -1441,12 +1441,11 @@ class WorkflowRuntimeTests(TestCase):
                 }
             )
 
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai"}, clear=False):
-            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
-                run = execute_workflow(
-                    workflow,
-                    input_data={"ticket_id": "T-42"},
-                )
+        with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+            run = execute_workflow(
+                workflow,
+                input_data={"ticket_id": "T-42"},
+            )
 
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.output_data["response"], "Completed Review T-42")
@@ -1512,22 +1511,18 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        secret = self._bind_secret(
-            workflow=workflow,
-            secret_name="OPENAI_API_KEY",
-        )
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="Typed OpenAI",
             integration_id="openai",
             connection_type="openai.api",
-            secret_group=secret.secret_group,
-            field_values={
+            data={
+                "auth_mode": "api_key",
                 "base_url": "https://api.openai.com/v1",
-                "api_key": {"source": "secret", "secret_name": secret.name},
+                "api_key": "sk-test-openai",
             },
         )
-        workflow.definition["nodes"][2]["config"]["connection_id"] = str(connection.pk)
+        self._node(workflow, "model-1")["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
 
         def fake_urlopen(request, timeout=20):
@@ -1554,12 +1549,11 @@ class WorkflowRuntimeTests(TestCase):
                 }
             )
 
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-openai"}, clear=False):
-            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
-                run = execute_workflow(
-                    workflow,
-                    input_data={"ticket_id": "T-99"},
-                )
+        with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+            run = execute_workflow(
+                workflow,
+                input_data={"ticket_id": "T-99"},
+            )
 
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.output_data["response"], "Completed Review T-99")
@@ -1624,12 +1618,12 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="OpenAI OAuth",
             integration_id="openai",
             connection_type="openai.api",
-            field_values={
+            data={
                 "auth_mode": "oauth2_authorization_code",
                 "base_url": "https://api.openai.com/v1",
                 "oauth_client_id": "client-openai-123",
@@ -1645,7 +1639,7 @@ class WorkflowRuntimeTests(TestCase):
                 "account_id": "acct_live",
             },
         )
-        workflow.definition["nodes"][2]["config"]["connection_id"] = str(connection.pk)
+        self._node(workflow, "model-1")["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
 
         def fake_urlopen(request, timeout=20):
@@ -1733,22 +1727,17 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        secret = self._bind_secret(
-            workflow=workflow,
-            secret_name="OPENAI_OAUTH_CLIENT_SECRET",
-        )
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="OpenAI OAuth Refresh",
             integration_id="openai",
             connection_type="openai.api",
-            secret_group=secret.secret_group,
-            field_values={
+            data={
                 "auth_mode": "oauth2_authorization_code",
                 "base_url": "https://api.openai.com/v1",
                 "oauth_client_id": "client-openai-123",
-                "oauth_client_secret": {"source": "secret", "secret_name": secret.name},
                 "oauth_token_url": "https://auth.openai.com/oauth/token",
+                "oauth_client_secret": "sk-test-client-secret",
             },
         )
         state = WorkflowConnectionState.objects.create(
@@ -1760,7 +1749,7 @@ class WorkflowRuntimeTests(TestCase):
                 "account_id": "acct_old",
             },
         )
-        workflow.definition["nodes"][2]["config"]["connection_id"] = str(connection.pk)
+        self._node(workflow, "model-1")["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
 
         def fake_urlopen(request, timeout=20):
@@ -1798,9 +1787,8 @@ class WorkflowRuntimeTests(TestCase):
                 }
             )
 
-        with patch.dict(os.environ, {"OPENAI_OAUTH_CLIENT_SECRET": "sk-test-client-secret"}, clear=False):
-            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
-                run = execute_workflow(workflow, input_data={"ticket_id": "T-88"})
+        with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+            run = execute_workflow(workflow, input_data={"ticket_id": "T-88"})
 
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.output_data["response"], "Completed Review T-88")
@@ -1858,6 +1846,7 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
+        self._attach_openai_connection(workflow)
 
         run = execute_workflow(workflow, input_data={"ticket_id": "T-42"})
 
@@ -1907,22 +1896,17 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        secret = self._bind_secret(
-            workflow=workflow,
-            secret_name="PROMETHEUS_API_TOKEN",
-        )
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="Primary Prometheus",
             integration_id="prometheus",
             connection_type="prometheus.api",
-            secret_group=secret.secret_group,
-            field_values={
+            data={
                 "base_url": "https://prometheus.example.com",
-                "bearer_token": {"source": "secret", "secret_name": secret.name},
+                "bearer_token": "prom-secret",
             },
         )
-        workflow.definition["nodes"][1]["config"]["connection_id"] = str(connection.pk)
+        self._node(workflow, "tool-1")["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
 
         def fake_urlopen(request, timeout=20):
@@ -1941,9 +1925,8 @@ class WorkflowRuntimeTests(TestCase):
                 }
             )
 
-        with patch.dict(os.environ, {"PROMETHEUS_API_TOKEN": "prom-secret"}, clear=False):
-            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
-                run = execute_workflow(workflow, input_data={"job": "api"})
+        with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+            run = execute_workflow(workflow, input_data={"job": "api"})
 
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.step_results[1]["result"]["tool_name"], "prometheus_query")
@@ -1993,22 +1976,17 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        secret = self._bind_secret(
-            workflow=workflow,
-            secret_name="PROMETHEUS_API_TOKEN",
-        )
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="Typed Prometheus",
             integration_id="prometheus",
             connection_type="prometheus.api",
-            secret_group=secret.secret_group,
-            field_values={
+            data={
                 "base_url": "https://prometheus.example.com",
-                "bearer_token": {"source": "secret", "secret_name": secret.name},
+                "bearer_token": "prom-secret",
             },
         )
-        workflow.definition["nodes"][1]["config"]["connection_id"] = str(connection.pk)
+        self._node(workflow, "tool-1")["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
 
         def fake_urlopen(request, timeout=20):
@@ -2026,9 +2004,8 @@ class WorkflowRuntimeTests(TestCase):
                 }
             )
 
-        with patch.dict(os.environ, {"PROMETHEUS_API_TOKEN": "prom-secret"}, clear=False):
-            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
-                run = execute_workflow(workflow, input_data={"job": "api"})
+        with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+            run = execute_workflow(workflow, input_data={"job": "api"})
 
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.step_results[1]["result"]["tool_name"], "prometheus_query")
@@ -2080,22 +2057,17 @@ class WorkflowRuntimeTests(TestCase):
                 ],
             },
         )
-        secret = self._bind_secret(
-            workflow=workflow,
-            secret_name="ELASTICSEARCH_API_KEY",
-        )
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="Primary Elasticsearch",
             integration_id="elasticsearch",
             connection_type="elasticsearch.api",
-            secret_group=secret.secret_group,
-            field_values={
+            data={
                 "base_url": "https://elastic.example.com",
-                "auth_token": {"source": "secret", "secret_name": secret.name},
+                "auth_token": "elastic-secret",
             },
         )
-        workflow.definition["nodes"][1]["config"]["connection_id"] = str(connection.pk)
+        self._node(workflow, "tool-1")["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
 
         def fake_urlopen(request, timeout=20):
@@ -2116,9 +2088,8 @@ class WorkflowRuntimeTests(TestCase):
                 }
             )
 
-        with patch.dict(os.environ, {"ELASTICSEARCH_API_KEY": "elastic-secret"}, clear=False):
-            with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
-                run = execute_workflow(workflow, input_data={"service": "api"})
+        with patch("automation.tools.base.urlopen", side_effect=fake_urlopen):
+            run = execute_workflow(workflow, input_data={"service": "api"})
 
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.step_results[1]["result"]["tool_name"], "elasticsearch_search")

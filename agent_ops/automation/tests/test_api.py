@@ -6,7 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.urls import reverse
 
-from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowConnectionState, WorkflowRun
+from automation.models import Workflow, WorkflowConnection, WorkflowConnectionState, WorkflowRun
 from automation.runtime import execute_workflow_run
 from tenancy.models import Environment, Organization, Workspace
 from users.models import Membership, ObjectPermission, User
@@ -62,9 +62,8 @@ def _definition(label):
                 "type": "openai.model.chat",
                 "label": "OpenAI chat model",
                 "config": {
-                    "base_url": "https://api.openai.com/v1",
+                    "connection_id": "openai-connection",
                     "model": "gpt-4.1-mini",
-                    "secret_name": "OPENAI_API_KEY",
                 },
                 "position": {"x": 336, "y": 224},
             },
@@ -135,6 +134,42 @@ class WorkflowAPITests(TestCase):
             definition=_definition("Suspicious activity"),
         )
 
+    def _create_connection(self, *, data=None, **kwargs):
+        connection = WorkflowConnection.objects.create(**kwargs)
+        if data:
+            connection.set_data_values(data)
+            connection.save(update_fields=("data",))
+        return connection
+
+    def _attach_openai_connection(self, workflow, *, node_id="model-1", api_key="sk-test-openai", name=None):
+        connection = self._create_connection(
+            environment=self.environment,
+            name=name or f"{workflow.name} OpenAI",
+            integration_id="openai",
+            connection_type="openai.api",
+            data={
+                "auth_mode": "api_key",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": api_key,
+            },
+        )
+        node = self._node(workflow, node_id)
+        config = dict(node.get("config") or {})
+        config.pop("connection_id", None)
+        config.pop("base_url", None)
+        config.pop("secret_name", None)
+        config.pop("secret_group_id", None)
+        config["connection_id"] = str(connection.pk)
+        node["config"] = config
+        workflow.save(update_fields=("definition",))
+        return connection
+
+    def _node(self, workflow, node_id):
+        for node in workflow.definition.get("nodes", []):
+            if node.get("id") == node_id:
+                return node
+        raise AssertionError(f"Workflow {workflow.pk} does not define node {node_id}.")
+
     def test_automation_api_root_is_available_for_scoped_members(self):
         self.client.force_login(self.standard_user)
 
@@ -155,8 +190,6 @@ class WorkflowAPITests(TestCase):
                 "workflow-runs": "http://testserver/api/automation/workflow-runs/",
                 "workflow-connections": "http://testserver/api/automation/workflow-connections/",
                 "workflow-catalog": "http://testserver/api/automation/workflow-catalog/",
-                "secrets": "http://testserver/api/automation/secrets/",
-                "secret-groups": "http://testserver/api/automation/secret-groups/",
             },
         )
 
@@ -226,16 +259,6 @@ class WorkflowAPITests(TestCase):
         self.assertEqual(payload["results"][0]["name"], "OpenAI primary")
 
     def test_workflow_connection_create_derives_scope_from_environment(self):
-        secret_group = SecretGroup.objects.create(
-            environment=self.environment,
-            name="Connection secrets",
-        )
-        secret = Secret.objects.create(
-            secret_group=secret_group,
-            provider="environment-variable",
-            name="OPENAI_API_KEY",
-            parameters={"variable": "OPENAI_API_KEY"},
-        )
         self.client.force_login(self.staff_user)
 
         response = self.client.post(
@@ -245,11 +268,11 @@ class WorkflowAPITests(TestCase):
                 "name": "Primary OpenAI",
                 "description": "Main model connection",
                 "connection_type": "openai.api",
-                "secret_group": secret_group.pk,
                 "enabled": True,
-                "field_values": {
+                "data": {
+                    "auth_mode": "api_key",
                     "base_url": "https://api.openai.com/v1",
-                    "api_key": {"source": "secret", "secret_name": secret.name},
+                    "api_key": "sk-test-openai",
                 },
                 "metadata": {"owner": "automation"},
             },
@@ -262,19 +285,9 @@ class WorkflowAPITests(TestCase):
         self.assertEqual(payload["workspace"]["id"], self.workspace.pk)
         self.assertEqual(payload["organization"]["id"], self.organization.pk)
         self.assertEqual(payload["integration_id"], "openai")
-        self.assertEqual(payload["secret_group"]["id"], secret_group.pk)
+        self.assertNotIn("data", payload)
 
-    def test_workflow_connection_create_accepts_secret_group_and_field_values(self):
-        secret_group = SecretGroup.objects.create(
-            environment=self.environment,
-            name="Typed connection secrets",
-        )
-        secret = Secret.objects.create(
-            secret_group=secret_group,
-            provider="environment-variable",
-            name="OPENAI_API_KEY",
-            parameters={"variable": "OPENAI_API_KEY"},
-        )
+    def test_workflow_connection_create_accepts_direct_data_payload(self):
         self.client.force_login(self.staff_user)
 
         response = self.client.post(
@@ -284,11 +297,11 @@ class WorkflowAPITests(TestCase):
                 "name": "Typed OpenAI",
                 "description": "Main typed model connection",
                 "connection_type": "openai.api",
-                "secret_group": secret_group.pk,
                 "enabled": True,
-                "field_values": {
+                "data": {
+                    "auth_mode": "api_key",
                     "base_url": "https://api.openai.com/v1",
-                    "api_key": {"source": "secret", "secret_name": secret.name},
+                    "api_key": "sk-test-openai",
                 },
                 "metadata": {"owner": "automation"},
             },
@@ -297,12 +310,10 @@ class WorkflowAPITests(TestCase):
 
         self.assertEqual(response.status_code, 201)
         payload = response.json()
-        self.assertEqual(payload["secret_group"]["id"], secret_group.pk)
-        self.assertEqual(payload["field_values"]["base_url"], "https://api.openai.com/v1")
-        self.assertEqual(payload["field_values"]["api_key"]["secret_name"], secret.name)
+        self.assertNotIn("data", payload)
         connection = WorkflowConnection.objects.get(name="Typed OpenAI")
-        self.assertEqual(connection.secret_group_id, secret_group.pk)
-        self.assertEqual(connection.field_values["api_key"]["secret_name"], secret.name)
+        self.assertEqual(connection.get_data_values()["base_url"], "https://api.openai.com/v1")
+        self.assertEqual(connection.get_data_values()["api_key"], "sk-test-openai")
 
     def test_workflow_connection_create_accepts_openai_oauth_state_values(self):
         self.client.force_login(self.staff_user)
@@ -315,7 +326,7 @@ class WorkflowAPITests(TestCase):
                 "description": "OpenAI via OAuth refresh flow",
                 "connection_type": "openai.api",
                 "enabled": True,
-                "field_values": {
+                "data": {
                     "auth_mode": "oauth2_authorization_code",
                     "base_url": "https://api.openai.com/v1",
                     "oauth_client_id": "client-openai-123",
@@ -354,7 +365,7 @@ class WorkflowAPITests(TestCase):
                 "description": "Missing refresh token",
                 "connection_type": "openai.api",
                 "enabled": True,
-                "field_values": {
+                "data": {
                     "auth_mode": "oauth2_authorization_code",
                     "base_url": "https://api.openai.com/v1",
                     "oauth_client_id": "client-openai-123",
@@ -508,18 +519,7 @@ class WorkflowAPITests(TestCase):
             ],
         }
         self.workflow.save(update_fields=("definition",))
-        secret_group = SecretGroup.objects.create(
-            environment=self.environment,
-            name="workflow-api-secrets",
-        )
-        self.workflow.secret_group = secret_group
-        self.workflow.save(update_fields=("secret_group",))
-        Secret.objects.create(
-            secret_group=secret_group,
-            provider="environment-variable",
-            name="OPENAI_API_KEY",
-            parameters={"variable": "OPENAI_API_KEY"},
-        )
+        self._attach_openai_connection(self.workflow, name="API workflow connection")
         self.client.force_login(self.staff_user)
 
         def fake_urlopen(request, timeout=20):
@@ -543,7 +543,9 @@ class WorkflowAPITests(TestCase):
                 }
             )
 
-        with patch("automation.runtime.ensure_workers_for_queue"), patch(
+        with patch("automation.tools.base.urlopen", side_effect=fake_urlopen), patch(
+            "automation.runtime.ensure_workers_for_queue",
+        ), patch(
             "automation.runtime.enqueue_workflow_run_job",
             side_effect=lambda run: run,
         ):

@@ -27,8 +27,6 @@ from automation.catalog.payloads import build_workflow_catalog_payload
 from automation.catalog.webhooks import prepare_catalog_webhook_request
 from automation.core_nodes.webhook_trigger.node import get_configured_webhook_path, normalize_webhook_path
 from automation.forms import (
-    SecretForm,
-    SecretGroupForm,
     WorkflowConnectionForm,
     WorkflowDesignerForm,
     WorkflowForm,
@@ -43,7 +41,7 @@ from automation.integrations.openai.app import (
     OPENAI_DEVICE_AUTH_VERIFICATION_URL,
     OPENAI_OAUTH_TOKEN_URL,
 )
-from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowConnectionState, WorkflowRun, WorkflowStepRun, WorkflowVersion
+from automation.models import Workflow, WorkflowConnection, WorkflowConnectionState, WorkflowRun, WorkflowStepRun, WorkflowVersion
 from automation.primitives import canonicalize_workflow_definition, normalize_workflow_definition_nodes
 from automation.runtime import create_workflow_run, enqueue_workflow, execute_workflow_run
 from automation.tools.base import _http_json_request
@@ -249,30 +247,35 @@ def _build_workflow_connection_url(url_name: str, connection: WorkflowConnection
     return url
 
 
-def _connection_field_value(connection: WorkflowConnection, field_key: str, default: str | None = None) -> str | None:
-    raw_value = (connection.field_values or {}).get(field_key)
+def _connection_data_value(connection: WorkflowConnection, field_key: str, default: str | None = None) -> str | None:
+    try:
+        raw_value = connection.get_data_values().get(field_key)
+    except ValidationError:
+        return default
     if isinstance(raw_value, str) and raw_value.strip():
         return raw_value.strip()
     return default
 
 
 def _connection_secret_value(connection: WorkflowConnection, field_key: str) -> str | None:
-    raw_value = (connection.field_values or {}).get(field_key)
-    if not isinstance(raw_value, dict) or connection.secret_group is None:
-        return None
-    secret_name = raw_value.get("secret_name")
-    if not isinstance(secret_name, str) or not secret_name.strip():
-        return None
-    secret = connection.secret_group.get_secret(name=secret_name.strip())
-    if secret is None or not secret.enabled:
-        return None
+    return _connection_data_value(connection, field_key)
+
+
+def _redacted_connection_data(connection: WorkflowConnection) -> dict[str, object] | None:
     try:
-        resolved = secret.get_value(obj=connection)
+        data_values = connection.get_data_values()
     except ValidationError:
         return None
-    if not isinstance(resolved, str) or not resolved.strip():
-        return None
-    return resolved.strip()
+
+    connection_definition = get_catalog_connection_type(connection.connection_type)
+    secret_field_keys = {
+        field.key for field in getattr(connection_definition, "field_schema", ()) if field.value_type == "secret_ref"
+    }
+    redacted = {
+        key: ("[stored]" if key in secret_field_keys else value)
+        for key, value in data_values.items()
+    }
+    return redacted or None
 
 
 def _connection_supports_oauth(connection: WorkflowConnection) -> bool:
@@ -333,7 +336,7 @@ def _generate_pkce_pair() -> tuple[str, str]:
 
 
 def _resolve_openai_oauth_client_id(connection: WorkflowConnection) -> str:
-    return _connection_field_value(connection, "oauth_client_id", default=OPENAI_CODEX_OAUTH_CLIENT_ID) or OPENAI_CODEX_OAUTH_CLIENT_ID
+    return _connection_data_value(connection, "oauth_client_id", default=OPENAI_CODEX_OAUTH_CLIENT_ID) or OPENAI_CODEX_OAUTH_CLIENT_ID
 
 
 def _decode_jwt_payload(token: str) -> dict | None:
@@ -432,7 +435,6 @@ def _get_allowed_workflow_connection(request, *, pk: int, action: str = "change"
             "organization",
             "workspace",
             "environment",
-            "secret_group",
             "state",
         ),
         request=request,
@@ -454,7 +456,7 @@ def _build_openai_oauth_context(request, connection: WorkflowConnection | None) 
             "verification_url": OPENAI_DEVICE_AUTH_VERIFICATION_URL,
         }
 
-    auth_mode = _connection_field_value(connection, "auth_mode", default="api_key")
+    auth_mode = _connection_data_value(connection, "auth_mode", default="api_key")
     client_id = _resolve_openai_oauth_client_id(connection)
     state = getattr(connection, "state", None)
     state_values = state.state_values if state is not None else {}
@@ -480,155 +482,6 @@ def _build_openai_oauth_context(request, connection: WorkflowConnection | None) 
         "verification_url": OPENAI_DEVICE_AUTH_VERIFICATION_URL,
         "status_label": "Connected" if connected else "Authorization required",
     }
-
-
-class SecretListView(RestrictedObjectListMixin, ObjectListView):
-    queryset = Secret.objects.select_related("secret_group__organization", "secret_group__workspace", "secret_group__environment")
-    table = tables.SecretTable
-    filterset = filtersets.SecretFilterSet
-    template_name = "automation/secret_list.html"
-
-    def get_queryset(self, request):
-        return (
-            super()
-            .get_queryset(request)
-            .select_related("secret_group__organization", "secret_group__workspace", "secret_group__environment")
-            .order_by(
-                "secret_group__organization__name",
-                "secret_group__workspace__name",
-                "secret_group__environment__name",
-                "secret_group__name",
-                "name",
-            )
-        )
-
-
-class SecretDetailView(RestrictedObjectViewMixin, ObjectView):
-    model = Secret
-    template_name = "automation/secret_detail.html"
-
-    def get_queryset(self):
-        return super().get_queryset().select_related(
-            "secret_group__organization",
-            "secret_group__workspace",
-            "secret_group__environment",
-        )
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        try:
-            context["secret_value"] = self.object.get_value()
-            context["secret_value_error"] = ""
-        except ValidationError as exc:
-            if hasattr(exc, "message_dict"):
-                error_message = " ".join(
-                    " ".join(messages)
-                    for messages in exc.message_dict.values()
-                )
-            else:
-                error_message = " ".join(exc.messages)
-            context["secret_value"] = ""
-            context["secret_value_error"] = error_message
-
-        return context
-
-
-class SecretChangelogView(RestrictedObjectChangeLogMixin, ObjectChangeLogView):
-    model = Secret
-    queryset = Secret.objects.select_related(
-        "secret_group__organization",
-        "secret_group__workspace",
-        "secret_group__environment",
-    ).order_by(
-        "secret_group__organization__name",
-        "secret_group__workspace__name",
-        "secret_group__environment__name",
-        "secret_group__name",
-        "name",
-    )
-
-
-class SecretCreateView(RestrictedObjectEditMixin, ObjectEditView):
-    model = Secret
-    form_class = SecretForm
-    success_message = "Secret created."
-
-
-class SecretUpdateView(RestrictedObjectEditMixin, ObjectEditView):
-    model = Secret
-    form_class = SecretForm
-    success_message = "Secret updated."
-
-
-class SecretDeleteView(RestrictedObjectDeleteMixin, ObjectDeleteView):
-    model = Secret
-    success_message = "Secret deleted."
-
-
-class SecretGroupListView(RestrictedObjectListMixin, ObjectListView):
-    queryset = SecretGroup.objects.select_related("organization", "workspace", "environment")
-    table = tables.SecretGroupTable
-    filterset = filtersets.SecretGroupFilterSet
-    template_name = "automation/secretgroup_list.html"
-
-    def get_queryset(self, request):
-        return (
-            super()
-            .get_queryset(request)
-            .select_related("organization", "workspace", "environment")
-            .order_by("organization__name", "workspace__name", "environment__name", "name")
-        )
-
-
-class SecretGroupDetailView(RestrictedObjectViewMixin, ObjectView):
-    model = SecretGroup
-    template_name = "automation/secretgroup_detail.html"
-
-    def get_queryset(self):
-        secret_qs = Secret.objects.select_related(
-            "secret_group__organization",
-            "secret_group__workspace",
-            "secret_group__environment",
-        ).order_by("name")
-        return (
-            super()
-            .get_queryset()
-            .select_related("organization", "workspace", "environment")
-            .prefetch_related(Prefetch("secrets", queryset=secret_qs))
-            .annotate(secret_count=Count("secrets", distinct=True))
-        )
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["secret_rows"] = [{"secret": secret} for secret in self.object.secrets.all()]
-        return context
-
-
-class SecretGroupChangelogView(RestrictedObjectChangeLogMixin, ObjectChangeLogView):
-    model = SecretGroup
-    queryset = SecretGroup.objects.select_related("organization", "workspace", "environment").order_by(
-        "organization__name",
-        "workspace__name",
-        "environment__name",
-        "name",
-    )
-
-
-class SecretGroupCreateView(RestrictedObjectEditMixin, ObjectEditView):
-    model = SecretGroup
-    form_class = SecretGroupForm
-    success_message = "Secret group created."
-
-
-class SecretGroupUpdateView(RestrictedObjectEditMixin, ObjectEditView):
-    model = SecretGroup
-    form_class = SecretGroupForm
-    success_message = "Secret group updated."
-
-
-class SecretGroupDeleteView(RestrictedObjectDeleteMixin, ObjectDeleteView):
-    model = SecretGroup
-    success_message = "Secret group deleted."
 
 
 def _build_run_display(run: WorkflowRun):
@@ -784,7 +637,6 @@ def _get_workflow_connection_queryset(workflow):
         "organization",
         "workspace",
         "environment",
-        "secret_group",
         "state",
     ).filter(organization=workflow.organization, enabled=True)
 
@@ -831,11 +683,10 @@ class WorkflowConnectionListView(RestrictedObjectListMixin, ObjectListView):
         "organization",
         "workspace",
         "environment",
-        "secret_group",
     )
     table = tables.WorkflowConnectionTable
     filterset = filtersets.WorkflowConnectionFilterSet
-    template_name = "automation/workflowconnection_list.html"
+    template_name = "automation/credential_list.html"
 
     def get_queryset(self, request):
         return (
@@ -845,7 +696,6 @@ class WorkflowConnectionListView(RestrictedObjectListMixin, ObjectListView):
                 "organization",
                 "workspace",
                 "environment",
-                "secret_group",
             )
             .order_by("organization__name", "workspace__name", "environment__name", "integration_id", "name")
         )
@@ -853,14 +703,13 @@ class WorkflowConnectionListView(RestrictedObjectListMixin, ObjectListView):
 
 class WorkflowConnectionDetailView(RestrictedObjectViewMixin, ObjectView):
     model = WorkflowConnection
-    template_name = "automation/workflowconnection_detail.html"
+    template_name = "automation/credential_detail.html"
 
     def get_queryset(self):
         return super().get_queryset().select_related(
             "organization",
             "workspace",
             "environment",
-            "secret_group",
             "state",
         )
 
@@ -868,7 +717,12 @@ class WorkflowConnectionDetailView(RestrictedObjectViewMixin, ObjectView):
         context = super().get_context_data(**kwargs)
         connection_definition = get_catalog_connection_type(self.object.connection_type)
         context["connection_definition"] = connection_definition
-        context["field_values_json"] = _pretty_json(self.object.field_values)
+        context["connection_data_json"] = _pretty_json(_redacted_connection_data(self.object))
+        context["secret_field_keys"] = tuple(
+            sorted(
+                field.key for field in getattr(connection_definition, "field_schema", ()) if field.value_type == "secret_ref"
+            )
+        )
         context["state_summary_json"] = _pretty_json(getattr(getattr(self.object, "state", None), "summary", None))
         context["metadata_json"] = _pretty_json(self.object.metadata)
         context["workflow_connection_oauth"] = _build_openai_oauth_context(self.request, self.object)
@@ -881,7 +735,6 @@ class WorkflowConnectionChangelogView(RestrictedObjectChangeLogMixin, ObjectChan
         "organization",
         "workspace",
         "environment",
-        "secret_group",
         "state",
     ).order_by(
         "organization__name",
@@ -893,7 +746,7 @@ class WorkflowConnectionChangelogView(RestrictedObjectChangeLogMixin, ObjectChan
 
 
 class WorkflowConnectionEditViewMixin:
-    template_name = "automation/workflowconnection_form.html"
+    template_name = "automation/credential_form.html"
 
     def get_context_data(self, request, form):
         context = super().get_context_data(request, form)
@@ -922,25 +775,24 @@ class WorkflowConnectionEditViewMixin:
 class WorkflowConnectionCreateView(RestrictedObjectEditMixin, WorkflowConnectionEditViewMixin, ObjectEditView):
     model = WorkflowConnection
     form_class = WorkflowConnectionForm
-    success_message = "Workflow connection created."
+    success_message = "Credential created."
 
 
 class WorkflowConnectionUpdateView(RestrictedObjectEditMixin, WorkflowConnectionEditViewMixin, ObjectEditView):
     model = WorkflowConnection
     form_class = WorkflowConnectionForm
-    success_message = "Workflow connection updated."
+    success_message = "Credential updated."
 
 
 class WorkflowConnectionPopupCompleteView(RestrictedObjectViewMixin, ObjectView):
     model = WorkflowConnection
-    template_name = "automation/workflowconnection_popup_complete.html"
+    template_name = "automation/credential_popup_complete.html"
 
     def get_queryset(self):
         return super().get_queryset().select_related(
             "organization",
             "workspace",
             "environment",
-            "secret_group",
             "state",
         )
 
@@ -960,7 +812,7 @@ class WorkflowConnectionOpenAIOAuthStartView(View):
             messages.error(request, "This connection type does not support the OpenAI OAuth flow.")
             return redirect(connection.get_absolute_url())
 
-        auth_mode = _connection_field_value(connection, "auth_mode", default="api_key")
+        auth_mode = _connection_data_value(connection, "auth_mode", default="api_key")
         if auth_mode != "oauth2_authorization_code":
             messages.error(request, "Switch this connection to OAuth mode before connecting an account.")
             return redirect(
@@ -1048,7 +900,7 @@ class WorkflowConnectionOpenAIOAuthStartView(View):
             "workflow_connection_return_url": _workflow_connection_return_url(request),
             "user_code": user_code.strip(),
         }
-        return render(request, "automation/workflowconnection_openai_device_authorize.html", context)
+        return render(request, "automation/credential_openai_device_authorize.html", context)
 
 
 class WorkflowConnectionOpenAIOAuthPollView(View):
@@ -1138,7 +990,7 @@ class WorkflowConnectionOpenAIOAuthPollView(View):
             )
 
         client_secret = _connection_secret_value(connection, "oauth_client_secret")
-        token_url = _connection_field_value(connection, "oauth_token_url", default=OPENAI_OAUTH_TOKEN_URL) or OPENAI_OAUTH_TOKEN_URL
+        token_url = _connection_data_value(connection, "oauth_token_url", default=OPENAI_OAUTH_TOKEN_URL) or OPENAI_OAUTH_TOKEN_URL
         try:
             token_response = _exchange_openai_device_authorization_code(
                 client_id=str(session_data.get("client_id") or _resolve_openai_oauth_client_id(connection)),
@@ -1230,7 +1082,7 @@ class WorkflowConnectionOpenAIOAuthCallbackView(View):
             return redirect(edit_url)
 
         client_id = _resolve_openai_oauth_client_id(connection)
-        token_url = _connection_field_value(connection, "oauth_token_url", default=OPENAI_OAUTH_TOKEN_URL)
+        token_url = _connection_data_value(connection, "oauth_token_url", default=OPENAI_OAUTH_TOKEN_URL)
         if not client_id or not token_url:
             messages.error(request, "Connection is missing OAuth client settings.")
             return redirect(edit_url)

@@ -1,28 +1,57 @@
 from __future__ import annotations
 
+import base64
+import hmac
+from typing import Any
+
+import jwt
 from django.core.exceptions import ValidationError
 
+from automation.catalog.connections import resolve_workflow_connection_fields
 from automation.catalog.capabilities import CAPABILITY_TRIGGER_WEBHOOK
-from automation.catalog.definitions import CatalogNodeDefinition, ParameterDefinition, ParameterOptionDefinition
+from automation.catalog.definitions import (
+    CatalogNodeDefinition,
+    ConnectionSlotDefinition,
+    ParameterDefinition,
+    ParameterOptionDefinition,
+)
+from automation.catalog.execution import get_runtime_connection_slot_value
 from automation.core_nodes._triggers import build_trigger_result
 from automation.runtime_types import WorkflowNodeExecutionContext, WorkflowNodeExecutionResult
 from automation.triggers.base import WorkflowTriggerRequestContext
-from automation.triggers.webhook_utils import (
-    get_request_meta,
-    parse_json_body,
-    validate_shared_secret_header,
-)
+from automation.triggers.webhook_utils import get_request_meta, parse_json_body
 
-_DEFAULT_SECRET_HEADER = "X-AgentOps-Webhook-Secret"
 _AUTHENTICATION_NONE = "none"
-_AUTHENTICATION_SECRET_HEADER = "secret_header"
+_AUTHENTICATION_BASIC_AUTH = "basicAuth"
+_AUTHENTICATION_HEADER_AUTH = "headerAuth"
+_AUTHENTICATION_JWT_AUTH = "jwtAuth"
+_AUTHENTICATION_HEADER_SECRET_LEGACY = "header_secret"
 _RESPONSE_MODE_IMMEDIATELY = "immediately"
 _SUPPORTED_AUTHENTICATION_TYPES = (
     _AUTHENTICATION_NONE,
-    _AUTHENTICATION_SECRET_HEADER,
+    _AUTHENTICATION_BASIC_AUTH,
+    _AUTHENTICATION_HEADER_AUTH,
+    _AUTHENTICATION_JWT_AUTH,
 )
 _SUPPORTED_HTTP_METHODS = ("DELETE", "GET", "PATCH", "POST", "PUT")
 _SUPPORTED_RESPONSE_MODES = (_RESPONSE_MODE_IMMEDIATELY,)
+_WEBHOOK_BASIC_AUTH_CONNECTION_TYPES = ("webhook.basic_auth",)
+_WEBHOOK_HEADER_AUTH_CONNECTION_TYPES = ("webhook.header_auth", "webhook.shared_secret")
+_WEBHOOK_JWT_AUTH_CONNECTION_TYPES = ("webhook.jwt_auth",)
+_WEBHOOK_CONNECTION_SLOT_KEYS = {
+    _AUTHENTICATION_BASIC_AUTH: "basic_auth_connection_id",
+    _AUTHENTICATION_HEADER_AUTH: "connection_id",
+    _AUTHENTICATION_JWT_AUTH: "jwt_auth_connection_id",
+}
+_AUTHENTICATION_ALIASES = {
+    "none": _AUTHENTICATION_NONE,
+    "basicauth": _AUTHENTICATION_BASIC_AUTH,
+    "basic_auth": _AUTHENTICATION_BASIC_AUTH,
+    "headerauth": _AUTHENTICATION_HEADER_AUTH,
+    "header_secret": _AUTHENTICATION_HEADER_AUTH,
+    "jwtauth": _AUTHENTICATION_JWT_AUTH,
+    "jwt_auth": _AUTHENTICATION_JWT_AUTH,
+}
 
 
 def normalize_webhook_path(value: object) -> str:
@@ -42,7 +71,7 @@ def _execute_webhook_trigger(runtime: WorkflowNodeExecutionContext) -> WorkflowN
 def _get_authentication_mode(config: dict) -> str:
     authentication = config.get("authentication")
     if isinstance(authentication, str) and authentication.strip():
-        return authentication.strip().lower()
+        return _AUTHENTICATION_ALIASES.get(authentication.strip().lower(), authentication.strip())
     return _AUTHENTICATION_NONE
 
 
@@ -51,6 +80,152 @@ def _get_response_mode(config: dict) -> str:
     if isinstance(response_mode, str) and response_mode.strip():
         return response_mode.strip().lower()
     return _RESPONSE_MODE_IMMEDIATELY
+
+
+def _build_webhook_runtime(*, workflow, node: dict, config: dict) -> WorkflowNodeExecutionContext:
+    return WorkflowNodeExecutionContext(
+        workflow=workflow,
+        node=node,
+        config=config,
+        next_node_id=None,
+        connected_nodes_by_port={},
+        context={},
+        secret_paths=set(),
+        secret_values=[],
+        render_template=lambda template, template_context: template,
+        get_path_value=lambda data, path: None,
+        set_path_value=lambda data, path, value: None,
+        evaluate_condition=lambda operator, left, right: False,
+    )
+
+
+def _get_connection_slot_key(authentication: str) -> str:
+    return _WEBHOOK_CONNECTION_SLOT_KEYS.get(authentication, "connection_id")
+
+
+def _resolve_webhook_connection(
+    *,
+    runtime: WorkflowNodeExecutionContext,
+    authentication: str,
+    allowed_connection_types: tuple[str, ...],
+):
+    resolved = resolve_workflow_connection_fields(
+        runtime,
+        connection_id=get_runtime_connection_slot_value(runtime, slot_key=_get_connection_slot_key(authentication)),
+        expected_connection_type=None,
+    )
+    if resolved.connection.connection_type not in allowed_connection_types:
+        allowed = ", ".join(allowed_connection_types)
+        raise ValidationError(
+            {
+                "definition": (
+                    f'Connection "{resolved.connection.name}" must use one of these credential types: {allowed}.'
+                )
+            }
+        )
+    return resolved
+
+
+def _parse_basic_auth_header(header_value: str) -> tuple[str, str] | None:
+    if not isinstance(header_value, str) or not header_value.startswith("Basic "):
+        return None
+    encoded_value = header_value[6:].strip()
+    if not encoded_value:
+        return None
+    try:
+        decoded_value = base64.b64decode(encoded_value.encode("ascii"), validate=True).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if ":" not in decoded_value:
+        return None
+    username, password = decoded_value.split(":", 1)
+    return username, password
+
+
+def _resolve_header_auth_fields(resolved) -> tuple[str, str]:
+    header_name = str(resolved.values.get("name") or resolved.values.get("header_name") or "").strip()
+    expected_value = resolved.values.get("value")
+    if not isinstance(expected_value, str) or not expected_value:
+        expected_value = resolved.values.get("secret_value")
+
+    if not header_name:
+        field_key = "name" if resolved.connection.connection_type == "webhook.header_auth" else "header_name"
+        raise ValidationError(
+            {"trigger": f'Connection "{resolved.connection.name}" must include field "{field_key}".'}
+        )
+    if not isinstance(expected_value, str) or not expected_value:
+        field_key = "value" if resolved.connection.connection_type == "webhook.header_auth" else "secret_value"
+        raise ValidationError(
+            {"trigger": f'Connection "{resolved.connection.name}" must include field "{field_key}".'}
+        )
+
+    return header_name, expected_value
+
+
+def _validate_basic_auth_request(*, request, resolved) -> None:
+    username = str(resolved.values.get("username") or "").strip()
+    expected_password = resolved.values.get("password")
+
+    if not username:
+        raise ValidationError({"trigger": f'Connection "{resolved.connection.name}" must include field "username".'})
+    if not isinstance(expected_password, str) or not expected_password:
+        raise ValidationError({"trigger": f'Connection "{resolved.connection.name}" must include field "password".'})
+
+    provided_auth = _parse_basic_auth_header(request.headers.get("Authorization", ""))
+    if provided_auth is None:
+        raise ValidationError({"trigger": 'Missing required Authorization header for "Basic Auth".'})
+
+    provided_username, provided_password = provided_auth
+    if not hmac.compare_digest(provided_username, username) or not hmac.compare_digest(
+        provided_password, expected_password
+    ):
+        raise ValidationError({"trigger": "Webhook basic-auth validation failed."})
+
+
+def _validate_header_auth_request(*, request, resolved) -> None:
+    header_name, expected_value = _resolve_header_auth_fields(resolved)
+    received_value = request.headers.get(header_name)
+    if not isinstance(received_value, str) or not received_value:
+        raise ValidationError({"trigger": f'Missing required webhook auth header "{header_name}".'})
+    if not hmac.compare_digest(received_value, expected_value):
+        raise ValidationError({"trigger": "Webhook header-auth validation failed."})
+
+
+def _validate_jwt_auth_request(*, request, resolved) -> dict[str, Any]:
+    key_type = str(resolved.values.get("key_type") or "passphrase").strip() or "passphrase"
+    algorithm = str(resolved.values.get("algorithm") or "HS256").strip() or "HS256"
+    auth_header = request.headers.get("Authorization", "")
+    if not isinstance(auth_header, str) or not auth_header.startswith("Bearer "):
+        raise ValidationError({"trigger": 'Missing Bearer token in Authorization header for "JWT Auth".'})
+    token = auth_header[7:].strip()
+    if not token:
+        raise ValidationError({"trigger": 'Missing Bearer token in Authorization header for "JWT Auth".'})
+
+    decode_kwargs: dict[str, Any] = {"algorithms": [algorithm]}
+    if algorithm == "none":
+        secret_or_public_key = None
+        decode_kwargs["options"] = {"verify_signature": False}
+    elif key_type == "passphrase":
+        secret_or_public_key = resolved.values.get("secret")
+        if not isinstance(secret_or_public_key, str) or not secret_or_public_key:
+            raise ValidationError({"trigger": f'Connection "{resolved.connection.name}" must include field "secret".'})
+    elif key_type == "pemKey":
+        secret_or_public_key = resolved.values.get("public_key")
+        if not isinstance(secret_or_public_key, str) or not secret_or_public_key:
+            raise ValidationError(
+                {"trigger": f'Connection "{resolved.connection.name}" must include field "public_key".'}
+            )
+    else:
+        raise ValidationError({"trigger": f'Connection "{resolved.connection.name}" uses unsupported key type "{key_type}".'})
+
+    try:
+        payload = jwt.decode(token, secret_or_public_key, **decode_kwargs)
+    except jwt.PyJWTError as exc:
+        raise ValidationError({"trigger": f"Webhook JWT validation failed: {exc}."}) from exc
+
+    if not isinstance(payload, dict):
+        raise ValidationError({"trigger": "Webhook JWT validation failed: token payload must be an object."})
+    return payload
 
 def _validate_webhook_trigger(**kwargs) -> None:
     config = kwargs["config"]
@@ -84,6 +259,14 @@ def _validate_webhook_trigger(**kwargs) -> None:
                 )
             }
         )
+    if authentication != _AUTHENTICATION_NONE and config.get(_get_connection_slot_key(authentication)) in (None, ""):
+        raise ValidationError(
+            {
+                "definition": (
+                    f'Node "{node_id}" must define config.{_get_connection_slot_key(authentication)} when webhook authentication is enabled.'
+                )
+            }
+        )
 
     response_mode = _get_response_mode(config)
     if response_mode not in _SUPPORTED_RESPONSE_MODES:
@@ -95,27 +278,6 @@ def _validate_webhook_trigger(**kwargs) -> None:
                 )
             }
         )
-
-    secret_name = config.get("secret_name")
-    if authentication == _AUTHENTICATION_SECRET_HEADER and (
-        not isinstance(secret_name, str) or not secret_name.strip()
-    ):
-        raise ValidationError({"definition": f'Node "{node_id}" must define config.secret_name.'})
-    if secret_name not in (None, "") and (not isinstance(secret_name, str) or not secret_name.strip()):
-        raise ValidationError({"definition": f'Node "{node_id}" config.secret_name must be a non-empty string.'})
-
-    secret_header = config.get("secret_header")
-    if secret_header not in (None, "") and (not isinstance(secret_header, str) or not secret_header.strip()):
-        raise ValidationError({"definition": f'Node "{node_id}" config.secret_header must be a non-empty string.'})
-
-    secret_group_id = config.get("secret_group_id")
-    if secret_group_id in (None, ""):
-        return
-    if isinstance(secret_group_id, int):
-        return
-    if isinstance(secret_group_id, str) and secret_group_id.strip().isdigit():
-        return
-    raise ValidationError({"definition": f'Node "{node_id}" config.secret_group_id must be a numeric secret group ID.'})
 
 
 def _prepare_webhook_request(*, workflow, node: dict, request) -> tuple[str, dict, dict]:
@@ -154,6 +316,32 @@ def _prepare_webhook_request(*, workflow, node: dict, request) -> tuple[str, dic
         request=request,
         body=request.body,
     )
+    resolved = None
+    jwt_payload = None
+    if authentication != _AUTHENTICATION_NONE:
+        runtime = _build_webhook_runtime(workflow=workflow, node=node, config=config)
+        if authentication == _AUTHENTICATION_BASIC_AUTH:
+            resolved = _resolve_webhook_connection(
+                runtime=runtime,
+                authentication=authentication,
+                allowed_connection_types=_WEBHOOK_BASIC_AUTH_CONNECTION_TYPES,
+            )
+            _validate_basic_auth_request(request=request, resolved=resolved)
+        elif authentication == _AUTHENTICATION_HEADER_AUTH:
+            resolved = _resolve_webhook_connection(
+                runtime=runtime,
+                authentication=authentication,
+                allowed_connection_types=_WEBHOOK_HEADER_AUTH_CONNECTION_TYPES,
+            )
+            _validate_header_auth_request(request=request, resolved=resolved)
+        elif authentication == _AUTHENTICATION_JWT_AUTH:
+            resolved = _resolve_webhook_connection(
+                runtime=runtime,
+                authentication=authentication,
+                allowed_connection_types=_WEBHOOK_JWT_AUTH_CONNECTION_TYPES,
+            )
+            jwt_payload = _validate_jwt_auth_request(request=request, resolved=resolved)
+
     payload = parse_json_body(context)
     metadata = {
         **get_request_meta(request),
@@ -165,9 +353,18 @@ def _prepare_webhook_request(*, workflow, node: dict, request) -> tuple[str, dic
         "authentication": authentication,
         "response_mode": response_mode,
     }
-
-    if authentication == _AUTHENTICATION_SECRET_HEADER:
-        metadata["secret"] = validate_shared_secret_header(context)
+    if resolved is not None:
+        metadata["connection"] = {
+            "id": str(resolved.connection.pk),
+            "name": resolved.connection.name,
+            "type": resolved.connection.connection_type,
+        }
+    if authentication == _AUTHENTICATION_HEADER_AUTH:
+        secret_meta = resolved.secret_metas.get("value") or resolved.secret_metas.get("secret_value")
+        if secret_meta is not None:
+            metadata["secret"] = secret_meta
+    if authentication == _AUTHENTICATION_JWT_AUTH and jwt_payload is not None:
+        metadata["jwt_payload"] = jwt_payload
 
     return node["type"], payload, metadata
 
@@ -186,6 +383,32 @@ NODE_DEFINITION = CatalogNodeDefinition(
     runtime_validator=_validate_webhook_trigger,
     runtime_executor=_execute_webhook_trigger,
     webhook_request_preparer=_prepare_webhook_request,
+    connection_slots=(
+        ConnectionSlotDefinition(
+            key="basic_auth_connection_id",
+            label="Credential for Basic Auth",
+            allowed_connection_types=_WEBHOOK_BASIC_AUTH_CONNECTION_TYPES,
+            required=False,
+            description="Reusable Basic Auth credential used when webhook authentication is enabled.",
+            visible_when={"authentication": (_AUTHENTICATION_BASIC_AUTH,)},
+        ),
+        ConnectionSlotDefinition(
+            key="connection_id",
+            label="Credential for Header Auth",
+            allowed_connection_types=_WEBHOOK_HEADER_AUTH_CONNECTION_TYPES,
+            required=False,
+            description="Reusable Header Auth credential used when webhook authentication is enabled.",
+            visible_when={"authentication": (_AUTHENTICATION_HEADER_AUTH, _AUTHENTICATION_HEADER_SECRET_LEGACY)},
+        ),
+        ConnectionSlotDefinition(
+            key="jwt_auth_connection_id",
+            label="Credential for JWT Auth",
+            allowed_connection_types=_WEBHOOK_JWT_AUTH_CONNECTION_TYPES,
+            required=False,
+            description="Reusable JWT Auth credential used when webhook authentication is enabled.",
+            visible_when={"authentication": (_AUTHENTICATION_JWT_AUTH,)},
+        ),
+    ),
     parameter_schema=(
         ParameterDefinition(
             key="http_method",
@@ -227,9 +450,16 @@ NODE_DEFINITION = CatalogNodeDefinition(
                     label="None",
                 ),
                 ParameterOptionDefinition(
-                    value=_AUTHENTICATION_SECRET_HEADER,
-                    label="Secret header",
-                    description="Validate a request header against a workflow secret reference.",
+                    value=_AUTHENTICATION_BASIC_AUTH,
+                    label="Basic Auth",
+                ),
+                ParameterOptionDefinition(
+                    value=_AUTHENTICATION_HEADER_AUTH,
+                    label="Header Auth",
+                ),
+                ParameterOptionDefinition(
+                    value=_AUTHENTICATION_JWT_AUTH,
+                    label="JWT Auth",
                 ),
             ),
             no_data_expression=True,
@@ -252,40 +482,6 @@ NODE_DEFINITION = CatalogNodeDefinition(
             ),
             no_data_expression=True,
             ui_group="input",
-        ),
-        ParameterDefinition(
-            key="secret_name",
-            label="Secret",
-            value_type="string",
-            required=False,
-            description="Workflow secret name used to validate the incoming shared-secret header.",
-            placeholder="WEBHOOK_SHARED_SECRET",
-            no_data_expression=True,
-            display_options={"show": {"authentication": (_AUTHENTICATION_SECRET_HEADER,)}},
-            ui_group="advanced",
-        ),
-        ParameterDefinition(
-            key="secret_group_id",
-            label="Secret Group Override",
-            value_type="integer",
-            required=False,
-            description="Optional secret group ID to use instead of the workflow's default secret group.",
-            placeholder="12",
-            no_data_expression=True,
-            display_options={"show": {"authentication": (_AUTHENTICATION_SECRET_HEADER,)}},
-            ui_group="advanced",
-        ),
-        ParameterDefinition(
-            key="secret_header",
-            label="Header Name",
-            value_type="string",
-            required=False,
-            default=_DEFAULT_SECRET_HEADER,
-            description="Header name that carries the shared secret when secret-header authentication is enabled.",
-            placeholder=_DEFAULT_SECRET_HEADER,
-            no_data_expression=True,
-            display_options={"show": {"authentication": (_AUTHENTICATION_SECRET_HEADER,)}},
-            ui_group="advanced",
         ),
     ),
     tags=("webhook", "http"),

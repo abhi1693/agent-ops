@@ -9,5 +9,7 @@ djangorestframework<4.0
 django-filter<26
 django-tables2<3
 psycopg<4
+cryptography<44
+PyJWT<3
 django-rq<4
 rq<3

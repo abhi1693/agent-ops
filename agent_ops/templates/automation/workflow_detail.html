@@ -187,11 +187,11 @@
 
   <section class="card">
     <div class="card-header d-flex align-items-center justify-content-between gap-2">
-      <h3 class="card-title mb-0">Available connections</h3>
+      <h3 class="card-title mb-0">Available credentials</h3>
       <div class="btn-list">
         <a href="{{ workflow_connection_list_url }}" class="btn btn-outline-secondary btn-sm">Manage</a>
         {% if can_edit %}
-          <a href="{{ workflow_connection_add_url }}" class="btn btn-primary btn-sm">Add</a>
+          <a href="{{ workflow_connection_add_url }}" class="btn btn-primary btn-sm">Add credential</a>
         {% endif %}
       </div>
     </div>
@@ -203,7 +203,7 @@
           {% endfor %}
         </ol>
       {% else %}
-        <div class="empty-state">No scoped connections available for this workflow.</div>
+        <div class="empty-state">No scoped credentials available for this workflow.</div>
       {% endif %}
     </div>
   </section>

@@ -20,9 +20,7 @@ from automation.tools.base import (
     _render_runtime_external_url,
     _render_runtime_json,
     _render_runtime_string,
-    _resolve_runtime_secret,
     _validate_optional_json_template,
-    _validate_optional_secret_group_id,
     _validate_optional_string,
     _validate_required_external_url,
     _validate_required_string,
@@ -48,18 +46,17 @@ class _RuntimeConfigView:
     context: dict[str, Any]
     secret_values: list[str]
     render_template: Any
-    resolve_scoped_secret: Any
 
 
 def validate_openai_chat_model_config(config: dict[str, Any], node_id: str) -> None:
     _validate_required_string(config, "model", node_id=node_id)
     if config.get("connection_id") in (None, ""):
-        _validate_required_external_url(config, "base_url", node_id=node_id)
-        _validate_required_string(config, "secret_name", node_id=node_id)
+        raise ValidationError(
+            {"definition": f'Node "{node_id}" must define config.connection_id.'}
+        )
     if config.get("custom_model") not in (None, ""):
         _validate_optional_string(config, "custom_model", node_id=node_id)
     _validate_optional_json_template(config, "extra_body_json", node_id=node_id)
-    _validate_optional_secret_group_id(config, "secret_group_id", node_id=node_id)
     _coerce_optional_float(config.get("temperature"), field_name="temperature", node_id=node_id)
     if config.get("max_tokens") not in (None, ""):
         _coerce_positive_int(config.get("max_tokens"), field_name="max_tokens", node_id=node_id, default=1)
@@ -78,7 +75,6 @@ def _build_runtime_view(
         context=runtime.context,
         secret_values=runtime.secret_values,
         render_template=runtime.render_template,
-        resolve_scoped_secret=runtime.resolve_scoped_secret,
     )
 
 
@@ -89,49 +85,32 @@ def resolve_openai_chat_model_config(
     config: dict[str, Any],
 ) -> OpenAICompatibleRequestConfig:
     runtime_view = _build_runtime_view(runtime, node=node, config=config)
-    connection_id = get_connection_slot_value(runtime_view.config, slot_key="connection_id")
-    if connection_id:
-        resolved_connection = resolve_workflow_connection_fields(
-            runtime_view,
-            connection_id=connection_id,
-            expected_connection_type="openai.api",
+    resolved_connection = resolve_workflow_connection_fields(
+        runtime_view,
+        connection_id=get_connection_slot_value(runtime_view.config, slot_key="connection_id"),
+        expected_connection_type="openai.api",
+    )
+    base_url = str(resolved_connection.values.get("base_url") or "https://api.openai.com/v1").strip().rstrip("/")
+    auth_headers = resolve_connection_request_auth(runtime_view, resolved_connection=resolved_connection).headers
+    auth_mode = resolved_connection.values.get("auth_mode") or "api_key"
+    secret_meta = resolved_connection.secret_metas.get("api_key")
+    if auth_mode == "oauth2_authorization_code":
+        connection_state = getattr(resolved_connection.connection, "state", None)
+        if connection_state is not None and connection_state.state_values.get("account_id") not in (None, ""):
+            secret_meta = {
+                "name": "oauth_account",
+                "provider": "oauth2",
+                "storage": "database",
+            }
+    if not isinstance(auth_headers.get("Authorization"), str) or not auth_headers["Authorization"]:
+        raise ValidationError(
+            {
+                "definition": (
+                    f'Connection "{resolved_connection.connection.name}" must provide an Authorization header '
+                    "for OpenAI requests."
+                )
+            }
         )
-        base_url = str(resolved_connection.values.get("base_url") or "https://api.openai.com/v1").strip().rstrip("/")
-        auth_headers = resolve_connection_request_auth(runtime_view, resolved_connection=resolved_connection).headers
-        auth_mode = resolved_connection.values.get("auth_mode") or "api_key"
-        secret_meta = resolved_connection.secret_metas.get("api_key")
-        if auth_mode == "oauth2_authorization_code":
-            connection_state = getattr(resolved_connection.connection, "state", None)
-            if connection_state is not None and connection_state.state_values.get("account_id") not in (None, ""):
-                secret_meta = {
-                    "name": "oauth_account",
-                    "provider": "oauth2",
-                    "secret_group": resolved_connection.connection.secret_group.name
-                    if resolved_connection.connection.secret_group_id
-                    else None,
-                }
-        if not isinstance(auth_headers.get("Authorization"), str) or not auth_headers["Authorization"]:
-            raise ValidationError(
-                {
-                    "definition": (
-                        f'Connection "{resolved_connection.connection.name}" must provide an Authorization header '
-                        "for OpenAI requests."
-                    )
-                }
-            )
-    else:
-        base_url = (
-            _render_runtime_external_url(runtime_view, "base_url", required=True, default_mode="static") or ""
-        ).rstrip("/")
-        secret_name = _render_runtime_string(runtime_view, "secret_name", default_mode="static")
-        if not secret_name:
-            raise ValidationError({"definition": f'Node "{node["id"]}" must define config.secret_name.'})
-        api_key, secret_meta = _resolve_runtime_secret(
-            runtime_view,
-            secret_name=secret_name,
-            secret_group_id=runtime_view.config.get("secret_group_id"),
-        )
-        auth_headers = {"Authorization": f"Bearer {api_key}"}
     custom_model = _render_runtime_string(runtime_view, "custom_model", default_mode="static")
     model = custom_model or _render_runtime_string(runtime_view, "model", required=True, default_mode="static")
     temperature = _coerce_optional_float(

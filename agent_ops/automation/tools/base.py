@@ -214,7 +214,6 @@ class WorkflowToolExecutionContext:
     secret_values: list[str]
     render_template: Callable[[str, dict[str, Any]], str]
     set_path_value: Callable[[dict[str, Any], str, Any], None]
-    resolve_scoped_secret: Callable[..., Any]
 
 
 def _raise_definition_error(message: str) -> None:
@@ -236,24 +235,13 @@ def _validate_required_string(config: dict[str, Any], key: str, *, node_id: str)
     return value
 
 
-def _validate_optional_secret_group_id(config: dict[str, Any], key: str, *, node_id: str) -> None:
-    value = config.get(key)
-    if value in (None, ""):
-        return
-    if isinstance(value, int):
-        return
-    if isinstance(value, str) and value.strip().isdigit():
-        return
-    _raise_definition_error(f'Node "{node_id}" config.{key} must be a numeric secret group ID.')
-
-
 def _validate_external_url_value(url_value: str, *, field_name: str, node_id: str) -> str:
     parsed_url = urlsplit(url_value)
     if parsed_url.username is not None or parsed_url.password is not None:
         _raise_definition_error(
             (
                 f'Node "{node_id}" config.{field_name} cannot include embedded credentials in the URL. '
-                "Secrets must come from stored Secret objects."
+                "Secrets must come from stored workflow connections."
             )
         )
     return url_value
@@ -515,7 +503,7 @@ def _render_runtime_external_url(
             {
                 "definition": (
                     f'Node "{runtime.node["id"]}" config.{key} cannot render a URL with embedded credentials. '
-                    "Secrets must come from stored Secret objects."
+                    "Secrets must come from stored workflow connections."
                 )
             }
         )
@@ -558,34 +546,6 @@ def _render_runtime_json(
         raise ValidationError(
             {"definition": f'Node "{runtime.node["id"]}" config.{key} must render valid JSON.'}
         ) from exc
-
-
-def _resolve_runtime_secret(
-    runtime: WorkflowToolExecutionContext,
-    *,
-    secret_name: str,
-    secret_group_id: str | int | None = None,
-    required: bool = True,
-) -> tuple[str, dict[str, str | None]] | tuple[None, None]:
-    secret = runtime.resolve_scoped_secret(
-        runtime.workflow,
-        secret_name=secret_name,
-        secret_group_id=secret_group_id,
-        required=required,
-    )
-    if secret is None:
-        return None, None
-    value = secret.get_value(obj=runtime.workflow)
-    if not isinstance(value, str) or not value:
-        raise ValidationError(
-            {"definition": f'Node "{runtime.node["id"]}" secret "{secret.name}" must resolve to a non-empty string.'}
-        )
-    runtime.secret_values.append(value)
-    return value, {
-        "name": secret.name,
-        "provider": secret.provider,
-        "secret_group": secret.secret_group.name if secret.secret_group_id else None,
-    }
 
 
 def _make_json_safe(value: Any) -> Any:

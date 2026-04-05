@@ -4,7 +4,8 @@ import hmac
 from django.core.exceptions import ValidationError
 
 from automation.catalog.capabilities import CAPABILITY_TRIGGER_WEBHOOK
-from automation.catalog.connections import get_connection_slot_value, resolve_workflow_connection_fields
+from automation.catalog.connections import resolve_workflow_connection_fields
+from automation.catalog.execution import get_runtime_connection_slot_value
 from automation.catalog.definitions import (
     CatalogNodeDefinition,
     ConnectionSlotDefinition,
@@ -41,7 +42,6 @@ def _catalog_webhook_runtime(workflow, node: dict) -> WorkflowNodeExecutionConte
         render_template=lambda template, context: template,
         get_path_value=lambda data, path: None,
         set_path_value=lambda data, path, value: None,
-        resolve_scoped_secret=lambda *args, **kwargs: None,
         evaluate_condition=lambda operator, left, right: False,
     )
 
@@ -53,7 +53,7 @@ def _prepare_github_webhook_request(*, workflow, node: dict, request) -> tuple[s
     runtime = _catalog_webhook_runtime(workflow, node)
     resolved = resolve_workflow_connection_fields(
         runtime,
-        connection_id=get_connection_slot_value(node.get("config"), slot_key="connection_id"),
+        connection_id=get_runtime_connection_slot_value(runtime),
         expected_connection_type="github.oauth2",
     )
     webhook_secret = resolved.values.get("webhook_secret")
@@ -122,15 +122,15 @@ GITHUB_CONNECTION = ConnectionTypeDefinition(
     integration_id="github",
     label="GitHub",
     auth_kind="oauth2",
-    description="Reusable GitHub account connection for repository and webhook operations.",
+    description="Reusable GitHub credential for repository and webhook operations.",
     field_schema=(
         ParameterDefinition(
             key="webhook_secret",
             label="Webhook Secret",
             value_type="secret_ref",
             required=False,
-            description="Optional signing secret used to validate GitHub webhook deliveries.",
-            placeholder="GITHUB_WEBHOOK_SECRET",
+            description="Optional webhook signing secret stored with this connection.",
+            placeholder="github-webhook-secret",
         ),
     ),
 )
@@ -162,10 +162,10 @@ APP = IntegrationApp(
             connection_slots=(
                 ConnectionSlotDefinition(
                     key="connection_id",
-                    label="Connection",
+                    label="Credential for GitHub",
                     allowed_connection_types=(GITHUB_CONNECTION.id,),
                     required=True,
-                    description="Reusable GitHub connection containing the webhook signing secret.",
+                    description="Reusable GitHub credential containing the webhook signing secret.",
                 ),
             ),
             parameter_schema=(

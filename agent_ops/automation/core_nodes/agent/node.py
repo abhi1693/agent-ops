@@ -45,7 +45,6 @@ def _build_runtime_view(runtime: WorkflowNodeExecutionContext, *, node: dict[str
         context=runtime.context,
         secret_values=runtime.secret_values,
         render_template=runtime.render_template,
-        resolve_scoped_secret=runtime.resolve_scoped_secret,
     )
 
 
@@ -261,7 +260,6 @@ def _execute_catalog_agent_tool(
             render_template=runtime.render_template,
             get_path_value=runtime.get_path_value,
             set_path_value=runtime.set_path_value,
-            resolve_scoped_secret=runtime.resolve_scoped_secret,
             evaluate_condition=runtime.evaluate_condition,
         )
     )

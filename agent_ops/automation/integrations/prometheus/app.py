@@ -1,5 +1,9 @@
 from automation.catalog.capabilities import CAPABILITY_AGENT_TOOL
-from automation.catalog.execution import resolve_connection_request_auth, resolve_connection_with_base_url
+from automation.catalog.execution import (
+    get_runtime_connection_slot_value,
+    resolve_connection_request_auth,
+    resolve_connection_with_base_url,
+)
 from automation.catalog.definitions import (
     CatalogNodeDefinition,
     ConnectionHttpAuthDefinition,
@@ -58,7 +62,7 @@ def _execute_prometheus_query(runtime: WorkflowNodeExecutionContext) -> Workflow
         "prometheus_query",
         output_key=output_key,
         result_count=result_count,
-        connection_id=runtime.config.get("connection_id"),
+        connection_id=get_runtime_connection_slot_value(runtime),
     )
     secret_meta = resolved.secret_metas.get("bearer_token")
     if secret_meta is not None:
@@ -74,7 +78,7 @@ PROMETHEUS_CONNECTION = ConnectionTypeDefinition(
     integration_id="prometheus",
     label="Prometheus API",
     auth_kind="http_secret",
-    description="Reusable HTTP connection for Prometheus-compatible query endpoints.",
+    description="Reusable HTTP credential for Prometheus-compatible query endpoints.",
     http_auth=ConnectionHttpAuthDefinition(
         headers=(
             ConnectionHttpHeaderDefinition(
@@ -96,11 +100,11 @@ PROMETHEUS_CONNECTION = ConnectionTypeDefinition(
         ),
         ParameterDefinition(
             key="bearer_token",
-            label="Bearer Token Secret",
+            label="Bearer Token",
             value_type="secret_ref",
             required=False,
-            description="Optional secret reference used as a bearer token for requests.",
-            placeholder="PROMETHEUS_API_TOKEN",
+            description="Optional bearer token stored with this connection for authenticated requests.",
+            placeholder="prometheus-token",
         ),
     ),
 )
@@ -131,10 +135,10 @@ APP = IntegrationApp(
             connection_slots=(
                 ConnectionSlotDefinition(
                     key="connection_id",
-                    label="Connection",
+                    label="Credential for Prometheus API",
                     allowed_connection_types=(PROMETHEUS_CONNECTION.id,),
                     required=True,
-                    description="Reusable Prometheus connection used for authenticated query execution.",
+                    description="Reusable Prometheus credential used for authenticated query execution.",
                 ),
             ),
             parameter_schema=(

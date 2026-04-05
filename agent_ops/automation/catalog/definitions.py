@@ -125,6 +125,7 @@ class ConnectionSlotDefinition:
     required: bool = False
     description: str = ""
     multiple: bool = False
+    visible_when: dict[str, tuple[Any, ...]] = field(default_factory=dict)
 
     def serialize(self) -> dict[str, Any]:
         return {
@@ -134,6 +135,10 @@ class ConnectionSlotDefinition:
             "required": self.required,
             "description": self.description,
             "multiple": self.multiple,
+            "visible_when": {
+                config_key: list(config_values)
+                for config_key, config_values in self.visible_when.items()
+            },
         }
 
 

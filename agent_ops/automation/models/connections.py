@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -8,92 +9,109 @@ from django.urls import reverse
 from django.utils import timezone
 
 from automation.catalog.services import get_catalog_connection_type
-from automation.models.secrets import (
-    _derive_scope,
-    _get_scope_related_object,
-    _validate_json_object,
-    _validate_scope_consistency,
-    _validate_unique_scope_name,
-)
+from automation.crypto import decrypt_credential_payload, encrypt_credential_payload
 from core.models import PrimaryModel
 
 
-def _validate_secret_reference(*, connection, field_key: str, raw_value):
-    if not isinstance(raw_value, dict):
-        raise ValidationError(
-            {"field_values": f'Connection field "{field_key}" must be a JSON object when using a secret reference.'}
-        )
+def _derive_scope_from_environment(workspace, environment):
+    if environment is not None and workspace is None:
+        workspace = environment.workspace
+    return workspace
 
-    source = raw_value.get("source", "secret")
-    if source != "secret":
-        raise ValidationError({"field_values": f'Connection field "{field_key}" must use source "secret".'})
 
-    secret_name = raw_value.get("secret_name")
-    if not isinstance(secret_name, str) or not secret_name.strip():
-        raise ValidationError({"field_values": f'Connection field "{field_key}" must define a non-empty secret_name.'})
+def _derive_scope_from_workspace(organization, workspace):
+    if workspace is not None and organization is None:
+        organization = workspace.organization
+    return organization
 
-    if not connection.secret_group_id:
+
+def _derive_scope(*, organization, workspace, environment):
+    workspace = _derive_scope_from_environment(workspace, environment)
+    organization = _derive_scope_from_workspace(organization, workspace)
+    return organization, workspace, environment
+
+
+def _validate_scope_consistency(*, organization, workspace, environment):
+    if workspace is not None and organization is not None and workspace.organization_id != organization.pk:
         raise ValidationError(
             {
-                "secret_group": (
-                    f'Connection "{connection.name}" must define a secret group before using secret-backed '
-                    f'field "{field_key}".'
-                )
+                "organization": "Organization must match the selected workspace.",
+                "workspace": "Workspace belongs to a different organization.",
             }
         )
 
-    secret = connection.secret_group.get_secret(name=secret_name.strip())
-    if secret is None:
+    if environment is None:
+        return
+
+    expected_workspace = environment.workspace
+    expected_organization = expected_workspace.organization
+
+    if workspace is not None and workspace.pk != expected_workspace.pk:
         raise ValidationError(
             {
-                "field_values": (
-                    f'Secret group "{connection.secret_group.name}" does not include secret "{secret_name.strip()}" '
-                    f'for field "{field_key}".'
-                )
+                "workspace": "Workspace must match the selected environment.",
+                "environment": "Environment belongs to a different workspace.",
             }
         )
 
-    if not secret.enabled:
+    if organization is not None and organization.pk != expected_organization.pk:
         raise ValidationError(
             {
-                "field_values": (
-                    f'Secret "{secret_name.strip()}" in group "{connection.secret_group.name}" is disabled and '
-                    f'cannot be used for field "{field_key}".'
-                )
+                "organization": "Organization must match the selected environment.",
+                "environment": "Environment belongs to a different organization.",
             }
         )
+
+
+def _get_scope_related_object(*, organization, workspace, environment):
+    if environment is not None:
+        return environment
+    if workspace is not None:
+        return workspace
+    return organization
+
+
+def _validate_unique_scope_name(instance, *, queryset, filters, message):
+    duplicate_qs = queryset.exclude(pk=instance.pk).filter(**filters)
+    if duplicate_qs.exists():
+        raise ValidationError({"name": message})
+
+
+def _validate_json_object(value, *, field_name):
+    if not isinstance(value, dict):
+        raise ValidationError({field_name: "This field must be a JSON object."})
 
 
 def _validate_typed_connection_field_value(*, field_definition, raw_value: Any):
     if field_definition.value_type in {"string", "text", "url"}:
         if not isinstance(raw_value, str):
             raise ValidationError(
-                {"field_values": f'Connection field "{field_definition.key}" must be a string.'}
+                {"data": f'Connection field "{field_definition.key}" must be a string.'}
             )
     elif field_definition.value_type == "integer":
         if not isinstance(raw_value, int) or isinstance(raw_value, bool):
             raise ValidationError(
-                {"field_values": f'Connection field "{field_definition.key}" must be an integer.'}
+                {"data": f'Connection field "{field_definition.key}" must be an integer.'}
             )
     elif field_definition.value_type == "number":
         if not isinstance(raw_value, (int, float)) or isinstance(raw_value, bool):
             raise ValidationError(
-                {"field_values": f'Connection field "{field_definition.key}" must be a number.'}
+                {"data": f'Connection field "{field_definition.key}" must be a number.'}
             )
     elif field_definition.value_type == "boolean":
         if not isinstance(raw_value, bool):
             raise ValidationError(
-                {"field_values": f'Connection field "{field_definition.key}" must be a boolean.'}
+                {"data": f'Connection field "{field_definition.key}" must be a boolean.'}
             )
     elif field_definition.value_type in {"json", "object"}:
         if not isinstance(raw_value, dict):
             raise ValidationError(
-                {"field_values": f'Connection field "{field_definition.key}" must be a JSON object.'}
+                {"data": f'Connection field "{field_definition.key}" must be a JSON object.'}
             )
     elif field_definition.value_type == "string[]":
         if not isinstance(raw_value, list) or not all(isinstance(item, str) for item in raw_value):
             raise ValidationError(
-                {"field_values": f'Connection field "{field_definition.key}" must be a list of strings.'}
+                {"data": f'Connection field "{field_definition.key}" must be a list of strings.'}
             )
 
     if field_definition.options:
@@ -102,12 +120,25 @@ def _validate_typed_connection_field_value(*, field_definition, raw_value: Any):
         if normalized_value not in allowed_values:
             raise ValidationError(
                 {
-                    "field_values": (
+                    "data": (
                         f'Connection field "{field_definition.key}" must be one of: '
                         f'{", ".join(sorted(allowed_values))}.'
                     )
                 }
             )
+
+
+def _validate_external_connection_url_value(*, field_definition, raw_value: str) -> None:
+    parsed_url = urlsplit(raw_value)
+    if parsed_url.username is not None or parsed_url.password is not None:
+        raise ValidationError(
+            {
+                "data": (
+                    f'Connection field "{field_definition.key}" cannot include embedded credentials in the URL. '
+                    "Secrets must come from stored workflow connections."
+                )
+            }
+        )
 
 
 def _validate_state_field_values(*, connection_definition, state_values: dict[str, Any], field_name: str) -> None:
@@ -135,10 +166,10 @@ def _validate_state_field_values(*, connection_definition, state_values: dict[st
         )
 
 
-def _field_value_matches_condition(*, field_values: dict[str, Any], field_key: str | None, values: tuple[str, ...]) -> bool:
+def _field_value_matches_condition(*, data_values: dict[str, Any], field_key: str | None, values: tuple[str, ...]) -> bool:
     if not field_key:
         return True
-    raw_value = field_values.get(field_key)
+    raw_value = data_values.get(field_key)
     if not values:
         return raw_value not in (None, "")
     if not isinstance(raw_value, str):
@@ -146,14 +177,20 @@ def _field_value_matches_condition(*, field_values: dict[str, Any], field_key: s
     return raw_value in values
 
 
-def _get_effective_connection_field_value(*, field_values: dict[str, Any], field_definition) -> Any:
-    raw_value = field_values.get(field_definition.key)
+def _get_effective_connection_field_value(
+    *,
+    data_values: dict[str, Any],
+    field_definition,
+) -> Any:
+    raw_value = data_values.get(field_definition.key)
     if raw_value in (None, "") and field_definition.default not in (None, ""):
         return field_definition.default
     return raw_value
 
 
 class WorkflowConnection(PrimaryModel):
+    changelog_exclude_fields = ("data",)
+
     organization = models.ForeignKey(
         "tenancy.Organization",
         on_delete=models.CASCADE,
@@ -178,19 +215,14 @@ class WorkflowConnection(PrimaryModel):
     name = models.CharField(max_length=100)
     integration_id = models.SlugField(max_length=100)
     connection_type = models.CharField(max_length=150)
-    secret_group = models.ForeignKey(
-        "automation.SecretGroup",
-        on_delete=models.SET_NULL,
-        related_name="workflow_connections_by_group",
-        blank=True,
-        null=True,
-    )
     enabled = models.BooleanField(default=True)
-    field_values = models.JSONField(default=dict, blank=True)
+    data = models.TextField(blank=True, default="")
     metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ("organization__name", "workspace__name", "environment__name", "integration_id", "name")
+        verbose_name = "credential"
+        verbose_name_plural = "credentials"
         constraints = (
             models.UniqueConstraint(
                 fields=("environment", "integration_id", "name"),
@@ -232,6 +264,28 @@ class WorkflowConnection(PrimaryModel):
             parts.append(self.environment.name)
         return " / ".join(parts)
 
+    def get_data_values(self) -> dict[str, Any]:
+        return decrypt_credential_payload(self.data)
+
+    def set_data_values(self, values: dict[str, Any] | None) -> None:
+        if values in (None, {}):
+            self.data = ""
+            return
+
+        if not isinstance(values, dict):
+            raise ValidationError({"data": "Credential data must be a JSON object."})
+
+        normalized: dict[str, Any] = {}
+        for key, raw_value in values.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValidationError({"data": "Credential field names must be non-empty strings."})
+            if isinstance(raw_value, str):
+                normalized[key] = raw_value.strip()
+            else:
+                normalized[key] = raw_value
+
+        self.data = encrypt_credential_payload(normalized)
+
     def clean(self):
         super().clean()
 
@@ -246,8 +300,8 @@ class WorkflowConnection(PrimaryModel):
             workspace=self.workspace,
             environment=self.environment,
         )
-        _validate_json_object(self.field_values, field_name="field_values")
         _validate_json_object(self.metadata, field_name="metadata")
+        data_values = self.get_data_values()
 
         if self.organization is None:
             raise ValidationError({"organization": "A connection must be scoped to at least an organization."})
@@ -268,42 +322,28 @@ class WorkflowConnection(PrimaryModel):
                 }
             )
 
-        if self.secret_group_id:
-            secret_group = self.secret_group
-            if secret_group.organization_id != self.organization_id:
-                raise ValidationError(
-                    {"secret_group": "Connection secret group must belong to the same organization as the connection."}
-                )
-            if secret_group.workspace_id != self.workspace_id:
-                raise ValidationError(
-                    {"secret_group": "Connection secret group must use the same workspace scope as the connection."}
-                )
-            if secret_group.environment_id != self.environment_id:
-                raise ValidationError(
-                    {"secret_group": "Connection secret group must use the same environment scope as the connection."}
-                )
-
-        unknown_field_keys = set(self.field_values) - {field.key for field in connection_definition.field_schema}
-        if unknown_field_keys:
+        defined_field_keys = {field.key for field in connection_definition.field_schema}
+        unknown_data_keys = set(data_values) - defined_field_keys
+        if unknown_data_keys:
             raise ValidationError(
                 {
-                    "field_values": (
+                    "data": (
                         f'Connection "{self.name}" defines unsupported field keys for type '
-                        f'"{self.connection_type}": {", ".join(sorted(unknown_field_keys))}.'
+                        f'"{self.connection_type}": {", ".join(sorted(unknown_data_keys))}.'
                     )
                 }
             )
 
         for field_definition in connection_definition.field_schema:
             raw_value = _get_effective_connection_field_value(
-                field_values=self.field_values,
+                data_values=data_values,
                 field_definition=field_definition,
             )
 
             if field_definition.required and raw_value in (None, ""):
                 raise ValidationError(
                     {
-                        "field_values": (
+                        "data": (
                             f'Connection "{self.name}" must define field "{field_definition.key}" for type '
                             f'"{self.connection_type}".'
                         )
@@ -314,20 +354,29 @@ class WorkflowConnection(PrimaryModel):
                 continue
 
             if field_definition.value_type == "secret_ref":
-                _validate_secret_reference(
-                    connection=self,
-                    field_key=field_definition.key,
-                    raw_value=raw_value,
-                )
+                if not isinstance(raw_value, str) or not raw_value.strip():
+                    raise ValidationError(
+                        {
+                            "data": (
+                                f'Connection field "{field_definition.key}" must be stored as a non-empty secret '
+                                "string."
+                            )
+                        }
+                    )
                 continue
 
             _validate_typed_connection_field_value(
                 field_definition=field_definition,
                 raw_value=raw_value,
             )
+            if field_definition.value_type == "url":
+                _validate_external_connection_url_value(
+                    field_definition=field_definition,
+                    raw_value=raw_value,
+                )
 
         if connection_definition.http_auth and _field_value_matches_condition(
-            field_values=self.field_values,
+            data_values=data_values,
             field_key=connection_definition.http_auth.enabled_when_field,
             values=connection_definition.http_auth.enabled_when_values,
         ):
@@ -346,14 +395,17 @@ class WorkflowConnection(PrimaryModel):
                     None,
                 )
                 raw_value = (
-                    _get_effective_connection_field_value(field_values=self.field_values, field_definition=field_definition)
+                    _get_effective_connection_field_value(
+                        data_values=data_values,
+                        field_definition=field_definition,
+                    )
                     if field_definition is not None
-                    else self.field_values.get(field_key)
+                    else data_values.get(field_key)
                 )
                 if raw_value in (None, ""):
                     raise ValidationError(
                         {
-                            "field_values": (
+                            "data": (
                                 f'Connection "{self.name}" must define field "{field_key}" when its configured '
                                 "HTTP auth mode is active."
                             )
@@ -361,7 +413,7 @@ class WorkflowConnection(PrimaryModel):
                     )
 
         if connection_definition.oauth2 and _field_value_matches_condition(
-            field_values=self.field_values,
+            data_values=data_values,
             field_key=connection_definition.oauth2.enabled_when_field,
             values=connection_definition.oauth2.enabled_when_values,
         ):
@@ -374,14 +426,17 @@ class WorkflowConnection(PrimaryModel):
                     None,
                 )
                 raw_value = (
-                    _get_effective_connection_field_value(field_values=self.field_values, field_definition=field_definition)
+                    _get_effective_connection_field_value(
+                        data_values=data_values,
+                        field_definition=field_definition,
+                    )
                     if field_definition is not None
-                    else self.field_values.get(field_key)
+                    else data_values.get(field_key)
                 )
                 if raw_value in (None, ""):
                     raise ValidationError(
                         {
-                            "field_values": (
+                            "data": (
                                 f'Connection "{self.name}" must define field "{field_key}" when its configured '
                                 "OAuth mode is active."
                             )

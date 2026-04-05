@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import hmac
 import json
@@ -5,13 +6,13 @@ import os
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
+import jwt
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.messages import get_messages
 from django.test import TestCase
 from django.urls import reverse
 
 from automation.models import Workflow, WorkflowConnection, WorkflowConnectionState, WorkflowRun, WorkflowStepRun, WorkflowVersion
-from automation.models import Secret, SecretGroup
 from automation.primitives import normalize_workflow_definition_nodes
 from automation.runtime import execute_workflow_run
 from tenancy.models import Environment, Organization, Workspace
@@ -163,34 +164,6 @@ class WorkflowViewTests(TestCase):
             definition=_definition("Suspicious activity"),
         )
 
-    def _create_secret_group(self, *, name="Workflow secrets"):
-        return SecretGroup.objects.create(
-            environment=self.environment,
-            name=name,
-        )
-
-    def _bind_secret(
-        self,
-        *,
-        workflow,
-        secret_name,
-        variable_name=None,
-        provider="environment-variable",
-        parameters=None,
-        secret_group=None,
-    ):
-        group = secret_group or workflow.secret_group or self._create_secret_group(name=f"{workflow.name} secrets")
-        secret = Secret.objects.create(
-            secret_group=group,
-            provider=provider,
-            name=secret_name,
-            parameters=parameters or {"variable": variable_name or secret_name},
-        )
-        if workflow.secret_group_id != group.pk:
-            workflow.secret_group = group
-            workflow.save(update_fields=("secret_group",))
-        return secret
-
     def _queue_workflow_request(self, request_callable):
         with patch("automation.runtime.ensure_workers_for_queue"), patch(
             "automation.runtime.enqueue_workflow_run_job",
@@ -203,6 +176,36 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(payload["status"], WorkflowRun.StatusChoices.PENDING)
         run = WorkflowRun.objects.get(pk=payload["run_id"])
         return response, payload, run
+
+    def _create_connection(self, *, data=None, **kwargs):
+        connection = WorkflowConnection.objects.create(**kwargs)
+        if data:
+            connection.set_data_values(data)
+            connection.save(update_fields=("data",))
+        return connection
+
+    def _attach_openai_connection(self, workflow, *, node_id="model-1", api_key="sk-test-openai", name=None):
+        connection = self._create_connection(
+            environment=self.environment,
+            name=name or f"{workflow.name} OpenAI",
+            integration_id="openai",
+            connection_type="openai.api",
+            data={
+                "auth_mode": "api_key",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": api_key,
+            },
+        )
+        node = next(item for item in workflow.definition.get("nodes", []) if item.get("id") == node_id)
+        config = dict(node.get("config") or {})
+        config.pop("connection_id", None)
+        config.pop("base_url", None)
+        config.pop("secret_name", None)
+        config.pop("secret_group_id", None)
+        config["connection_id"] = str(connection.pk)
+        node["config"] = config
+        workflow.save(update_fields=("definition",))
+        return connection
 
     def _get_public_webhook_path(self, workflow, *, node_id=None):
         nodes = normalize_workflow_definition_nodes(workflow.definition or {}).get("nodes", [])
@@ -496,10 +499,6 @@ class WorkflowViewTests(TestCase):
         self.assertNotContains(response, "Other scope")
 
     def test_workflow_connection_add_creates_connection_with_derived_scope(self):
-        secret = self._bind_secret(
-            workflow=self.workflow,
-            secret_name="OPENAI_API_KEY",
-        )
         self.client.force_login(self.staff_user)
 
         response = self.client.post(
@@ -509,11 +508,10 @@ class WorkflowViewTests(TestCase):
                 "name": "Primary OpenAI",
                 "description": "Main model connection",
                 "connection_type": "openai.api",
-                "secret_group": secret.secret_group.pk,
                 "enabled": "on",
                 "openai_auth_mode": "api_key",
                 "openai_base_url": "https://api.openai.com/v1",
-                "openai_api_key_secret_name": secret.name,
+                "openai_api_key": "sk-test-openai",
                 "metadata": json.dumps({"owner": "automation"}),
             },
         )
@@ -524,8 +522,8 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(connection.workspace_id, self.workspace.pk)
         self.assertEqual(connection.organization_id, self.organization.pk)
         self.assertEqual(connection.integration_id, "openai")
-        self.assertEqual(connection.secret_group_id, secret.secret_group_id)
-        self.assertEqual(connection.field_values["api_key"]["secret_name"], secret.name)
+        self.assertEqual(connection.get_data_values()["auth_mode"], "api_key")
+        self.assertEqual(connection.get_data_values()["api_key"], "sk-test-openai")
 
     def test_workflow_connection_add_accepts_openai_oauth_state_values(self):
         self.client.force_login(self.staff_user)
@@ -538,7 +536,7 @@ class WorkflowViewTests(TestCase):
                 "description": "OpenAI via OAuth refresh flow",
                 "connection_type": "openai.api",
                 "enabled": "on",
-                "field_values": json.dumps(
+                "data": json.dumps(
                     {
                         "auth_mode": "oauth2_authorization_code",
                         "base_url": "https://api.openai.com/v1",
@@ -564,6 +562,109 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(state.state_values["refresh_token"], "oauth-refresh-live")
         self.assertEqual(state.state_values["account_id"], "acct_live")
 
+    def test_workflow_connection_add_creates_prometheus_connection_from_structured_fields(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("workflowconnection_add"),
+            {
+                "environment": self.environment.pk,
+                "name": "Primary Prometheus",
+                "description": "Metrics API",
+                "connection_type": "prometheus.api",
+                "enabled": "on",
+                "prometheus_base_url": "https://prometheus.example.com",
+                "prometheus_bearer_token": "prom-secret",
+                "metadata": json.dumps({"owner": "automation"}),
+            },
+        )
+
+        connection = WorkflowConnection.objects.get(name="Primary Prometheus")
+        self.assertRedirects(response, connection.get_absolute_url())
+        self.assertEqual(
+            connection.get_data_values(),
+            {
+                "base_url": "https://prometheus.example.com",
+                "bearer_token": "prom-secret",
+            },
+        )
+
+    def test_workflow_connection_add_creates_elasticsearch_connection_from_structured_fields(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("workflowconnection_add"),
+            {
+                "environment": self.environment.pk,
+                "name": "Primary Elasticsearch",
+                "description": "Search API",
+                "connection_type": "elasticsearch.api",
+                "enabled": "on",
+                "elasticsearch_base_url": "https://elastic.example.com",
+                "elasticsearch_auth_scheme": "Bearer",
+                "elasticsearch_auth_token": "elastic-secret",
+                "metadata": json.dumps({"owner": "automation"}),
+            },
+        )
+
+        connection = WorkflowConnection.objects.get(name="Primary Elasticsearch")
+        self.assertRedirects(response, connection.get_absolute_url())
+        self.assertEqual(
+            connection.get_data_values(),
+            {
+                "base_url": "https://elastic.example.com",
+                "auth_scheme": "Bearer",
+                "auth_token": "elastic-secret",
+            },
+        )
+
+    def test_workflow_connection_add_creates_github_connection_from_structured_fields(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("workflowconnection_add"),
+            {
+                "environment": self.environment.pk,
+                "name": "Primary GitHub",
+                "description": "Webhook auth",
+                "connection_type": "github.oauth2",
+                "enabled": "on",
+                "github_webhook_secret": "github-secret",
+                "metadata": json.dumps({"owner": "automation"}),
+            },
+        )
+
+        connection = WorkflowConnection.objects.get(name="Primary GitHub")
+        self.assertRedirects(response, connection.get_absolute_url())
+        self.assertEqual(connection.get_data_values(), {"webhook_secret": "github-secret"})
+
+    def test_workflow_connection_add_creates_webhook_header_auth_connection_from_structured_fields(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse("workflowconnection_add"),
+            {
+                "environment": self.environment.pk,
+                "name": "Primary Webhook Header",
+                "description": "Generic webhook auth",
+                "connection_type": "webhook.header_auth",
+                "enabled": "on",
+                "webhook_header_auth_name": "X-Webhook-Secret",
+                "webhook_header_auth_value": "shared-secret",
+                "metadata": json.dumps({"owner": "automation"}),
+            },
+        )
+
+        connection = WorkflowConnection.objects.get(name="Primary Webhook Header")
+        self.assertRedirects(response, connection.get_absolute_url())
+        self.assertEqual(
+            connection.get_data_values(),
+            {
+                "name": "X-Webhook-Secret",
+                "value": "shared-secret",
+            },
+        )
+
     def test_workflow_connection_add_defaults_openai_device_client_for_oauth_mode(self):
         self.client.force_login(self.staff_user)
 
@@ -583,15 +684,15 @@ class WorkflowViewTests(TestCase):
 
         connection = WorkflowConnection.objects.get(name="OAuth OpenAI")
         self.assertRedirects(response, connection.get_absolute_url())
-        self.assertEqual(connection.field_values["oauth_client_id"], "app_EMoamEEZ73f0CkXaXp7hrann")
+        self.assertEqual(connection.get_data_values()["oauth_client_id"], "app_EMoamEEZ73f0CkXaXp7hrann")
 
     def test_workflow_connection_detail_renders_state_summary_only(self):
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="OAuth OpenAI",
             integration_id="openai",
             connection_type="openai.api",
-            field_values={
+            data={
                 "auth_mode": "oauth2_authorization_code",
                 "base_url": "https://api.openai.com/v1",
                 "oauth_client_id": "client-openai-123",
@@ -619,12 +720,12 @@ class WorkflowViewTests(TestCase):
         self.assertNotContains(response, "oauth-access-live")
 
     def test_workflow_connection_edit_renders_openai_oauth_controls(self):
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="OAuth OpenAI",
             integration_id="openai",
             connection_type="openai.api",
-            field_values={
+            data={
                 "auth_mode": "oauth2_authorization_code",
                 "base_url": "https://api.openai.com/v1",
                 "oauth_token_url": "https://auth.openai.com/oauth/token",
@@ -637,19 +738,183 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Connect my account")
         self.assertContains(response, "Auth Mode")
-        self.assertContains(response, "API Key Secret Name")
+        self.assertContains(response, "API Key")
         self.assertContains(response, "OAuth Client ID")
         self.assertContains(response, "This hosted flow does not require a callback URL")
         self.assertContains(response, "https://auth.openai.com/codex/device")
         self.assertNotContains(response, "Store typed connection field values and metadata as JSON objects.")
 
+    def test_workflow_connection_edit_renders_prometheus_structured_fields(self):
+        connection = self._create_connection(
+            environment=self.environment,
+            name="Prometheus",
+            integration_id="prometheus",
+            connection_type="prometheus.api",
+            data={
+                "base_url": "https://prometheus.example.com",
+                "bearer_token": "prom-secret",
+            },
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("workflowconnection_edit", args=[connection.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Configure the saved Prometheus credential without editing raw JSON.")
+        self.assertContains(response, "Bearer Token")
+        self.assertNotContains(response, "Store the encrypted connection payload directly on the connection record.")
+
+    def test_workflow_connection_edit_renders_elasticsearch_structured_fields(self):
+        connection = self._create_connection(
+            environment=self.environment,
+            name="Elasticsearch",
+            integration_id="elasticsearch",
+            connection_type="elasticsearch.api",
+            data={
+                "base_url": "https://elastic.example.com",
+                "auth_scheme": "ApiKey",
+                "auth_token": "elastic-secret",
+            },
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("workflowconnection_edit", args=[connection.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Configure the saved Elasticsearch credential without editing raw JSON.")
+        self.assertContains(response, "Auth Scheme")
+        self.assertContains(response, "Auth Token")
+
+    def test_workflow_connection_edit_renders_github_structured_fields(self):
+        connection = self._create_connection(
+            environment=self.environment,
+            name="GitHub",
+            integration_id="github",
+            connection_type="github.oauth2",
+            data={
+                "webhook_secret": "github-secret",
+            },
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("workflowconnection_edit", args=[connection.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Configure the saved GitHub credential without editing raw JSON.")
+        self.assertContains(response, "Webhook Secret")
+
+    def test_workflow_connection_edit_renders_webhook_basic_auth_structured_fields(self):
+        connection = self._create_connection(
+            environment=self.environment,
+            name="Webhook Basic Auth",
+            integration_id="webhook",
+            connection_type="webhook.basic_auth",
+            data={
+                "username": "operator",
+                "password": "secret-password",
+            },
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("workflowconnection_edit", args=[connection.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Configure the saved Basic Auth credential without editing raw JSON.")
+        self.assertContains(response, "Username")
+        self.assertContains(response, "Password")
+
+    def test_workflow_connection_edit_renders_webhook_header_auth_structured_fields(self):
+        connection = self._create_connection(
+            environment=self.environment,
+            name="Webhook Header Auth",
+            integration_id="webhook",
+            connection_type="webhook.header_auth",
+            data={
+                "name": "X-Webhook-Secret",
+                "value": "shared-secret",
+            },
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("workflowconnection_edit", args=[connection.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Configure the saved Header Auth credential without editing raw JSON.")
+        self.assertContains(response, "Name")
+        self.assertContains(response, "Value")
+
+    def test_workflow_connection_edit_renders_webhook_jwt_auth_structured_fields(self):
+        connection = self._create_connection(
+            environment=self.environment,
+            name="Webhook JWT Auth",
+            integration_id="webhook",
+            connection_type="webhook.jwt_auth",
+            data={
+                "key_type": "passphrase",
+                "secret": "jwt-secret",
+                "algorithm": "HS256",
+            },
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("workflowconnection_edit", args=[connection.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Configure the saved JWT Auth credential without editing raw JSON.")
+        self.assertContains(response, "Key Type")
+        self.assertContains(response, "Algorithm")
+        self.assertContains(response, "Secret")
+
+    def test_workflow_connection_edit_renders_webhook_shared_secret_structured_fields(self):
+        connection = self._create_connection(
+            environment=self.environment,
+            name="Webhook Shared Secret",
+            integration_id="webhook",
+            connection_type="webhook.shared_secret",
+            data={
+                "header_name": "X-Webhook-Secret",
+                "secret_value": "shared-secret",
+            },
+        )
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("workflowconnection_edit", args=[connection.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Configure the saved Header Auth credential without editing raw JSON.")
+        self.assertContains(response, "Name")
+        self.assertContains(response, "Value")
+
+    def test_workflow_connection_popup_uses_minimal_credential_form(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(
+            reverse("workflowconnection_add"),
+            {
+                "popup": "1",
+                "environment": str(self.environment.pk),
+                "connection_type": "webhook.header_auth",
+                "return_url": reverse("workflow_designer", args=[self.workflow.pk]),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Add credential")
+        self.assertContains(response, "Credentials")
+        self.assertContains(response, "Name")
+        self.assertContains(response, "Value")
+        self.assertNotContains(response, '<label class="col-lg-3 col-form-label" for="id_environment">', html=False)
+        self.assertNotContains(response, '<label class="col-lg-3 col-form-label" for="id_description">', html=False)
+        self.assertNotContains(response, '<label class="col-lg-3 col-form-label" for="id_enabled">', html=False)
+        self.assertNotContains(response, "Store the encrypted connection payload directly on the connection record.")
+
     def test_workflow_connection_oauth_start_renders_device_login_page(self):
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="OAuth OpenAI",
             integration_id="openai",
             connection_type="openai.api",
-            field_values={
+            data={
                 "auth_mode": "oauth2_authorization_code",
                 "base_url": "https://api.openai.com/v1",
                 "oauth_client_id": "client-openai-123",
@@ -695,12 +960,12 @@ class WorkflowViewTests(TestCase):
         )
 
     def test_workflow_connection_oauth_poll_updates_state_and_returns_popup_bridge(self):
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="OAuth OpenAI",
             integration_id="openai",
             connection_type="openai.api",
-            field_values={
+            data={
                 "auth_mode": "oauth2_authorization_code",
                 "base_url": "https://api.openai.com/v1",
                 "oauth_client_id": "client-openai-123",
@@ -785,12 +1050,23 @@ class WorkflowViewTests(TestCase):
         response = self.client.get(reverse("workflow_detail", args=[self.workflow.pk]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Available connections")
+        self.assertContains(response, "Available credentials")
         self.assertContains(response, connection.name)
         self.assertContains(response, reverse("workflowconnection_list"))
 
     def test_workflow_designer_updates_definition(self):
         self.client.force_login(self.staff_user)
+        connection = self._create_connection(
+            environment=self.environment,
+            name="Designer OpenAI",
+            integration_id="openai",
+            connection_type="openai.api",
+            data={
+                "auth_mode": "api_key",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-test-openai",
+            },
+        )
         updated_definition = {
             "nodes": [
                 {
@@ -817,9 +1093,8 @@ class WorkflowViewTests(TestCase):
                     "label": "OpenAI chat model",
                     "type": "openai.model.chat",
                     "config": {
-                        "base_url": "https://api.openai.com/v1",
+                        "connection_id": str(connection.pk),
                         "model": "gpt-4.1-mini",
-                        "secret_name": "OPENAI_API_KEY",
                     },
                     "position": {"x": 320, "y": 240},
                 },
@@ -1349,9 +1624,16 @@ class WorkflowViewTests(TestCase):
 
     def test_workflow_designer_node_run_endpoint_runs_auxiliary_node_preview(self):
         self.client.force_login(self.staff_user)
-        self._bind_secret(
-            workflow=self.workflow,
-            secret_name="OPENAI_API_KEY",
+        connection = self._create_connection(
+            environment=self.environment,
+            name="Node preview OpenAI",
+            integration_id="openai",
+            connection_type="openai.api",
+            data={
+                "auth_mode": "api_key",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-test-openai",
+            },
         )
         definition = {
             "nodes": [
@@ -1378,9 +1660,8 @@ class WorkflowViewTests(TestCase):
                     "type": "openai.model.chat",
                     "label": "OpenAI chat model",
                     "config": {
-                        "base_url": "https://api.openai.com/v1",
+                        "connection_id": str(connection.pk),
                         "model": "gpt-4.1-mini",
-                        "secret_name": "OPENAI_API_KEY",
                     },
                     "position": {"x": 320, "y": 240},
                 },
@@ -1623,10 +1904,7 @@ class WorkflowViewTests(TestCase):
             ],
         }
         self.workflow.save(update_fields=("definition",))
-        self._bind_secret(
-            workflow=self.workflow,
-            secret_name="OPENAI_API_KEY",
-        )
+        self._attach_openai_connection(self.workflow)
         self.client.force_login(self.staff_user)
 
         def fake_urlopen(request, timeout=20):
@@ -1724,40 +2002,32 @@ class WorkflowViewTests(TestCase):
                 ],
             },
         )
-        secret = self._bind_secret(
-            workflow=workflow,
-            secret_name="GITHUB_WEBHOOK_SECRET",
-        )
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="Primary GitHub",
             integration_id="github",
             connection_type="github.oauth2",
-            secret_group=secret.secret_group,
-            field_values={
-                "webhook_secret": {"source": "secret", "secret_name": secret.name},
-            },
+            data={"webhook_secret": "github-secret"},
         )
         workflow.definition["nodes"][0]["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
         body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
 
-        with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "github-secret"}, clear=False):
-            signature = "sha256=" + hmac.new(
-                b"github-secret",
-                body,
-                hashlib.sha256,
-            ).hexdigest()
-            _, _, run = self._queue_workflow_request(
-                lambda: self.client.post(
-                    reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
-                    data=body,
-                    content_type="application/json",
-                    HTTP_X_HUB_SIGNATURE_256=signature,
-                    HTTP_X_GITHUB_EVENT="push",
-                    HTTP_X_GITHUB_DELIVERY="delivery-1",
-                )
+        signature = "sha256=" + hmac.new(
+            b"github-secret",
+            body,
+            hashlib.sha256,
+        ).hexdigest()
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
+                data=body,
+                content_type="application/json",
+                HTTP_X_HUB_SIGNATURE_256=signature,
+                HTTP_X_GITHUB_EVENT="push",
+                HTTP_X_GITHUB_DELIVERY="delivery-1",
             )
+        )
 
         execute_workflow_run(run)
         run.refresh_from_db()
@@ -1811,6 +2081,309 @@ class WorkflowViewTests(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
         self.assertEqual(run.output_data["response"], "INC-123:POST")
+
+    def test_workflow_webhook_trigger_accepts_generic_payload_with_header_auth_connection(self):
+        connection = self._create_connection(
+            environment=self.environment,
+            name="Generic webhook auth",
+            integration_id="webhook",
+            connection_type="webhook.header_auth",
+            data={
+                "name": "X-Webhook-Secret",
+                "value": "shared-secret",
+            },
+        )
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Generic webhook auth",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                            "authentication": "headerAuth",
+                            "connection_id": str(connection.pk),
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.payload.ticket_id }}:{{ trigger.meta.authentication }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+            enabled=True,
+        )
+
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                self._get_public_webhook_url(workflow),
+                data=json.dumps({"ticket_id": "INC-123"}),
+                content_type="application/json",
+                HTTP_X_WEBHOOK_SECRET="shared-secret",
+            )
+        )
+
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "INC-123:headerAuth")
+        self.assertEqual(run.context_data["trigger"]["meta"]["connection"]["type"], "webhook.header_auth")
+
+    def test_workflow_webhook_trigger_rejects_generic_payload_with_invalid_header_auth(self):
+        connection = self._create_connection(
+            environment=self.environment,
+            name="Generic webhook auth invalid",
+            integration_id="webhook",
+            connection_type="webhook.header_auth",
+            data={
+                "name": "X-Webhook-Secret",
+                "value": "shared-secret",
+            },
+        )
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Generic webhook auth invalid",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                            "authentication": "headerAuth",
+                            "connection_id": str(connection.pk),
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+            enabled=True,
+        )
+
+        response = self.client.post(
+            self._get_public_webhook_url(workflow),
+            data=json.dumps({"ticket_id": "INC-123"}),
+            content_type="application/json",
+            HTTP_X_WEBHOOK_SECRET="wrong-secret",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("header-auth validation failed", response.json()["detail"])
+
+    def test_workflow_webhook_trigger_accepts_generic_payload_with_basic_auth_connection(self):
+        connection = self._create_connection(
+            environment=self.environment,
+            name="Generic webhook basic auth",
+            integration_id="webhook",
+            connection_type="webhook.basic_auth",
+            data={
+                "username": "operator",
+                "password": "secret-password",
+            },
+        )
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Generic webhook basic auth",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                            "authentication": "basicAuth",
+                            "basic_auth_connection_id": str(connection.pk),
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.payload.ticket_id }}:{{ trigger.meta.authentication }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+            enabled=True,
+        )
+
+        basic_token = base64.b64encode(b"operator:secret-password").decode("ascii")
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                self._get_public_webhook_url(workflow),
+                data=json.dumps({"ticket_id": "INC-123"}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Basic {basic_token}",
+            )
+        )
+
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "INC-123:basicAuth")
+        self.assertEqual(run.context_data["trigger"]["meta"]["connection"]["type"], "webhook.basic_auth")
+
+    def test_workflow_webhook_trigger_accepts_generic_payload_with_jwt_auth_connection(self):
+        connection = self._create_connection(
+            environment=self.environment,
+            name="Generic webhook jwt auth",
+            integration_id="webhook",
+            connection_type="webhook.jwt_auth",
+            data={
+                "key_type": "passphrase",
+                "secret": "jwt-secret-with-at-least-32-bytes",
+                "algorithm": "HS256",
+            },
+        )
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Generic webhook jwt auth",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                            "authentication": "jwtAuth",
+                            "jwt_auth_connection_id": str(connection.pk),
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.payload.ticket_id }}:{{ trigger.meta.jwt_payload.sub }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+            enabled=True,
+        )
+
+        token = jwt.encode(
+            {"sub": "svc-webhook"},
+            "jwt-secret-with-at-least-32-bytes",
+            algorithm="HS256",
+        )
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                self._get_public_webhook_url(workflow),
+                data=json.dumps({"ticket_id": "INC-123"}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+        )
+
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "INC-123:svc-webhook")
+        self.assertEqual(run.context_data["trigger"]["meta"]["connection"]["type"], "webhook.jwt_auth")
+
+    def test_workflow_webhook_trigger_accepts_legacy_header_secret_auth_configuration(self):
+        connection = self._create_connection(
+            environment=self.environment,
+            name="Generic webhook auth legacy",
+            integration_id="webhook",
+            connection_type="webhook.shared_secret",
+            data={
+                "header_name": "X-Webhook-Secret",
+                "secret_value": "shared-secret",
+            },
+        )
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Generic webhook auth legacy",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                            "authentication": "header_secret",
+                            "connection_id": str(connection.pk),
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.meta.authentication }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+            enabled=True,
+        )
+
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                self._get_public_webhook_url(workflow),
+                data=json.dumps({"ticket_id": "INC-123"}),
+                content_type="application/json",
+                HTTP_X_WEBHOOK_SECRET="shared-secret",
+            )
+        )
+
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "headerAuth")
 
     def test_workflow_webhook_trigger_accepts_generic_payload_on_configured_path(self):
         workflow = Workflow.objects.create(
@@ -1903,59 +2476,6 @@ class WorkflowViewTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "Workflow not found.")
-
-    def test_workflow_webhook_trigger_validates_generic_secret_header(self):
-        workflow = Workflow.objects.create(
-            environment=self.environment,
-            name="Generic webhook secret",
-            definition={
-                "nodes": [
-                    {
-                        "id": "trigger-1",
-                        "kind": "trigger",
-                        "type": "core.webhook_trigger",
-                        "label": "Webhook",
-                        "config": {
-                            "http_method": "POST",
-                            "authentication": "secret_header",
-                            "secret_name": "WEBHOOK_SHARED_SECRET",
-                            "secret_header": "X-Webhook-Secret",
-                        },
-                        "position": {"x": 32, "y": 40},
-                    },
-                    {
-                        "id": "response-1",
-                        "kind": "response",
-                        "type": "core.response",
-                        "label": "Done",
-                        "config": {
-                            "template": "{{ trigger.meta.secret.name }}",
-                        },
-                        "position": {"x": 320, "y": 40},
-                    },
-                ],
-                "edges": [
-                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
-                ],
-            },
-            enabled=True,
-        )
-        secret = self._bind_secret(workflow=workflow, secret_name="WEBHOOK_SHARED_SECRET")
-
-        with patch.dict(os.environ, {"WEBHOOK_SHARED_SECRET": "shared-secret"}, clear=False):
-            _, _, run = self._queue_workflow_request(
-                lambda: self.client.post(
-                    self._get_public_webhook_url(workflow),
-                    data=json.dumps({"status": "ok"}),
-                    content_type="application/json",
-                    HTTP_X_WEBHOOK_SECRET="shared-secret",
-                )
-            )
-
-        execute_workflow_run(run)
-        run.refresh_from_db()
-        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
-        self.assertEqual(run.output_data["response"], secret.name)
 
     def test_workflow_webhook_trigger_rejects_generic_method_mismatch(self):
         workflow = Workflow.objects.create(
@@ -2250,40 +2770,32 @@ class WorkflowViewTests(TestCase):
                 ],
             },
         )
-        secret = self._bind_secret(
-            workflow=workflow,
-            secret_name="GITHUB_WEBHOOK_SECRET",
-        )
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="Primary GitHub",
             integration_id="github",
             connection_type="github.oauth2",
-            secret_group=secret.secret_group,
-            field_values={
-                "webhook_secret": {"source": "secret", "secret_name": secret.name},
-            },
+            data={"webhook_secret": "github-secret"},
         )
         workflow.definition["nodes"][0]["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
         body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
 
-        with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "github-secret"}, clear=False):
-            signature = "sha256=" + hmac.new(
-                b"github-secret",
-                body,
-                hashlib.sha256,
-            ).hexdigest()
-            _, _, run = self._queue_workflow_request(
-                lambda: self.client.post(
-                    reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
-                    data=body,
-                    content_type="application/json",
-                    HTTP_X_HUB_SIGNATURE_256=signature,
-                    HTTP_X_GITHUB_EVENT="push",
-                    HTTP_X_GITHUB_DELIVERY="delivery-1",
-                )
+        signature = "sha256=" + hmac.new(
+            b"github-secret",
+            body,
+            hashlib.sha256,
+        ).hexdigest()
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
+                data=body,
+                content_type="application/json",
+                HTTP_X_HUB_SIGNATURE_256=signature,
+                HTTP_X_GITHUB_EVENT="push",
+                HTTP_X_GITHUB_DELIVERY="delivery-1",
             )
+        )
 
         execute_workflow_run(run)
         run.refresh_from_db()
@@ -2326,43 +2838,31 @@ class WorkflowViewTests(TestCase):
                 ],
             },
         )
-        secret = Secret.objects.create(
-            secret_group=self._create_secret_group(name="GitHub auth"),
-            provider="environment-variable",
-            name="GITHUB_WEBHOOK_SECRET",
-            parameters={"variable": "GITHUB_WEBHOOK_SECRET"},
-        )
-        workflow.secret_group = secret.secret_group
-        workflow.save(update_fields=("secret_group",))
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="Primary GitHub",
             integration_id="github",
             connection_type="github.oauth2",
-            secret_group=secret.secret_group,
-            field_values={
-                "webhook_secret": {"source": "secret", "secret_name": secret.name},
-            },
+            data={"webhook_secret": "github-secret"},
         )
         workflow.definition["nodes"][0]["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
         body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
 
-        with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "github-secret"}, clear=False):
-            signature = "sha256=" + hmac.new(
-                b"github-secret",
-                body,
-                hashlib.sha256,
-            ).hexdigest()
-            _, _, run = self._queue_workflow_request(
-                lambda: self.client.post(
-                    reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
-                    data=body,
-                    content_type="application/json",
-                    HTTP_X_HUB_SIGNATURE_256=signature,
-                    HTTP_X_GITHUB_EVENT="push",
-                )
+        signature = "sha256=" + hmac.new(
+            b"github-secret",
+            body,
+            hashlib.sha256,
+        ).hexdigest()
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
+                data=body,
+                content_type="application/json",
+                HTTP_X_HUB_SIGNATURE_256=signature,
+                HTTP_X_GITHUB_EVENT="push",
             )
+        )
 
         execute_workflow_run(run)
         run.refresh_from_db()
@@ -2404,43 +2904,31 @@ class WorkflowViewTests(TestCase):
                 ],
             },
         )
-        secret = Secret.objects.create(
-            secret_group=self._create_secret_group(name="GitHub typed auth"),
-            provider="environment-variable",
-            name="GITHUB_WEBHOOK_SECRET",
-            parameters={"variable": "GITHUB_WEBHOOK_SECRET"},
-        )
-        workflow.secret_group = secret.secret_group
-        workflow.save(update_fields=("secret_group",))
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="Typed GitHub",
             integration_id="github",
             connection_type="github.oauth2",
-            secret_group=secret.secret_group,
-            field_values={
-                "webhook_secret": {"source": "secret", "secret_name": secret.name},
-            },
+            data={"webhook_secret": "github-secret"},
         )
         workflow.definition["nodes"][0]["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
         body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
 
-        with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "github-secret"}, clear=False):
-            signature = "sha256=" + hmac.new(
-                b"github-secret",
-                body,
-                hashlib.sha256,
-            ).hexdigest()
-            _, _, run = self._queue_workflow_request(
-                lambda: self.client.post(
-                    reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
-                    data=body,
-                    content_type="application/json",
-                    HTTP_X_HUB_SIGNATURE_256=signature,
-                    HTTP_X_GITHUB_EVENT="push",
-                )
+        signature = "sha256=" + hmac.new(
+            b"github-secret",
+            body,
+            hashlib.sha256,
+        ).hexdigest()
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
+                data=body,
+                content_type="application/json",
+                HTTP_X_HUB_SIGNATURE_256=signature,
+                HTTP_X_GITHUB_EVENT="push",
             )
+        )
 
         execute_workflow_run(run)
         run.refresh_from_db()
@@ -2479,31 +2967,23 @@ class WorkflowViewTests(TestCase):
                 ],
             },
         )
-        secret = self._bind_secret(
-            workflow=workflow,
-            secret_name="GITHUB_WEBHOOK_SECRET",
-        )
-        connection = WorkflowConnection.objects.create(
+        connection = self._create_connection(
             environment=self.environment,
             name="Primary GitHub",
             integration_id="github",
             connection_type="github.oauth2",
-            secret_group=secret.secret_group,
-            field_values={
-                "webhook_secret": {"source": "secret", "secret_name": secret.name},
-            },
+            data={"webhook_secret": "github-secret"},
         )
         workflow.definition["nodes"][0]["connections"] = {"connection_id": str(connection.pk)}
         workflow.save(update_fields=("definition",))
 
-        with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "github-secret"}, clear=False):
-            response = self.client.post(
-                reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
-                data=json.dumps({"zen": "fail"}),
-                content_type="application/json",
-                HTTP_X_HUB_SIGNATURE_256="sha256=bad",
-                HTTP_X_GITHUB_EVENT="push",
-            )
+        response = self.client.post(
+            reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
+            data=json.dumps({"zen": "fail"}),
+            content_type="application/json",
+            HTTP_X_HUB_SIGNATURE_256="sha256=bad",
+            HTTP_X_GITHUB_EVENT="push",
+        )
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("signature validation failed", response.json()["detail"].lower())
