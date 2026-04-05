@@ -82,6 +82,153 @@ class WorkflowRuntimeTests(TestCase):
             workflow.save(update_fields=("secret_group",))
         return secret
 
+    def _create_incident_triage_workflow(self):
+        return Workflow.objects.create(
+            environment=self.environment,
+            name="Incident triage example",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.manual_trigger",
+                        "label": "Manual trigger",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "set-ticket-context",
+                        "kind": "tool",
+                        "type": "core.set",
+                        "label": "Capture incident",
+                        "config": {
+                            "output_key": "incident.summary",
+                            "value_json": {
+                                "ticket_id": "{{ trigger.payload.ticket_id }}",
+                                "service": "{{ trigger.payload.service }}",
+                                "severity": "{{ trigger.payload.severity }}",
+                                "environment": "{{ trigger.payload.environment }}",
+                            },
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "if-production",
+                        "kind": "control",
+                        "type": "core.if",
+                        "label": "Production only",
+                        "config": {
+                            "path": "runtime.inputs_by_alias.set_ticket_context.output.value.environment",
+                            "operator": "equals",
+                            "right_value": "production",
+                        },
+                        "position": {"x": 608, "y": 40},
+                    },
+                    {
+                        "id": "stop-non-production",
+                        "kind": "control",
+                        "type": "core.stop_and_error",
+                        "label": "Reject non-production",
+                        "config": {
+                            "message": "Environment {{ incident.summary.environment }} is not eligible for paging.",
+                        },
+                        "position": {"x": 896, "y": 160},
+                    },
+                    {
+                        "id": "switch-severity",
+                        "kind": "control",
+                        "type": "core.switch",
+                        "label": "Choose escalation path",
+                        "config": {
+                            "path": "incident.summary.severity",
+                            "case_1_value": "critical",
+                            "case_2_value": "high",
+                        },
+                        "position": {"x": 896, "y": 40},
+                    },
+                    {
+                        "id": "set-route-p1",
+                        "kind": "tool",
+                        "type": "core.set",
+                        "label": "Route P1",
+                        "config": {
+                            "output_key": "incident.route",
+                            "value_json": {
+                                "team": "platform-oncall",
+                                "priority": "p1",
+                                "channel": "pagerduty",
+                                "summary": "{{ incident.summary.ticket_id }} {{ incident.summary.service }} critical in {{ incident.summary.environment }}",
+                            },
+                        },
+                        "position": {"x": 1184, "y": -80},
+                    },
+                    {
+                        "id": "set-route-p2",
+                        "kind": "tool",
+                        "type": "core.set",
+                        "label": "Route P2",
+                        "config": {
+                            "output_key": "incident.route",
+                            "value_json": {
+                                "team": "service-owners",
+                                "priority": "p2",
+                                "channel": "slack",
+                                "summary": "{{ incident.summary.ticket_id }} {{ incident.summary.service }} high severity in {{ incident.summary.environment }}",
+                            },
+                        },
+                        "position": {"x": 1184, "y": 40},
+                    },
+                    {
+                        "id": "set-route-general",
+                        "kind": "tool",
+                        "type": "core.set",
+                        "label": "Route General",
+                        "config": {
+                            "output_key": "incident.route",
+                            "value_json": {
+                                "team": "support-triage",
+                                "priority": "p3",
+                                "channel": "queue",
+                                "summary": "{{ incident.summary.ticket_id }} {{ incident.summary.service }} needs triage in {{ incident.summary.environment }}",
+                            },
+                        },
+                        "position": {"x": 1184, "y": 160},
+                    },
+                    {
+                        "id": "response-dispatch",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Dispatch result",
+                        "config": {
+                            "value_path": "runtime.inputs.0.output.value",
+                        },
+                        "position": {"x": 1472, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "set-ticket-context"},
+                    {"id": "edge-2", "source": "set-ticket-context", "target": "if-production"},
+                    {"id": "edge-3", "source": "if-production", "sourcePort": "true", "target": "switch-severity"},
+                    {
+                        "id": "edge-4",
+                        "source": "if-production",
+                        "sourcePort": "false",
+                        "target": "stop-non-production",
+                    },
+                    {"id": "edge-5", "source": "switch-severity", "sourcePort": "case_1", "target": "set-route-p1"},
+                    {"id": "edge-6", "source": "switch-severity", "sourcePort": "case_2", "target": "set-route-p2"},
+                    {
+                        "id": "edge-7",
+                        "source": "switch-severity",
+                        "sourcePort": "fallback",
+                        "target": "set-route-general",
+                    },
+                    {"id": "edge-8", "source": "set-route-p1", "target": "response-dispatch"},
+                    {"id": "edge-9", "source": "set-route-p2", "target": "response-dispatch"},
+                    {"id": "edge-10", "source": "set-route-general", "target": "response-dispatch"},
+                ],
+            },
+        )
+
     def test_execute_workflow_runs_agent_llm_step_end_to_end(self):
         workflow = Workflow.objects.create(
             environment=self.environment,
@@ -182,6 +329,111 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.output_data["response"], "Completed Review T-42")
         self.assertEqual(run.context_data["llm"]["response"]["text"], "Review T-42")
         self.assertEqual(run.step_count, 3)
+
+    def test_execute_workflow_runs_incident_triage_example_end_to_end(self):
+        workflow = self._create_incident_triage_workflow()
+
+        run = execute_workflow(
+            workflow,
+            input_data={
+                "ticket_id": "INC-100",
+                "service": "payments",
+                "severity": "critical",
+                "environment": "production",
+            },
+        )
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"]["team"], "platform-oncall")
+        self.assertEqual(run.output_data["response"]["priority"], "p1")
+        self.assertEqual(run.context_data["incident"]["summary"]["ticket_id"], "INC-100")
+        self.assertEqual(run.context_data["incident"]["route"]["channel"], "pagerduty")
+        self.assertCountEqual(
+            run.scheduler_state["completed_node_ids"],
+            [
+                "trigger-1",
+                "set-ticket-context",
+                "if-production",
+                "switch-severity",
+                "set-route-p1",
+                "response-dispatch",
+            ],
+        )
+        self.assertEqual(
+            run.scheduler_state["skipped_predecessors"]["set-route-p2"],
+            ["switch-severity"],
+        )
+        self.assertEqual(
+            run.scheduler_state["skipped_predecessors"]["set-route-general"],
+            ["switch-severity"],
+        )
+
+    def test_execute_workflow_can_stop_after_each_incident_triage_node_id(self):
+        workflow = self._create_incident_triage_workflow()
+        input_data = {
+            "ticket_id": "INC-101",
+            "service": "billing",
+            "severity": "critical",
+            "environment": "production",
+        }
+        expected_by_node_id = {
+            "trigger-1": lambda run: self.assertEqual(
+                run.output_data["output"]["payload"]["ticket_id"],
+                "INC-101",
+            ),
+            "set-ticket-context": lambda run: self.assertEqual(
+                run.output_data["output"]["value"]["service"],
+                "billing",
+            ),
+            "if-production": lambda run: self.assertTrue(run.output_data["output"]["matched"]),
+            "switch-severity": lambda run: self.assertEqual(
+                run.output_data["output"]["matched_case"],
+                "case_1",
+            ),
+            "set-route-p1": lambda run: self.assertEqual(
+                run.output_data["output"]["value"]["team"],
+                "platform-oncall",
+            ),
+            "response-dispatch": lambda run: self.assertEqual(
+                run.output_data["response"]["response"]["team"],
+                "platform-oncall",
+            ),
+        }
+
+        for node_id, assertion in expected_by_node_id.items():
+            with self.subTest(node_id=node_id):
+                run = execute_workflow(
+                    workflow,
+                    input_data=input_data,
+                    trigger_mode="manual:node",
+                    stop_after_node_id=node_id,
+                )
+                self.assertEqual(run.status, "succeeded")
+                self.assertEqual(run.output_data["node_id"], node_id)
+                assertion(run)
+
+    def test_execute_workflow_runs_incident_triage_non_production_failure_path(self):
+        workflow = self._create_incident_triage_workflow()
+
+        run = execute_workflow(
+            workflow,
+            input_data={
+                "ticket_id": "INC-102",
+                "service": "payments",
+                "severity": "critical",
+                "environment": "staging",
+            },
+        )
+
+        self.assertEqual(run.status, "failed")
+        self.assertEqual(
+            run.output_data["message"],
+            "Environment staging is not eligible for paging.",
+        )
+        self.assertCountEqual(
+            run.scheduler_state["completed_node_ids"],
+            ["trigger-1", "set-ticket-context", "if-production", "stop-non-production"],
+        )
 
     def test_execute_workflow_respects_static_mode_for_agent_prompt_template(self):
         workflow = Workflow.objects.create(
