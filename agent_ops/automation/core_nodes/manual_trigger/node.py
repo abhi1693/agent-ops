@@ -4,16 +4,11 @@ from automation.catalog.capabilities import CAPABILITY_TRIGGER_MANUAL
 from automation.catalog.definitions import CatalogNodeDefinition
 from automation.runtime_types import WorkflowNodeExecutionContext, WorkflowNodeExecutionResult
 
+from automation.core_nodes._triggers import build_trigger_result
+
 
 def _execute_manual_trigger(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecutionResult:
-    return WorkflowNodeExecutionResult(
-        next_node_id=runtime.next_node_id,
-        output={
-            "payload": runtime.context["trigger"]["payload"],
-            "trigger_type": runtime.context["trigger"]["type"],
-            "trigger_meta": runtime.context["trigger"].get("meta", {}),
-        },
-    )
+    return build_trigger_result(runtime)
 
 
 NODE_DEFINITION = CatalogNodeDefinition(

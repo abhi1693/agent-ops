@@ -2199,6 +2199,50 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.step_results[0]["result"]["schedule"]["cron"], "0 */2 * * *")
         self.assertEqual(run.step_results[0]["type"], "core.schedule_trigger")
 
+    def test_execute_workflow_runs_webhook_trigger_builtin(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="webhook trigger built-in",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.type }}:{{ trigger.payload.ticket_id }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(
+            workflow,
+            input_data={"ticket_id": "INC-321"},
+            trigger_mode="core.webhook_trigger",
+            trigger_metadata={"method": "POST"},
+        )
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.step_results[0]["type"], "core.webhook_trigger")
+        self.assertEqual(run.output_data["response"], "core.webhook_trigger:INC-321")
+
     def test_execute_workflow_runs_switch_builtin(self):
         workflow = Workflow.objects.create(
             environment=self.environment,

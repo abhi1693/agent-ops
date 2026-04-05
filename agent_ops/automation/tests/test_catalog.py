@@ -36,6 +36,7 @@ class WorkflowCatalogTests(SimpleTestCase):
                 "core.set",
                 "core.stop_and_error",
                 "core.switch",
+                "core.webhook_trigger",
             ],
         )
         self.assertEqual(
@@ -52,7 +53,10 @@ class WorkflowCatalogTests(SimpleTestCase):
 
         self.assertEqual(registry["capability_index"][CAPABILITY_TRIGGER_MANUAL], {"core.manual_trigger"})
         self.assertEqual(registry["capability_index"][CAPABILITY_TRIGGER_SCHEDULE], {"core.schedule_trigger"})
-        self.assertEqual(registry["capability_index"][CAPABILITY_TRIGGER_WEBHOOK], {"github.trigger.webhook"})
+        self.assertEqual(
+            registry["capability_index"][CAPABILITY_TRIGGER_WEBHOOK],
+            {"core.webhook_trigger", "github.trigger.webhook"},
+        )
         self.assertEqual(
             registry["capability_index"][CAPABILITY_AGENT_TOOL],
             {"elasticsearch.action.search", "prometheus.action.query"},
@@ -145,6 +149,7 @@ class WorkflowCatalogTests(SimpleTestCase):
         response_definition = next(item for item in payload["definitions"] if item["type"] == "core.response")
         if_definition = next(item for item in payload["definitions"] if item["type"] == "core.if")
         switch_definition = next(item for item in payload["definitions"] if item["type"] == "core.switch")
+        webhook_definition = next(item for item in payload["definitions"] if item["type"] == "core.webhook_trigger")
 
         output_key_field = next(field for field in set_definition["fields"] if field["key"] == "output_key")
         fields_field = next(field for field in set_definition["fields"] if field["key"] == "fields")
@@ -152,6 +157,7 @@ class WorkflowCatalogTests(SimpleTestCase):
         conditions_field = next(field for field in if_definition["fields"] if field["key"] == "conditions")
         combinator_field = next(field for field in if_definition["fields"] if field["key"] == "combinator")
         rules_field = next(field for field in switch_definition["fields"] if field["key"] == "rules")
+        http_method_field = next(field for field in webhook_definition["fields"] if field["key"] == "http_method")
 
         self.assertEqual(set_definition["defaultName"], "Edit Fields")
         self.assertEqual(set_definition["subtitle"], "={{config.output_key}}")
@@ -168,3 +174,5 @@ class WorkflowCatalogTests(SimpleTestCase):
         self.assertEqual(conditions_field["ui_group"], "input")
         self.assertEqual(combinator_field["type"], "select")
         self.assertEqual(rules_field["type"], "fixed_collection")
+        self.assertEqual(http_method_field["type"], "select")
+        self.assertEqual(http_method_field["value_type"], "string")

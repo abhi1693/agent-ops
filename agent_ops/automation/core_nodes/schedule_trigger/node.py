@@ -3,17 +3,15 @@ from __future__ import annotations
 from automation.catalog.capabilities import CAPABILITY_TRIGGER_SCHEDULE
 from automation.catalog.definitions import CatalogNodeDefinition, ParameterDefinition
 from automation.runtime_types import WorkflowNodeExecutionContext, WorkflowNodeExecutionResult
+from automation.core_nodes._triggers import build_trigger_result
 from automation.tools.base import _render_runtime_string
 
 
 def _execute_schedule_trigger(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecutionResult:
     cron = _render_runtime_string(runtime, "cron", required=True, default_mode="static")
-    return WorkflowNodeExecutionResult(
-        next_node_id=runtime.next_node_id,
-        output={
-            "payload": runtime.context["trigger"]["payload"],
-            "trigger_type": runtime.context["trigger"]["type"],
-            "trigger_meta": runtime.context["trigger"].get("meta", {}),
+    return build_trigger_result(
+        runtime,
+        extra={
             "schedule": {
                 "mode": "cron",
                 "cron": cron,

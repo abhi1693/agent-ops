@@ -190,6 +190,19 @@ class WorkflowViewTests(TestCase):
             workflow.save(update_fields=("secret_group",))
         return secret
 
+    def _queue_workflow_request(self, request_callable):
+        with patch("automation.runtime.ensure_workers_for_queue"), patch(
+            "automation.runtime.enqueue_workflow_run_job",
+            side_effect=lambda run: run,
+        ):
+            response = request_callable()
+
+        self.assertEqual(response.status_code, 202)
+        payload = response.json()
+        self.assertEqual(payload["status"], WorkflowRun.StatusChoices.PENDING)
+        run = WorkflowRun.objects.get(pk=payload["run_id"])
+        return response, payload, run
+
     def test_workflow_list_is_scoped_for_members(self):
         self.client.force_login(self.standard_user)
 
@@ -287,6 +300,7 @@ class WorkflowViewTests(TestCase):
         self.assertContains(response, '"app_label": "OpenAI"')
         self.assertContains(response, '"type": "core.manual_trigger"')
         self.assertContains(response, '"type": "core.schedule_trigger"')
+        self.assertContains(response, '"type": "core.webhook_trigger"')
         self.assertContains(response, '"type": "core.agent"')
         self.assertContains(response, '"type": "core.set"')
         self.assertContains(response, '"type": "core.if"')
@@ -1454,21 +1468,239 @@ class WorkflowViewTests(TestCase):
                 body,
                 hashlib.sha256,
             ).hexdigest()
-            response = self.client.post(
-                reverse("workflow_webhook_trigger", args=[workflow.pk]),
-                data=body,
-                content_type="application/json",
-                HTTP_X_HUB_SIGNATURE_256=signature,
-                HTTP_X_GITHUB_EVENT="push",
-                HTTP_X_GITHUB_DELIVERY="delivery-1",
+            _, _, run = self._queue_workflow_request(
+                lambda: self.client.post(
+                    reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                    data=body,
+                    content_type="application/json",
+                    HTTP_X_HUB_SIGNATURE_256=signature,
+                    HTTP_X_GITHUB_EVENT="push",
+                    HTTP_X_GITHUB_DELIVERY="delivery-1",
+                )
             )
 
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(payload["status"], "succeeded")
-        self.assertEqual(payload["output_data"]["response"], "push:acme/platform")
-        run = WorkflowRun.objects.get(pk=payload["run_id"])
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "push:acme/platform")
         self.assertEqual(run.context_data["trigger"]["meta"]["event"], "push")
+
+    def test_workflow_webhook_trigger_accepts_generic_payload(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Generic webhook",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.payload.ticket_id }}:{{ trigger.meta.method }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+            enabled=True,
+        )
+
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                data=json.dumps({"ticket_id": "INC-123"}),
+                content_type="application/json",
+            )
+        )
+
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "INC-123:POST")
+
+    def test_workflow_webhook_trigger_validates_generic_secret_header(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Generic webhook secret",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                            "secret_name": "WEBHOOK_SHARED_SECRET",
+                            "secret_header": "X-Webhook-Secret",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.meta.secret.name }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+            enabled=True,
+        )
+        secret = self._bind_secret(workflow=workflow, secret_name="WEBHOOK_SHARED_SECRET")
+
+        with patch.dict(os.environ, {"WEBHOOK_SHARED_SECRET": "shared-secret"}, clear=False):
+            _, _, run = self._queue_workflow_request(
+                lambda: self.client.post(
+                    reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                    data=json.dumps({"status": "ok"}),
+                    content_type="application/json",
+                    HTTP_X_WEBHOOK_SECRET="shared-secret",
+                )
+            )
+
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], secret.name)
+
+    def test_workflow_webhook_trigger_rejects_generic_method_mismatch(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Generic webhook method mismatch",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "PUT",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+            enabled=True,
+        )
+
+        response = self.client.post(
+            reverse("workflow_webhook_trigger", args=[workflow.pk]),
+            data=json.dumps({"status": "wrong-method"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('does not match configured method "PUT"', response.json()["detail"])
+
+    def test_workflow_webhook_trigger_supports_all_generic_http_methods(self):
+        for method in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+            workflow = Workflow.objects.create(
+                environment=self.environment,
+                name=f"Generic webhook {method}",
+                definition={
+                    "nodes": [
+                        {
+                            "id": "trigger-1",
+                            "kind": "trigger",
+                            "type": "core.webhook_trigger",
+                            "label": "Webhook",
+                            "config": {
+                                "http_method": method,
+                            },
+                            "position": {"x": 32, "y": 40},
+                        },
+                        {
+                            "id": "response-1",
+                            "kind": "response",
+                            "type": "core.response",
+                            "label": "Done",
+                            "config": {
+                                "template": "{{ trigger.meta.method }}",
+                            },
+                            "position": {"x": 320, "y": 40},
+                        },
+                    ],
+                    "edges": [
+                        {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                    ],
+                },
+                enabled=True,
+            )
+
+            request_path = reverse("workflow_webhook_trigger", args=[workflow.pk])
+            if method == "GET":
+                _, _, run = self._queue_workflow_request(
+                    lambda: self.client.get(request_path)
+                )
+            elif method == "POST":
+                _, _, run = self._queue_workflow_request(
+                    lambda: self.client.post(
+                        request_path,
+                        data=json.dumps({"ticket_id": "INC-123"}),
+                        content_type="application/json",
+                    )
+                )
+            elif method == "PUT":
+                _, _, run = self._queue_workflow_request(
+                    lambda: self.client.put(
+                        request_path,
+                        data=json.dumps({"ticket_id": "INC-123"}),
+                        content_type="application/json",
+                    )
+                )
+            elif method == "PATCH":
+                _, _, run = self._queue_workflow_request(
+                    lambda: self.client.patch(
+                        request_path,
+                        data=json.dumps({"ticket_id": "INC-123"}),
+                        content_type="application/json",
+                    )
+                )
+            else:
+                _, _, run = self._queue_workflow_request(
+                    lambda: self.client.delete(
+                        request_path,
+                        data=json.dumps({"ticket_id": "INC-123"}),
+                        content_type="application/json",
+                    )
+                )
+
+            execute_workflow_run(run)
+            run.refresh_from_db()
+            self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+            self.assertEqual(run.output_data["response"], method)
 
     def test_workflow_webhook_trigger_accepts_v2_github_payload_with_valid_signature(self):
         workflow = Workflow.objects.create(
@@ -1529,20 +1761,21 @@ class WorkflowViewTests(TestCase):
                 body,
                 hashlib.sha256,
             ).hexdigest()
-            response = self.client.post(
-                reverse("workflow_webhook_trigger", args=[workflow.pk]),
-                data=body,
-                content_type="application/json",
-                HTTP_X_HUB_SIGNATURE_256=signature,
-                HTTP_X_GITHUB_EVENT="push",
-                HTTP_X_GITHUB_DELIVERY="delivery-1",
+            _, _, run = self._queue_workflow_request(
+                lambda: self.client.post(
+                    reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                    data=body,
+                    content_type="application/json",
+                    HTTP_X_HUB_SIGNATURE_256=signature,
+                    HTTP_X_GITHUB_EVENT="push",
+                    HTTP_X_GITHUB_DELIVERY="delivery-1",
+                )
             )
 
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(payload["status"], "succeeded")
-        self.assertEqual(payload["output_data"]["response"], "push:acme/platform")
-        run = WorkflowRun.objects.get(pk=payload["run_id"])
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "push:acme/platform")
         self.assertEqual(run.context_data["trigger"]["meta"]["event"], "push")
 
     def test_workflow_webhook_trigger_resolves_bound_secret_for_signature_validation(self):
@@ -1608,18 +1841,20 @@ class WorkflowViewTests(TestCase):
                 body,
                 hashlib.sha256,
             ).hexdigest()
-            response = self.client.post(
-                reverse("workflow_webhook_trigger", args=[workflow.pk]),
-                data=body,
-                content_type="application/json",
-                HTTP_X_HUB_SIGNATURE_256=signature,
-                HTTP_X_GITHUB_EVENT="push",
+            _, _, run = self._queue_workflow_request(
+                lambda: self.client.post(
+                    reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                    data=body,
+                    content_type="application/json",
+                    HTTP_X_HUB_SIGNATURE_256=signature,
+                    HTTP_X_GITHUB_EVENT="push",
+                )
             )
 
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(payload["status"], "succeeded")
-        self.assertEqual(payload["output_data"]["response"], "push:acme/platform")
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "push:acme/platform")
 
     def test_workflow_webhook_trigger_accepts_typed_connection_secret_field(self):
         workflow = Workflow.objects.create(
@@ -1684,18 +1919,20 @@ class WorkflowViewTests(TestCase):
                 body,
                 hashlib.sha256,
             ).hexdigest()
-            response = self.client.post(
-                reverse("workflow_webhook_trigger", args=[workflow.pk]),
-                data=body,
-                content_type="application/json",
-                HTTP_X_HUB_SIGNATURE_256=signature,
-                HTTP_X_GITHUB_EVENT="push",
+            _, _, run = self._queue_workflow_request(
+                lambda: self.client.post(
+                    reverse("workflow_webhook_trigger", args=[workflow.pk]),
+                    data=body,
+                    content_type="application/json",
+                    HTTP_X_HUB_SIGNATURE_256=signature,
+                    HTTP_X_GITHUB_EVENT="push",
+                )
             )
 
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(payload["status"], "succeeded")
-        self.assertEqual(payload["output_data"]["response"], "push:acme/platform")
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "push:acme/platform")
 
     def test_workflow_webhook_trigger_rejects_invalid_github_signature(self):
         workflow = Workflow.objects.create(

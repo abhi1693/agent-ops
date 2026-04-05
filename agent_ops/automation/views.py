@@ -44,7 +44,7 @@ from automation.integrations.openai.app import (
 )
 from automation.models import Secret, SecretGroup, Workflow, WorkflowConnection, WorkflowConnectionState, WorkflowRun, WorkflowStepRun, WorkflowVersion
 from automation.primitives import canonicalize_workflow_definition, normalize_workflow_definition_nodes
-from automation.runtime import enqueue_workflow, execute_workflow
+from automation.runtime import enqueue_workflow
 from automation.tools.base import _http_json_request
 from automation.workflow_connections import split_workflow_edges
 from core.generic_views import (
@@ -1525,9 +1525,9 @@ class WorkflowDeleteView(RestrictedObjectDeleteMixin, ObjectDeleteView):
 
 @method_decorator(csrf_exempt, name="dispatch")
 class WorkflowWebhookTriggerView(View):
-    http_method_names = ["post"]
+    http_method_names = ["get", "post", "put", "patch", "delete"]
 
-    def post(self, request, *args, **kwargs):
+    def _handle_request(self, request, *args, **kwargs):
         workflow = (
             Workflow.objects.select_related("organization", "workspace", "environment")
             .filter(pk=kwargs["pk"], enabled=True)
@@ -1551,14 +1551,23 @@ class WorkflowWebhookTriggerView(View):
             message = " ".join(exc.messages)
             return JsonResponse({"detail": message}, status=400)
 
-        run = execute_workflow(
-            workflow,
-            input_data=input_data,
-            trigger_mode=trigger_mode,
-            trigger_metadata=trigger_metadata,
-            actor=None,
-        )
-        status_code = 200 if run.status == WorkflowRun.StatusChoices.SUCCEEDED else 400
+        try:
+            run = enqueue_workflow(
+                workflow,
+                input_data=input_data,
+                trigger_mode=trigger_mode,
+                trigger_metadata=trigger_metadata,
+                actor=None,
+            )
+        except ValidationError as exc:
+            return JsonResponse({"detail": _flatten_validation_error(exc)}, status=400)
+
+        if run.status in {WorkflowRun.StatusChoices.PENDING, WorkflowRun.StatusChoices.RUNNING}:
+            status_code = 202
+        elif run.status == WorkflowRun.StatusChoices.SUCCEEDED:
+            status_code = 200
+        else:
+            status_code = 400
         return JsonResponse(
             {
                 "run_id": run.pk,
@@ -1568,3 +1577,18 @@ class WorkflowWebhookTriggerView(View):
             },
             status=status_code,
         )
+
+    def get(self, request, *args, **kwargs):
+        return self._handle_request(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        return self._handle_request(request, *args, **kwargs)
+
+    def put(self, request, *args, **kwargs):
+        return self._handle_request(request, *args, **kwargs)
+
+    def patch(self, request, *args, **kwargs):
+        return self._handle_request(request, *args, **kwargs)
+
+    def delete(self, request, *args, **kwargs):
+        return self._handle_request(request, *args, **kwargs)

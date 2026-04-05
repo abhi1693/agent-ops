@@ -47,6 +47,9 @@ def _catalog_webhook_runtime(workflow, node: dict) -> WorkflowNodeExecutionConte
 
 
 def _prepare_github_webhook_request(*, workflow, node: dict, request) -> tuple[str, dict, dict]:
+    if request.method.upper() != "POST":
+        raise ValidationError({"trigger": 'GitHub webhook requests must use method "POST".'})
+
     runtime = _catalog_webhook_runtime(workflow, node)
     resolved = resolve_workflow_connection_fields(
         runtime,
