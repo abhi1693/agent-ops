@@ -11,6 +11,7 @@ from automation.catalog.validation import (
     validate_parameter_schema,
 )
 from automation.runtime_types import WorkflowNodeExecutionContext, WorkflowNodeExecutionResult
+from automation.tools.base import _get_runtime_bound_path_value
 
 
 TRUE_PORT = "true"
@@ -46,7 +47,7 @@ def _validate_core_if_config(
 
 
 def _execute_if(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecutionResult:
-    left_value = runtime.get_path_value(runtime.context, runtime.config.get("path"))
+    left_value = _get_runtime_bound_path_value(runtime, runtime.config.get("path"))
     matched = runtime.evaluate_condition(
         runtime.config["operator"],
         left_value,

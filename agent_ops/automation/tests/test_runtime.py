@@ -362,13 +362,99 @@ class WorkflowRuntimeTests(TestCase):
             ["trigger-1", "tool-1", "set-1", "set-2", "response-1"],
         )
         response_step = WorkflowStepRun.objects.get(run=run, node_id="response-1")
-        self.assertEqual(
+        self.assertCountEqual(
             [item["source_node_id"] for item in response_step.input_data["input_items"]],
             ["set-1", "set-2"],
         )
-        self.assertEqual(
+        self.assertCountEqual(
             [item["output"]["value"] for item in response_step.input_data["input_items"]],
             ["alpha", "beta"],
+        )
+
+    def test_execute_workflow_existing_nodes_can_read_runtime_input_aliases(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Existing nodes runtime aliases",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.manual_trigger",
+                        "label": "Manual",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "if-1",
+                        "kind": "control",
+                        "type": "core.if",
+                        "label": "Check status",
+                        "config": {
+                            "path": "runtime.inputs_by_alias.trigger_1.output.payload.status",
+                            "operator": "equals",
+                            "right_value": "queued",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "set-1",
+                        "kind": "tool",
+                        "type": "core.set",
+                        "label": "Record branch",
+                        "config": {
+                            "output_key": "derived.branch",
+                            "value": "{{ runtime.inputs_by_alias.if_1.output.next_port }}",
+                        },
+                        "position": {"x": 608, "y": 0},
+                    },
+                    {
+                        "id": "response-true",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "value_path": "runtime.inputs_by_alias.set_1.output.value",
+                        },
+                        "position": {"x": 896, "y": 0},
+                    },
+                    {
+                        "id": "response-false",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Skipped",
+                        "config": {
+                            "template": "not-queued",
+                        },
+                        "position": {"x": 608, "y": 120},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "if-1"},
+                    {"id": "edge-2", "source": "if-1", "sourcePort": "true", "target": "set-1"},
+                    {"id": "edge-3", "source": "if-1", "sourcePort": "false", "target": "response-false"},
+                    {"id": "edge-4", "source": "set-1", "target": "response-true"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow, input_data={"status": "queued"})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"], "true")
+        self.assertEqual(run.context_data["derived"]["branch"], "true")
+        self.assertCountEqual(
+            run.scheduler_state["completed_node_ids"],
+            ["trigger-1", "if-1", "set-1", "response-true"],
+        )
+        self.assertEqual(
+            run.context_data["__runtime"]["node_outputs"]["if-1"]["output"]["next_port"],
+            "true",
+        )
+        self.assertEqual(run.scheduler_state["skipped_node_ids"], [])
+        self.assertEqual(run.scheduler_state["skipped_predecessors"]["response-false"], ["if-1"])
+        self.assertEqual(
+            WorkflowStepRun.objects.get(run=run, node_id="if-1").output_data["next_port"],
+            "true",
         )
 
     def test_execute_workflow_allows_expression_mode_for_literal_input_fields(self):

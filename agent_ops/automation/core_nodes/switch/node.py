@@ -3,6 +3,7 @@ from __future__ import annotations
 from automation.catalog.definitions import CatalogNodeDefinition, OutputPortDefinition, ParameterDefinition
 from automation.catalog.validation import raise_definition_error, validate_parameter_schema
 from automation.runtime_types import WorkflowNodeExecutionContext, WorkflowNodeExecutionResult
+from automation.tools.base import _get_runtime_bound_path_value
 
 
 CASE_1_PORT = "case_1"
@@ -40,7 +41,7 @@ def _validate_core_switch_config(
 
 
 def _execute_switch(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecutionResult:
-    left_value = runtime.get_path_value(runtime.context, runtime.config["path"])
+    left_value = _get_runtime_bound_path_value(runtime, runtime.config["path"])
     left_text = "" if left_value is None else str(left_value)
 
     matched_case = FALLBACK_PORT

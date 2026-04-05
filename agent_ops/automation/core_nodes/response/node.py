@@ -7,7 +7,7 @@ from automation.catalog.definitions import (
 )
 from automation.catalog.validation import validate_parameter_schema, validate_terminal
 from automation.runtime_types import WorkflowNodeExecutionContext, WorkflowNodeExecutionResult
-from automation.tools.base import _render_runtime_string
+from automation.tools.base import _get_runtime_bound_path_value, _render_runtime_string
 
 
 def _validate_core_response_config(*, config, node_id, outgoing_targets, **_) -> None:
@@ -23,8 +23,8 @@ def _validate_core_response_config(*, config, node_id, outgoing_targets, **_) ->
 
 def _execute_response(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecutionResult:
     if "value_path" in runtime.config and runtime.config.get("value_path") not in (None, ""):
-        payload = runtime.get_path_value(
-            runtime.context,
+        payload = _get_runtime_bound_path_value(
+            runtime,
             _render_runtime_string(runtime, "value_path", default_mode="static"),
         )
     else:

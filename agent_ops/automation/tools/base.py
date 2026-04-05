@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import timedelta, timezone as datetime_timezone
 from typing import Any, Callable, Iterable, Literal
@@ -404,6 +405,65 @@ def _get_runtime_input_mode(
     return default
 
 
+def _build_runtime_binding_context(runtime: Any) -> dict[str, Any]:
+    context = runtime.context
+    input_items = list(getattr(runtime, "input_items", []) or [])
+    inputs_by_source = dict(getattr(runtime, "inputs_by_source", {}) or {})
+    inputs_by_target_port = dict(getattr(runtime, "inputs_by_target_port", {}) or {})
+    source_aliases = _build_runtime_source_aliases(input_items)
+    inputs_by_alias = {
+        alias: item
+        for source_id, alias in source_aliases.items()
+        if (item := inputs_by_source.get(source_id)) is not None
+    }
+    runtime_state = {
+        "inputs": input_items,
+        "inputs_by_source": inputs_by_source,
+        "inputs_by_alias": inputs_by_alias,
+        "source_aliases": source_aliases,
+        "inputs_by_target_port": inputs_by_target_port,
+        "execution": dict(getattr(runtime, "execution_state", {}) or {}),
+    }
+    return {
+        **context,
+        "runtime": runtime_state,
+        "workflow_context": context,
+    }
+
+
+def _build_runtime_source_aliases(input_items: list[dict[str, Any]]) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    used_aliases: set[str] = set()
+    for item in input_items:
+        source_id = item.get("source_node_id")
+        if not isinstance(source_id, str) or not source_id:
+            continue
+        if source_id in aliases:
+            continue
+        base_alias = _sanitize_runtime_identifier(source_id)
+        alias = base_alias
+        suffix = 2
+        while alias in used_aliases:
+            alias = f"{base_alias}_{suffix}"
+            suffix += 1
+        aliases[source_id] = alias
+        used_aliases.add(alias)
+    return aliases
+
+
+def _sanitize_runtime_identifier(value: str) -> str:
+    sanitized = re.sub(r"[^0-9A-Za-z_]+", "_", value).strip("_")
+    if not sanitized:
+        sanitized = "node"
+    if sanitized[0].isdigit():
+        sanitized = f"node_{sanitized}"
+    return sanitized
+
+
+def _get_runtime_bound_path_value(runtime: Any, path: str | None) -> Any:
+    return runtime.get_path_value(_build_runtime_binding_context(runtime), path)
+
+
 def _render_runtime_string(
     runtime: WorkflowToolExecutionContext,
     key: str,
@@ -420,7 +480,7 @@ def _render_runtime_string(
 
     mode = _get_runtime_input_mode(runtime.config, key, default=default_mode)
     rendered = (
-        runtime.render_template(str(value), runtime.context).strip()
+        runtime.render_template(str(value), _build_runtime_binding_context(runtime)).strip()
         if mode == "expression"
         else str(value).strip()
     )
@@ -485,7 +545,7 @@ def _render_runtime_json(
             raw_template = json.dumps(value)
         else:
             raw_template = str(value)
-        rendered = runtime.render_template(raw_template, runtime.context).strip()
+        rendered = runtime.render_template(raw_template, _build_runtime_binding_context(runtime)).strip()
 
     if not rendered:
         if required:
