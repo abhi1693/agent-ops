@@ -54,6 +54,9 @@ NODE_DEFINITION = CatalogNodeDefinition(
     label="Response",
     description="Returns a structured workflow response to the caller.",
     icon="mdi-reply-outline",
+    default_name="Response",
+    node_group=("output",),
+    subtitle='={{config.status || "succeeded"}}',
     runtime_validator=_validate_core_response_config,
     runtime_executor=_execute_response,
     parameter_schema=(
@@ -64,6 +67,7 @@ NODE_DEFINITION = CatalogNodeDefinition(
             required=False,
             description="Rendered response body.",
             placeholder="Completed {{ llm.response.text }}",
+            ui_group="input",
         ),
         ParameterDefinition(
             key="value_path",
@@ -72,6 +76,8 @@ NODE_DEFINITION = CatalogNodeDefinition(
             required=False,
             description="Optional direct context lookup instead of rendering the template.",
             placeholder="llm.response",
+            binding="path",
+            ui_group="result",
         ),
         ParameterDefinition(
             key="status",
@@ -80,6 +86,9 @@ NODE_DEFINITION = CatalogNodeDefinition(
             required=False,
             description="Terminal run status.",
             default="succeeded",
+            is_node_setting=True,
+            no_data_expression=True,
+            ui_group="advanced",
             options=(
                 ParameterOptionDefinition(value="succeeded", label="Succeeded"),
                 ParameterOptionDefinition(value="failed", label="Failed"),

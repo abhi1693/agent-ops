@@ -6,13 +6,18 @@ export type WorkflowNodeTemplateOption = {
 export type WorkflowNodeTemplateField = {
   binding?: 'literal' | 'path' | 'template';
   description?: string;
+  display_options?: Record<string, Record<string, string[]>>;
   help_text?: string;
+  hint?: string;
+  is_node_setting?: boolean;
   key: string;
   label: string;
+  no_data_expression?: boolean;
   options?: WorkflowNodeTemplateOption[];
   options_by_field?: Record<string, Record<string, WorkflowNodeTemplateOption[]>>;
   placeholder?: string;
   required?: boolean;
+  requires_data_path?: 'single' | 'multiple';
   rows?: number;
   type: 'text' | 'textarea' | 'select' | 'node_target';
   ui_group?: 'advanced' | 'input' | 'result';
@@ -259,6 +264,8 @@ export type WorkflowNodeTemplate = {
   catalog_section?: WorkflowNodeCatalogSection;
   category?: string;
   config?: Record<string, unknown>;
+  defaultColor?: string | null;
+  defaultName?: string | null;
   description: string;
   fields: WorkflowNodeTemplateField[];
   icon?: string;
@@ -266,6 +273,8 @@ export type WorkflowNodeTemplate = {
   label: string;
   type: string;
   typeVersion?: number;
+  subtitle?: string | null;
+  nodeGroup?: string[];
 };
 
 export type WorkflowCatalogPayload = {
@@ -329,6 +338,8 @@ export type WorkflowNodeDefinition = {
     required?: boolean;
   }>;
   connection_type?: string | null;
+  defaultColor?: string | null;
+  defaultName?: string | null;
   description: string;
   fields: WorkflowNodeTemplateField[];
   icon?: string;
@@ -336,8 +347,10 @@ export type WorkflowNodeDefinition = {
   kind: WorkflowNodeKind | string;
   label: string;
   mode?: string;
+  nodeGroup?: string[];
   operation?: string;
   resource?: string;
+  subtitle?: string | null;
   tags?: string[];
   type: string;
   typeVersion: number;

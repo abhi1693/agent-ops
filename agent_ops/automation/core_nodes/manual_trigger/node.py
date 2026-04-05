@@ -24,6 +24,8 @@ NODE_DEFINITION = CatalogNodeDefinition(
     label="Manual Trigger",
     description="Starts a workflow when a user runs it explicitly.",
     icon="mdi-play-circle-outline",
+    default_name="Manual Trigger",
+    node_group=("trigger",),
     capabilities=frozenset({CAPABILITY_TRIGGER_MANUAL}),
     runtime_executor=_execute_manual_trigger,
 )

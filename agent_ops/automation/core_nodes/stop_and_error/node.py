@@ -39,6 +39,8 @@ NODE_DEFINITION = CatalogNodeDefinition(
     label="Stop And Error",
     description="Stops execution immediately and emits an explicit workflow failure.",
     icon="mdi-alert-circle-outline",
+    default_name="Stop And Error",
+    node_group=("transform",),
     runtime_validator=_validate_core_stop_and_error_config,
     runtime_executor=_execute_stop_and_error,
     parameter_schema=(
@@ -49,6 +51,7 @@ NODE_DEFINITION = CatalogNodeDefinition(
             required=True,
             description="Message surfaced in the workflow run error output.",
             placeholder="The selected deployment environment is not allowed.",
+            ui_group="input",
         ),
     ),
 )

@@ -250,9 +250,16 @@ class WorkflowModelTests(TestCase):
                         "type": "core.if",
                         "label": "Check priority",
                         "config": {
-                            "path": "trigger.payload.priority",
-                            "operator": "equals",
-                            "right_value": "high",
+                            "conditions": {
+                                "conditions": [
+                                    {
+                                        "leftPath": "trigger.payload.priority",
+                                        "operator": "equals",
+                                        "rightValue": "high",
+                                    }
+                                ],
+                                "combinator": "and",
+                            },
                         },
                         "position": {"x": 280, "y": 40},
                     },

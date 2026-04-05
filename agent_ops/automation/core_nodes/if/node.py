@@ -4,14 +4,13 @@ from automation.catalog.definitions import (
     CatalogNodeDefinition,
     OutputPortDefinition,
     ParameterDefinition,
-    ParameterOptionDefinition,
 )
 from automation.catalog.validation import (
     raise_definition_error,
     validate_parameter_schema,
 )
+from automation.core_nodes._conditions import evaluate_condition_block
 from automation.runtime_types import WorkflowNodeExecutionContext, WorkflowNodeExecutionResult
-from automation.tools.base import _get_runtime_bound_path_value
 
 
 TRUE_PORT = "true"
@@ -35,9 +34,12 @@ def _validate_core_if_config(
         node_ids=node_ids,
         outgoing_targets=outgoing_targets,
     )
-    operator = str(config.get("operator") or "").strip()
-    if operator not in {"exists", "truthy"} and "right_value" not in config:
-        raise_definition_error(f'Node "{node_id}" must define config.right_value for operator "{operator}".')
+    conditions_block = config.get("conditions")
+    if not isinstance(conditions_block, dict):
+        raise_definition_error(f'Node "{node_id}" must define config.conditions as a condition block.')
+    raw_conditions = conditions_block.get("conditions")
+    if not isinstance(raw_conditions, list) or not raw_conditions:
+        raise_definition_error(f'Node "{node_id}" conditions block must define at least one condition.')
     if len(outgoing_targets_by_source_port.get(TRUE_PORT, [])) != 1:
         raise_definition_error(f'Node "{node_id}" must connect exactly one "{TRUE_PORT}" edge.')
     if len(outgoing_targets_by_source_port.get(FALSE_PORT, [])) != 1:
@@ -47,22 +49,17 @@ def _validate_core_if_config(
 
 
 def _execute_if(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecutionResult:
-    left_value = _get_runtime_bound_path_value(runtime, runtime.config.get("path"))
-    matched = runtime.evaluate_condition(
-        runtime.config["operator"],
-        left_value,
-        runtime.config.get("right_value"),
-    )
+    conditions_block = runtime.config["conditions"]
+    matched = evaluate_condition_block(runtime, conditions_block)
+    output = {
+        "matched": matched,
+        "condition_count": len(conditions_block.get("conditions") or []),
+    }
     selected_port = TRUE_PORT if matched else FALSE_PORT
     return WorkflowNodeExecutionResult(
         next_node_id=None,
         next_port=selected_port,
-        output={
-            "path": runtime.config.get("path"),
-            "operator": runtime.config["operator"],
-            "matched": matched,
-            "next_port": selected_port,
-        },
+        output={**output, "next_port": selected_port},
     )
 
 
@@ -74,6 +71,10 @@ NODE_DEFINITION = CatalogNodeDefinition(
     label="If",
     description="Routes execution based on a conditional expression.",
     icon="mdi-source-branch",
+    default_name="If",
+    default_color="#408000",
+    subtitle="Conditions",
+    node_group=("transform",),
     output_ports=(
         OutputPortDefinition(key=TRUE_PORT, label="True", description="Taken when the condition matches."),
         OutputPortDefinition(key=FALSE_PORT, label="False", description="Taken when the condition does not match."),
@@ -82,38 +83,14 @@ NODE_DEFINITION = CatalogNodeDefinition(
     runtime_executor=_execute_if,
     parameter_schema=(
         ParameterDefinition(
-            key="path",
-            label="Context Path",
-            value_type="string",
+            key="conditions",
+            label="Conditions",
+            value_type="json",
             required=True,
-            description="Path resolved from the workflow context.",
-            placeholder="context.value",
-        ),
-        ParameterDefinition(
-            key="operator",
-            label="Operator",
-            value_type="string",
-            required=True,
-            description="Comparison operator.",
-            default="equals",
-            options=(
-                ParameterOptionDefinition(value="equals", label="Equals"),
-                ParameterOptionDefinition(value="not_equals", label="Does Not Equal"),
-                ParameterOptionDefinition(value="contains", label="Contains"),
-                ParameterOptionDefinition(value="exists", label="Exists"),
-                ParameterOptionDefinition(value="truthy", label="Is Truthy"),
-            ),
-        ),
-        ParameterDefinition(
-            key="right_value",
-            label="Compare Against",
-            value_type="string",
-            required=False,
-            description="Value compared against the selected path.",
-            placeholder="hello",
-            show_if=(
-                {"operator": ["equals", "not_equals", "contains"]},
-            ),
+            description="Condition block with conditions and combinator.",
+            placeholder='{"conditions":[{"leftPath":"trigger.payload.status","operator":"equals","rightValue":"ok"}],"combinator":"and"}',
+            rows=5,
+            ui_group="input",
         ),
     ),
 )

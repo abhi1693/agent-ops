@@ -342,16 +342,10 @@ def _build_boolean_options() -> list[dict[str, str]]:
 
 
 def _build_visible_when(parameter: ParameterDefinition) -> dict[str, list[str]] | None:
-    if not parameter.show_if:
-        return None
-
     normalized: dict[str, list[str]] = {}
-    for condition in parameter.show_if:
-        for key, value in condition.items():
-            if isinstance(value, (list, tuple)):
-                normalized[key] = [_stringify_option_value(item) for item in value]
-            else:
-                normalized[key] = [_stringify_option_value(value)]
+    show_conditions = parameter.display_options.get("show", {})
+    for key, value in show_conditions.items():
+        normalized[key] = [_stringify_option_value(item) for item in value]
     return normalized or None
 
 
@@ -379,7 +373,18 @@ def _serialize_parameter(parameter: ParameterDefinition) -> dict[str, Any]:
         "required": parameter.required,
         "type": _field_type_for_parameter(parameter),
         "help_text": parameter.help_text or parameter.description,
+        "hint": parameter.hint,
+        "display_options": {
+            condition_kind: {
+                condition_key: [_stringify_option_value(item) for item in condition_values]
+                for condition_key, condition_values in condition_map.items()
+            }
+            for condition_kind, condition_map in parameter.display_options.items()
+        },
+        "is_node_setting": parameter.is_node_setting,
+        "no_data_expression": parameter.no_data_expression,
         "placeholder": parameter.placeholder,
+        "requires_data_path": parameter.requires_data_path,
         "value_type": parameter.value_type,
     }
     binding = parameter.binding
@@ -532,9 +537,13 @@ def serialize_catalog_node_for_designer(node: CatalogNodeDefinition) -> dict[str
         "mode": node.mode,
         "operation": node.operation,
         "resource": node.resource,
+        "defaultName": node.default_name,
+        "defaultColor": node.default_color,
+        "subtitle": node.subtitle,
+        "nodeGroup": list(node.node_group),
         "tags": list(node.tags),
         "type": node.id,
-        "typeVersion": 1,
+        "typeVersion": node.type_version,
     }
     if CAPABILITY_AGENT_MODEL in node.capabilities:
         payload["is_model"] = True

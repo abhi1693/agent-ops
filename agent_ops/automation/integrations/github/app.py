@@ -172,7 +172,7 @@ APP = IntegrationApp(
                     value_type="string",
                     required=True,
                     description="GitHub user or organization that owns the repository.",
-                    placeholder="n8n-io",
+                    placeholder="octo-org",
                 ),
                 ParameterDefinition(
                     key="repository",
@@ -180,7 +180,7 @@ APP = IntegrationApp(
                     value_type="string",
                     required=True,
                     description="Repository name that will emit webhook events.",
-                    placeholder="n8n",
+                    placeholder="automation-repo",
                 ),
                 ParameterDefinition(
                     key="events",

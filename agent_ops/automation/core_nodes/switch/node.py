@@ -1,14 +1,56 @@
 from __future__ import annotations
 
-from automation.catalog.definitions import CatalogNodeDefinition, OutputPortDefinition, ParameterDefinition
+from typing import Any
+
+from automation.catalog.definitions import CatalogNodeDefinition, OutputPortDefinition, ParameterDefinition, ParameterOptionDefinition
 from automation.catalog.validation import raise_definition_error, validate_parameter_schema
+from automation.core_nodes._conditions import evaluate_condition_block
 from automation.runtime_types import WorkflowNodeExecutionContext, WorkflowNodeExecutionResult
-from automation.tools.base import _get_runtime_bound_path_value
+from automation.tools.base import _render_runtime_string
 
 
-CASE_1_PORT = "case_1"
-CASE_2_PORT = "case_2"
+MAX_SWITCH_CASES = 5
 FALLBACK_PORT = "fallback"
+CASE_PORTS = tuple(f"case_{index}" for index in range(1, MAX_SWITCH_CASES + 1))
+
+
+def _get_switch_mode(config: dict[str, Any]) -> str:
+    raw_mode = str(config.get("mode") or "").strip().lower()
+    if raw_mode in {"expression", "rules"}:
+        return raw_mode
+    return "rules"
+
+
+def _get_switch_rule_values(config: dict[str, Any]) -> list[dict[str, Any]]:
+    rules_payload = config.get("rules")
+    if isinstance(rules_payload, dict):
+        raw_values = rules_payload.get("values")
+        if isinstance(raw_values, list):
+            return [item for item in raw_values if isinstance(item, dict)]
+    return []
+
+
+def _get_expression_output_count(config: dict[str, Any]) -> int:
+    raw_count = config.get("numberOutputs") or 2
+    try:
+        parsed_count = int(raw_count)
+    except (TypeError, ValueError):
+        return 2
+    return max(1, min(MAX_SWITCH_CASES, parsed_count))
+
+
+def _get_active_switch_ports(config: dict[str, Any]) -> tuple[str, ...]:
+    mode = _get_switch_mode(config)
+    if mode == "expression":
+        return tuple(CASE_PORTS[:_get_expression_output_count(config)])
+    rule_values = _get_switch_rule_values(config)
+    case_ports = tuple(CASE_PORTS[: len(rule_values)])
+    if len(case_ports) < len(rule_values):
+        raise_definition_error(f"Switch supports at most {MAX_SWITCH_CASES} rule outputs.")
+    fallback_output = ((config.get("options") or {}).get("fallbackOutput") or "extra").strip()
+    if fallback_output != "none":
+        return (*case_ports, FALLBACK_PORT)
+    return case_ports
 
 
 def _validate_core_switch_config(
@@ -28,37 +70,72 @@ def _validate_core_switch_config(
         node_ids=node_ids,
         outgoing_targets=outgoing_targets,
     )
-    for port_key in (CASE_1_PORT, CASE_2_PORT, FALLBACK_PORT):
+    mode = _get_switch_mode(config)
+    if mode == "expression" and config.get("output") in (None, ""):
+        raise_definition_error(f'Node "{node_id}" must define config.output in expression mode.')
+    if mode == "rules" and not _get_switch_rule_values(config):
+        raise_definition_error(f'Node "{node_id}" switch must define at least one rule.')
+    active_ports = _get_active_switch_ports(config)
+    if not active_ports:
+        raise_definition_error(f'Node "{node_id}" switch must define at least one output.')
+    unexpected_ports = set(outgoing_targets_by_source_port) - set(active_ports)
+    if unexpected_ports:
+        unexpected_ports_display = ", ".join(sorted(unexpected_ports))
+        raise_definition_error(f'Node "{node_id}" does not support configured port(s): {unexpected_ports_display}.')
+    for port_key in active_ports:
         if len(outgoing_targets_by_source_port.get(port_key, [])) != 1:
             raise_definition_error(f'Node "{node_id}" must connect exactly one "{port_key}" edge.')
-    target_ids = [
-        outgoing_targets_by_source_port[CASE_1_PORT][0],
-        outgoing_targets_by_source_port[CASE_2_PORT][0],
-        outgoing_targets_by_source_port[FALLBACK_PORT][0],
-    ]
+    target_ids = [outgoing_targets_by_source_port[port_key][0] for port_key in active_ports]
     if len(set(target_ids)) != len(target_ids):
         raise_definition_error(f'Node "{node_id}" switch targets must be different.')
 
 
 def _execute_switch(runtime: WorkflowNodeExecutionContext) -> WorkflowNodeExecutionResult:
-    left_value = _get_runtime_bound_path_value(runtime, runtime.config["path"])
-    left_text = "" if left_value is None else str(left_value)
-
+    mode = _get_switch_mode(runtime.config)
     matched_case = FALLBACK_PORT
-    if left_text == str(runtime.config["case_1_value"]):
-        matched_case = CASE_1_PORT
-    elif left_text == str(runtime.config["case_2_value"]):
-        matched_case = CASE_2_PORT
+    output: dict[str, Any]
+    if mode == "expression":
+        raw_output = runtime.config.get("output")
+        if isinstance(raw_output, str):
+            rendered_output = _render_runtime_string(runtime, "output", required=True, default_mode="expression")
+        else:
+            rendered_output = str(raw_output)
+        try:
+            output_index = int(str(rendered_output).strip())
+        except (TypeError, ValueError) as exc:
+            raise_definition_error(f'Node "{runtime.node["id"]}" switch output must resolve to an integer.')
+            raise AssertionError("unreachable") from exc
+        if output_index < 0 or output_index >= _get_expression_output_count(runtime.config):
+            raise_definition_error(
+                f'Node "{runtime.node["id"]}" switch output index {output_index} is out of range.'
+            )
+        matched_case = f"case_{output_index + 1}"
+        output = {
+            "mode": "expression",
+            "matched_case": matched_case,
+            "output_index": output_index,
+        }
+    else:
+        matched_rule_index = None
+        for index, rule in enumerate(_get_switch_rule_values(runtime.config), start=1):
+            conditions = rule.get("conditions")
+            if not isinstance(conditions, dict):
+                continue
+            if evaluate_condition_block(runtime, conditions):
+                matched_rule_index = index
+                matched_case = f"case_{index}"
+                break
+        output = {
+            "mode": "rules",
+            "matched_case": matched_case,
+            "matched_rule_index": matched_rule_index,
+            "rule_count": len(_get_switch_rule_values(runtime.config)),
+        }
 
     return WorkflowNodeExecutionResult(
         next_node_id=None,
         next_port=matched_case,
-        output={
-            "path": runtime.config["path"],
-            "matched_case": matched_case,
-            "next_port": matched_case,
-            "value": left_value,
-        },
+        output={**output, "next_port": matched_case},
     )
 
 
@@ -70,37 +147,73 @@ NODE_DEFINITION = CatalogNodeDefinition(
     label="Switch",
     description="Routes execution across multiple cases using a selected value.",
     icon="mdi-call-split",
+    default_name="Switch",
+    default_color="#506000",
+    subtitle='={{config.mode}}',
+    node_group=("transform",),
     output_ports=(
-        OutputPortDefinition(key=CASE_1_PORT, label="Case 1", description="Taken when case 1 matches."),
-        OutputPortDefinition(key=CASE_2_PORT, label="Case 2", description="Taken when case 2 matches."),
+        *(OutputPortDefinition(key=port_key, label=port_key.replace("_", " ").title(), description=f"Taken when {port_key} matches.") for port_key in CASE_PORTS),
         OutputPortDefinition(key=FALLBACK_PORT, label="Fallback", description="Taken when no case matches."),
     ),
     runtime_validator=_validate_core_switch_config,
     runtime_executor=_execute_switch,
     parameter_schema=(
         ParameterDefinition(
-            key="path",
-            label="Context Path",
+            key="mode",
+            label="Mode",
             value_type="string",
-            required=True,
-            description="Path resolved from the workflow context.",
-            placeholder="trigger.payload.status",
+            required=False,
+            description="How data should be routed.",
+            default="rules",
+            no_data_expression=True,
+            ui_group="input",
+            options=(
+                ParameterOptionDefinition(value="rules", label="Rules"),
+                ParameterOptionDefinition(value="expression", label="Expression"),
+            ),
         ),
         ParameterDefinition(
-            key="case_1_value",
-            label="Case 1 Value",
-            value_type="string",
-            required=True,
-            description="First value to match.",
-            placeholder="queued",
+            key="rules",
+            label="Routing Rules",
+            value_type="json",
+            required=False,
+            description="Optional switch rules payload.",
+            placeholder='{"values":[{"conditions":{"conditions":[{"leftPath":"trigger.payload.status","operator":"equals","rightValue":"queued"}],"combinator":"and"}}]}',
+            rows=6,
+            ui_group="input",
+            display_options={
+                "show": {
+                    "mode": ("rules",),
+                },
+            },
         ),
         ParameterDefinition(
-            key="case_2_value",
-            label="Case 2 Value",
+            key="numberOutputs",
+            label="Number of Outputs",
+            value_type="integer",
+            required=False,
+            description="How many case outputs to expose in expression mode.",
+            default=2,
+            ui_group="advanced",
+            display_options={
+                "show": {
+                    "mode": ("expression",),
+                },
+            },
+        ),
+        ParameterDefinition(
+            key="output",
+            label="Output Index",
             value_type="string",
-            required=True,
-            description="Second value to match.",
-            placeholder="running",
+            required=False,
+            description="Expression or literal index to route to. Uses zero-based indexing.",
+            placeholder="{{ trigger.payload.index }}",
+            ui_group="input",
+            display_options={
+                "show": {
+                    "mode": ("expression",),
+                },
+            },
         ),
     ),
 )

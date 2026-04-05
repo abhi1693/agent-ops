@@ -50,11 +50,15 @@ class ParameterDefinition:
     default: Any | None = None
     placeholder: str = ""
     help_text: str = ""
+    hint: str = ""
     options: tuple[ParameterOptionDefinition, ...] = ()
-    show_if: tuple[dict[str, Any], ...] = ()
+    display_options: dict[str, dict[str, tuple[Any, ...] | list[Any]]] = field(default_factory=dict)
     ui_group: str | None = None
     binding: str | None = None
     rows: int | None = None
+    is_node_setting: bool = False
+    no_data_expression: bool = False
+    requires_data_path: str | None = None
     options_by_field: dict[str, dict[str, tuple[ParameterOptionDefinition, ...]]] = field(default_factory=dict)
 
     def serialize(self) -> dict[str, Any]:
@@ -68,11 +72,21 @@ class ParameterDefinition:
             "default": self.default,
             "placeholder": self.placeholder,
             "help_text": self.help_text,
+            "hint": self.hint,
             "options": [option.serialize() for option in self.options],
-            "show_if": [dict(condition) for condition in self.show_if],
+            "display_options": {
+                condition_kind: {
+                    condition_key: list(condition_values)
+                    for condition_key, condition_values in condition_map.items()
+                }
+                for condition_kind, condition_map in self.display_options.items()
+            },
             "ui_group": self.ui_group,
             "binding": self.binding,
             "rows": self.rows,
+            "is_node_setting": self.is_node_setting,
+            "no_data_expression": self.no_data_expression,
+            "requires_data_path": self.requires_data_path,
             "options_by_field": {
                 config_key: {
                     config_value: [option.serialize() for option in options]
@@ -91,7 +105,6 @@ class ConnectionSlotDefinition:
     required: bool = False
     description: str = ""
     multiple: bool = False
-    show_if: tuple[dict[str, Any], ...] = ()
 
     def serialize(self) -> dict[str, Any]:
         return {
@@ -101,7 +114,6 @@ class ConnectionSlotDefinition:
             "required": self.required,
             "description": self.description,
             "multiple": self.multiple,
-            "show_if": [dict(condition) for condition in self.show_if],
         }
 
 
@@ -231,6 +243,11 @@ class CatalogNodeDefinition:
     label: str
     description: str
     icon: str
+    type_version: int = 1
+    default_name: str | None = None
+    default_color: str | None = None
+    subtitle: str | None = None
+    node_group: tuple[str, ...] = ()
     app_id: str | None = None
     app_label: str | None = None
     app_description: str | None = None
@@ -292,6 +309,11 @@ class CatalogNodeDefinition:
             "label": self.label,
             "description": self.description,
             "icon": self.icon,
+            "type_version": self.type_version,
+            "default_name": self.default_name,
+            "default_color": self.default_color,
+            "subtitle": self.subtitle,
+            "node_group": list(self.node_group),
             "app_id": self.app_id,
             "app_label": self.app_label,
             "app_description": self.app_description,

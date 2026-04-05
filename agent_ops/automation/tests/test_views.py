@@ -76,14 +76,14 @@ def _unsupported_definition(label):
             {
                 "id": "trigger-1",
                 "kind": "trigger",
-                "type": "n8n-nodes-base.manualTrigger",
+                "type": "external.manualTrigger",
                 "label": label,
                 "position": {"x": 48, "y": 56},
             },
             {
                 "id": "set-1",
                 "kind": "tool",
-                "type": "n8n-nodes-base.set",
+                "type": "external.set",
                 "label": "Unsupported set",
                 "config": {
                     "values": {

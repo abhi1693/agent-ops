@@ -30,6 +30,8 @@ NODE_DEFINITION = CatalogNodeDefinition(
     label="Schedule Trigger",
     description="Starts a workflow on a recurring cron schedule.",
     icon="mdi-calendar-clock",
+    default_name="Schedule Trigger",
+    node_group=("trigger",),
     capabilities=frozenset({CAPABILITY_TRIGGER_SCHEDULE}),
     runtime_executor=_execute_schedule_trigger,
     parameter_schema=(
@@ -40,6 +42,8 @@ NODE_DEFINITION = CatalogNodeDefinition(
             required=True,
             description="Cron expression used to schedule workflow runs.",
             placeholder="0 * * * *",
+            no_data_expression=True,
+            ui_group="input",
         ),
     ),
 )

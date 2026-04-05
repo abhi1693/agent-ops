@@ -101,8 +101,9 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "core.set",
                         "label": "Capture incident",
                         "config": {
+                            "mode": "raw",
                             "output_key": "incident.summary",
-                            "value_json": {
+                            "json_output": {
                                 "ticket_id": "{{ trigger.payload.ticket_id }}",
                                 "service": "{{ trigger.payload.service }}",
                                 "severity": "{{ trigger.payload.severity }}",
@@ -117,9 +118,16 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "core.if",
                         "label": "Production only",
                         "config": {
-                            "path": "runtime.inputs_by_alias.set_ticket_context.output.value.environment",
-                            "operator": "equals",
-                            "right_value": "production",
+                            "conditions": {
+                                "conditions": [
+                                    {
+                                        "leftPath": "runtime.inputs_by_alias.set_ticket_context.output.value.environment",
+                                        "operator": "equals",
+                                        "rightValue": "production",
+                                    }
+                                ],
+                                "combinator": "and",
+                            },
                         },
                         "position": {"x": 608, "y": 40},
                     },
@@ -139,9 +147,35 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "core.switch",
                         "label": "Choose escalation path",
                         "config": {
-                            "path": "incident.summary.severity",
-                            "case_1_value": "critical",
-                            "case_2_value": "high",
+                            "mode": "rules",
+                            "rules": {
+                                "values": [
+                                    {
+                                        "conditions": {
+                                            "conditions": [
+                                                {
+                                                    "leftPath": "incident.summary.severity",
+                                                    "operator": "equals",
+                                                    "rightValue": "critical",
+                                                }
+                                            ],
+                                            "combinator": "and",
+                                        }
+                                    },
+                                    {
+                                        "conditions": {
+                                            "conditions": [
+                                                {
+                                                    "leftPath": "incident.summary.severity",
+                                                    "operator": "equals",
+                                                    "rightValue": "high",
+                                                }
+                                            ],
+                                            "combinator": "and",
+                                        }
+                                    },
+                                ]
+                            },
                         },
                         "position": {"x": 896, "y": 40},
                     },
@@ -151,8 +185,9 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "core.set",
                         "label": "Route P1",
                         "config": {
+                            "mode": "raw",
                             "output_key": "incident.route",
-                            "value_json": {
+                            "json_output": {
                                 "team": "platform-oncall",
                                 "priority": "p1",
                                 "channel": "pagerduty",
@@ -167,8 +202,9 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "core.set",
                         "label": "Route P2",
                         "config": {
+                            "mode": "raw",
                             "output_key": "incident.route",
-                            "value_json": {
+                            "json_output": {
                                 "team": "service-owners",
                                 "priority": "p2",
                                 "channel": "slack",
@@ -183,8 +219,9 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "core.set",
                         "label": "Route General",
                         "config": {
+                            "mode": "raw",
                             "output_key": "incident.route",
-                            "value_json": {
+                            "json_output": {
                                 "team": "support-triage",
                                 "priority": "p3",
                                 "channel": "queue",
@@ -642,9 +679,16 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "core.if",
                         "label": "Check status",
                         "config": {
-                            "path": "runtime.inputs_by_alias.trigger_1.output.payload.status",
-                            "operator": "equals",
-                            "right_value": "queued",
+                            "conditions": {
+                                "conditions": [
+                                    {
+                                        "leftPath": "runtime.inputs_by_alias.trigger_1.output.payload.status",
+                                        "operator": "equals",
+                                        "rightValue": "queued",
+                                    }
+                                ],
+                                "combinator": "and",
+                            },
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -1168,9 +1212,16 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "core.if",
                         "label": "If",
                         "config": {
-                            "path": "context.value",
-                            "operator": "equals",
-                            "right_value": "hello",
+                            "conditions": {
+                                "conditions": [
+                                    {
+                                        "leftPath": "context.value",
+                                        "operator": "equals",
+                                        "rightValue": "hello",
+                                    }
+                                ],
+                                "combinator": "and",
+                            },
                         },
                         "position": {"x": 608, "y": 40},
                     },
@@ -1241,9 +1292,16 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "core.if",
                         "label": "If",
                         "config": {
-                            "path": "context.value",
-                            "operator": "equals",
-                            "right_value": "hello",
+                            "conditions": {
+                                "conditions": [
+                                    {
+                                        "leftPath": "context.value",
+                                        "operator": "equals",
+                                        "rightValue": "hello",
+                                    }
+                                ],
+                                "combinator": "and",
+                            },
                         },
                         "position": {"x": 608, "y": 40},
                     },
@@ -2079,7 +2137,7 @@ class WorkflowRuntimeTests(TestCase):
                     {
                         "id": "trigger-1",
                         "kind": "trigger",
-                        "type": "n8n-nodes-base.manualTrigger",
+                        "type": "external.manualTrigger",
                         "label": "Manual",
                         "position": {"x": 32, "y": 40},
                     },
@@ -2103,7 +2161,7 @@ class WorkflowRuntimeTests(TestCase):
         run = execute_workflow(workflow)
 
         self.assertEqual(run.status, "failed")
-        self.assertIn('type "n8n-nodes-base.manualtrigger" is not supported', run.error.lower())
+        self.assertIn('type "external.manualtrigger" is not supported', run.error.lower())
 
     def test_execute_workflow_runs_schedule_trigger_builtin(self):
         workflow = Workflow.objects.create(
@@ -2163,9 +2221,35 @@ class WorkflowRuntimeTests(TestCase):
                         "type": "core.switch",
                         "label": "Switch",
                         "config": {
-                            "path": "trigger.payload.status",
-                            "case_1_value": "queued",
-                            "case_2_value": "running",
+                            "mode": "rules",
+                            "rules": {
+                                "values": [
+                                    {
+                                        "conditions": {
+                                            "conditions": [
+                                                {
+                                                    "leftPath": "trigger.payload.status",
+                                                    "operator": "equals",
+                                                    "rightValue": "queued",
+                                                }
+                                            ],
+                                            "combinator": "and",
+                                        }
+                                    },
+                                    {
+                                        "conditions": {
+                                            "conditions": [
+                                                {
+                                                    "leftPath": "trigger.payload.status",
+                                                    "operator": "equals",
+                                                    "rightValue": "running",
+                                                }
+                                            ],
+                                            "combinator": "and",
+                                        }
+                                    },
+                                ]
+                            },
                         },
                         "position": {"x": 320, "y": 40},
                     },
@@ -2214,6 +2298,177 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.output_data["response"], "running")
         self.assertEqual(run.step_results[1]["result"]["matched_case"], "case_2")
+
+    def test_execute_workflow_runs_if_builtin_with_conditions_block(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="if built-in conditions block",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.manual_trigger",
+                        "label": "Manual Trigger",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "if-1",
+                        "kind": "condition",
+                        "type": "core.if",
+                        "label": "If",
+                        "config": {
+                            "conditions": {
+                                "conditions": [
+                                    {
+                                        "leftPath": "trigger.payload.status",
+                                        "operator": "equals",
+                                        "rightValue": "queued",
+                                    },
+                                    {
+                                        "leftPath": "trigger.payload.priority",
+                                        "operator": {"operation": "greater_than"},
+                                        "rightValue": 1,
+                                    },
+                                ],
+                                "combinator": "and",
+                                "options": {"ignoreCase": True},
+                            },
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-true",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "True",
+                        "config": {"template": "true"},
+                        "position": {"x": 608, "y": 0},
+                    },
+                    {
+                        "id": "response-false",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "False",
+                        "config": {"template": "false"},
+                        "position": {"x": 608, "y": 80},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "if-1"},
+                    {"id": "edge-2", "source": "if-1", "sourcePort": "true", "target": "response-true"},
+                    {"id": "edge-3", "source": "if-1", "sourcePort": "false", "target": "response-false"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow, input_data={"status": "QUEUED", "priority": 2})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"], "true")
+        self.assertEqual(run.step_results[1]["result"]["condition_count"], 2)
+
+    def test_execute_workflow_runs_switch_builtin_in_expression_mode(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="switch expression mode",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.manual_trigger",
+                        "label": "Manual Trigger",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "switch-1",
+                        "kind": "condition",
+                        "type": "core.switch",
+                        "label": "Switch",
+                        "config": {
+                            "mode": "expression",
+                            "numberOutputs": 3,
+                            "output": "{{ trigger.payload.target_index }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    *[
+                        {
+                            "id": f"response-{index}",
+                            "kind": "response",
+                            "type": "core.response",
+                            "label": f"Response {index}",
+                            "config": {"template": f"case-{index}"},
+                            "position": {"x": 608, "y": index * 80},
+                        }
+                        for index in range(1, 4)
+                    ],
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "switch-1"},
+                    {"id": "edge-2", "source": "switch-1", "sourcePort": "case_1", "target": "response-1"},
+                    {"id": "edge-3", "source": "switch-1", "sourcePort": "case_2", "target": "response-2"},
+                    {"id": "edge-4", "source": "switch-1", "sourcePort": "case_3", "target": "response-3"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow, input_data={"target_index": 2})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"], "case-3")
+        self.assertEqual(run.step_results[1]["result"]["output_index"], 2)
+
+    def test_execute_workflow_runs_set_builtin_in_raw_json_mode(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="set raw json mode",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.manual_trigger",
+                        "label": "Manual Trigger",
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "set-1",
+                        "kind": "tool",
+                        "type": "core.set",
+                        "label": "Set",
+                        "config": {
+                            "mode": "raw",
+                            "output_key": "payload.snapshot",
+                            "json_output": {
+                                "ticket": "{{ trigger.payload.ticket_id }}",
+                                "severity": "{{ trigger.payload.severity }}",
+                            },
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {"value_path": "payload.snapshot"},
+                        "position": {"x": 608, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "set-1"},
+                    {"id": "edge-2", "source": "set-1", "target": "response-1"},
+                ],
+            },
+        )
+
+        run = execute_workflow(workflow, input_data={"ticket_id": "T-55", "severity": "high"})
+
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_data["response"]["ticket"], "T-55")
+        self.assertEqual(run.output_data["response"]["severity"], "high")
 
     def test_execute_workflow_runs_stop_and_error_builtin(self):
         workflow = Workflow.objects.create(

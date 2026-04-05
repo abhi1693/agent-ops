@@ -52,6 +52,10 @@ class WorkflowPrimitiveNormalizationTests(SimpleTestCase):
             {field["key"] for field in github_template["fields"]},
             {"owner", "repository", "events"},
         )
+        self.assertEqual(
+            {field["key"] for field in WORKFLOW_NODE_TEMPLATE_MAP["core.set"]["fields"]},
+            {"mode", "output_key", "value", "json_output"},
+        )
         self.assertEqual(prometheus_template["config"]["output_key"], "prometheus.query")
         self.assertEqual(
             {field["key"] for field in prometheus_template["fields"]},

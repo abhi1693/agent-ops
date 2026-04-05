@@ -75,6 +75,7 @@ class WorkflowCatalogTests(SimpleTestCase):
         self.assertEqual(serialized["parameter_schema"][0]["key"], "model")
         self.assertEqual(serialized["connection_slots"][0]["key"], "connection_id")
         self.assertEqual(serialized["connection_slots"][0]["allowed_connection_types"], ["openai.api"])
+        self.assertEqual(serialized["type_version"], 1)
 
     def test_catalog_nodes_expose_explicit_connection_slots(self):
         registry = build_workflow_catalog()
@@ -99,7 +100,10 @@ class WorkflowCatalogTests(SimpleTestCase):
         switch_node = registry["node_types"]["core.switch"]
 
         self.assertEqual(tuple(port.key for port in if_node.output_ports), ("true", "false"))
-        self.assertEqual(tuple(port.key for port in switch_node.output_ports), ("case_1", "case_2", "fallback"))
+        self.assertEqual(
+            tuple(port.key for port in switch_node.output_ports),
+            ("case_1", "case_2", "case_3", "case_4", "case_5", "fallback"),
+        )
 
     def test_designer_catalog_payload_includes_typed_field_and_docs_metadata(self):
         payload = build_workflow_catalog_payload()
@@ -132,3 +136,26 @@ class WorkflowCatalogTests(SimpleTestCase):
             payload["presentation"]["execution"]["inspector"]["overview"]["last_completed_node"],
             "Last completed",
         )
+        self.assertEqual(openai_definition["typeVersion"], 1)
+
+    def test_core_designer_payload_exposes_standardized_metadata(self):
+        payload = build_workflow_catalog_payload()
+
+        set_definition = next(item for item in payload["definitions"] if item["type"] == "core.set")
+        response_definition = next(item for item in payload["definitions"] if item["type"] == "core.response")
+        if_definition = next(item for item in payload["definitions"] if item["type"] == "core.if")
+
+        output_key_field = next(field for field in set_definition["fields"] if field["key"] == "output_key")
+        status_field = next(field for field in response_definition["fields"] if field["key"] == "status")
+        conditions_field = next(field for field in if_definition["fields"] if field["key"] == "conditions")
+
+        self.assertEqual(set_definition["defaultName"], "Edit Fields")
+        self.assertEqual(set_definition["subtitle"], "={{config.output_key}}")
+        self.assertEqual(set_definition["nodeGroup"], ["input"])
+        self.assertTrue(output_key_field["no_data_expression"])
+        self.assertEqual(output_key_field["ui_group"], "result")
+        self.assertTrue(status_field["is_node_setting"])
+        self.assertEqual(status_field["ui_group"], "advanced")
+        self.assertEqual(conditions_field["value_type"], "json")
+        self.assertEqual(conditions_field["type"], "textarea")
+        self.assertEqual(conditions_field["ui_group"], "input")
