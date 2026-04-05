@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 
@@ -29,6 +29,10 @@ class WorkflowNodeExecutionContext:
     set_path_value: Callable[[dict[str, Any], str, Any], None]
     resolve_scoped_secret: Callable[..., Any]
     evaluate_condition: Callable[[str, Any, Any], bool]
+    input_items: list[dict[str, Any]] = field(default_factory=list)
+    inputs_by_source: dict[str, dict[str, Any]] = field(default_factory=dict)
+    inputs_by_target_port: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    execution_state: dict[str, Any] = field(default_factory=dict)
 
 
 __all__ = ("WorkflowNodeExecutionContext", "WorkflowNodeExecutionResult")

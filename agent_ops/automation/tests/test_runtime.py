@@ -355,9 +355,20 @@ class WorkflowRuntimeTests(TestCase):
         self.assertEqual(run.context_data["branch"]["one"], "alpha")
         self.assertEqual(run.context_data["branch"]["two"], "beta")
         self.assertEqual(run.step_count, 5)
+        self.assertEqual(run.context_data["__runtime"]["node_outputs"]["set-1"]["output"]["value"], "alpha")
+        self.assertEqual(run.context_data["__runtime"]["node_outputs"]["set-2"]["output"]["value"], "beta")
         self.assertCountEqual(
             run.scheduler_state["completed_node_ids"],
             ["trigger-1", "tool-1", "set-1", "set-2", "response-1"],
+        )
+        response_step = WorkflowStepRun.objects.get(run=run, node_id="response-1")
+        self.assertEqual(
+            [item["source_node_id"] for item in response_step.input_data["input_items"]],
+            ["set-1", "set-2"],
+        )
+        self.assertEqual(
+            [item["output"]["value"] for item in response_step.input_data["input_items"]],
+            ["alpha", "beta"],
         )
 
     def test_execute_workflow_allows_expression_mode_for_literal_input_fields(self):

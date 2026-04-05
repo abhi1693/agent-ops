@@ -19,6 +19,7 @@ from automation.runtime_types import WorkflowNodeExecutionContext
 from automation.auth import resolve_workflow_secret_ref
 from automation.workflow_connections import (
     build_auxiliary_connections_by_target,
+    get_edge_target_port,
     get_edge_source_port,
     split_workflow_edges,
 )
@@ -200,6 +201,9 @@ def _build_execution_context(
             "meta": trigger_metadata or {},
         },
         "messages": [],
+        "__runtime": {
+            "node_outputs": {},
+        },
     }
 
 
@@ -209,6 +213,10 @@ def _execute_node(
     node: dict[str, Any],
     next_node_id: str | None,
     connected_nodes_by_port: dict[str, list[dict[str, Any]]],
+    input_items: list[dict[str, Any]],
+    inputs_by_source: dict[str, dict[str, Any]],
+    inputs_by_target_port: dict[str, list[dict[str, Any]]],
+    execution_state: dict[str, Any],
     context: dict[str, Any],
     secret_paths: set[str],
     secret_values: list[str],
@@ -232,6 +240,10 @@ def _execute_node(
             set_path_value=_set_path_value,
             resolve_scoped_secret=_resolve_scoped_secret,
             evaluate_condition=_evaluate_condition,
+            input_items=input_items,
+            inputs_by_source=inputs_by_source,
+            inputs_by_target_port=inputs_by_target_port,
+            execution_state=execution_state,
         )
     )
     if catalog_node_output is None:
@@ -250,11 +262,91 @@ def _sorted_secret_values(secret_values: list[str]) -> list[str]:
     return sorted(secret_values, key=len, reverse=True)
 
 
-def _build_step_input_snapshot(*, context: dict[str, Any], next_node_id: str | None) -> dict[str, Any]:
+def _build_step_input_snapshot(
+    *,
+    context: dict[str, Any],
+    input_items: list[dict[str, Any]],
+    next_node_id: str | None,
+) -> dict[str, Any]:
     return {
         "context": context,
+        "input_items": input_items,
         "next_node_id": next_node_id,
     }
+
+
+def _build_incoming_primary_edges_by_target(*, edges: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    incoming_edges_by_target: dict[str, list[dict[str, Any]]] = {}
+    for edge in edges:
+        target_id = edge.get("target")
+        if not isinstance(target_id, str) or not target_id:
+            continue
+        incoming_edges_by_target.setdefault(target_id, []).append(edge)
+    return incoming_edges_by_target
+
+
+def _resolve_node_inputs(
+    *,
+    current_node_id: str,
+    incoming_edges_by_target: dict[str, list[dict[str, Any]]],
+    node_output_records: dict[str, dict[str, Any]],
+    selected_predecessors: dict[str, set[str]],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    selected_sources = selected_predecessors.get(current_node_id, set())
+    input_items: list[dict[str, Any]] = []
+    for edge in incoming_edges_by_target.get(current_node_id, []):
+        source_id = edge.get("source")
+        if not isinstance(source_id, str) or source_id not in selected_sources:
+            continue
+        source_output = node_output_records.get(source_id)
+        if not isinstance(source_output, dict):
+            continue
+        input_item = {
+            "source_node_id": source_id,
+            "source_port": get_edge_source_port(edge),
+            "target_port": get_edge_target_port(edge),
+            "step_sequence": source_output.get("step_sequence"),
+            "output": source_output.get("output"),
+        }
+        input_items.append(input_item)
+
+    input_items.sort(
+        key=lambda item: (
+            item.get("step_sequence") if isinstance(item.get("step_sequence"), int) else 10**9,
+            str(item.get("source_node_id") or ""),
+        )
+    )
+
+    inputs_by_source: dict[str, dict[str, Any]] = {}
+    inputs_by_target_port: dict[str, list[dict[str, Any]]] = {}
+    for item in input_items:
+        source_id = item.get("source_node_id")
+        if isinstance(source_id, str) and source_id:
+            inputs_by_source[source_id] = item
+        target_port = item.get("target_port")
+        if isinstance(target_port, str) and target_port:
+            inputs_by_target_port.setdefault(target_port, []).append(item)
+
+    return input_items, inputs_by_source, inputs_by_target_port
+
+
+def _record_runtime_node_output(
+    *,
+    context: dict[str, Any],
+    node_output_records: dict[str, dict[str, Any]],
+    node_id: str,
+    result: _NodeExecutionResult,
+    step_sequence: int,
+) -> None:
+    runtime_state = context.setdefault("__runtime", {})
+    runtime_node_outputs = runtime_state.setdefault("node_outputs", {})
+    output_record = {
+        "node_id": node_id,
+        "step_sequence": step_sequence,
+        "output": result.output or {},
+    }
+    node_output_records[node_id] = output_record
+    runtime_node_outputs[node_id] = output_record
 
 
 def _build_step_output_snapshot(
@@ -665,6 +757,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
         trigger_type=run.trigger_mode,
         trigger_metadata=run.trigger_metadata or {},
     )
+    node_output_records: dict[str, dict[str, Any]] = {}
     ready_node_ids: list[str] = []
     active_node_ids: set[str] = set()
     activated_node_ids: set[str] = set()
@@ -674,6 +767,8 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
     selected_predecessors: dict[str, set[str]] = {}
     skipped_predecessors: dict[str, set[str]] = {}
     incoming_predecessors: dict[str, set[str]] = {node["id"]: set() for node in nodes}
+    primary_edges, _ = split_workflow_edges(definition.get("edges", []))
+    incoming_edges_by_target = _build_incoming_primary_edges_by_target(edges=primary_edges)
     for source_id, target_ids in adjacency.items():
         for target_id in target_ids:
             incoming_predecessors.setdefault(target_id, set()).add(source_id)
@@ -747,6 +842,12 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
             _persist_run_scheduler_state(run)
 
             with transaction.atomic():
+                input_items, inputs_by_source, inputs_by_target_port = _resolve_node_inputs(
+                    current_node_id=node["id"],
+                    incoming_edges_by_target=incoming_edges_by_target,
+                    node_output_records=node_output_records,
+                    selected_predecessors=selected_predecessors,
+                )
                 step_run = WorkflowStepRun.objects.create(
                     run=run,
                     workflow_version=run.workflow_version,
@@ -759,6 +860,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                     input_data=_redact_value(
                         _build_step_input_snapshot(
                             context=context,
+                            input_items=input_items,
                             next_node_id=default_next_node_id,
                         ),
                         secret_paths=secret_paths,
@@ -771,6 +873,10 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                         node=node,
                         next_node_id=default_next_node_id,
                         connected_nodes_by_port=auxiliary_connections_by_target.get(node["id"], {}),
+                        input_items=input_items,
+                        inputs_by_source=inputs_by_source,
+                        inputs_by_target_port=inputs_by_target_port,
+                        execution_state=context.get("__runtime", {}),
                         context=context,
                         secret_paths=secret_paths,
                         secret_values=secret_values,
@@ -801,6 +907,13 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
 
                 active_node_ids.discard(node["id"])
                 completed_node_ids.add(node["id"])
+                _record_runtime_node_output(
+                    context=context,
+                    node_output_records=node_output_records,
+                    node_id=node["id"],
+                    result=result,
+                    step_sequence=1,
+                )
                 scheduler_state = _update_run_scheduler_state(
                     run,
                     ready_node_ids=ready_node_ids,
@@ -921,6 +1034,12 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
             should_break = False
 
             with transaction.atomic():
+                input_items, inputs_by_source, inputs_by_target_port = _resolve_node_inputs(
+                    current_node_id=current_node_id,
+                    incoming_edges_by_target=incoming_edges_by_target,
+                    node_output_records=node_output_records,
+                    selected_predecessors=selected_predecessors,
+                )
                 step_run = WorkflowStepRun.objects.create(
                     run=run,
                     workflow_version=run.workflow_version,
@@ -933,6 +1052,7 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                     input_data=_redact_value(
                         _build_step_input_snapshot(
                             context=context,
+                            input_items=input_items,
                             next_node_id=default_next_node_id,
                         ),
                         secret_paths=secret_paths,
@@ -945,6 +1065,10 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
                         node=node,
                         next_node_id=default_next_node_id,
                         connected_nodes_by_port=auxiliary_connections_by_target.get(node["id"], {}),
+                        input_items=input_items,
+                        inputs_by_source=inputs_by_source,
+                        inputs_by_target_port=inputs_by_target_port,
+                        execution_state=context.get("__runtime", {}),
                         context=context,
                         secret_paths=secret_paths,
                         secret_values=secret_values,
@@ -975,6 +1099,13 @@ def execute_workflow_run(run: WorkflowRun) -> WorkflowRun:
 
                 active_node_ids.discard(current_node_id)
                 completed_node_ids.add(current_node_id)
+                _record_runtime_node_output(
+                    context=context,
+                    node_output_records=node_output_records,
+                    node_id=current_node_id,
+                    result=result,
+                    step_sequence=step_count,
+                )
                 _record_step_success(
                     step_run=step_run,
                     node=node,
