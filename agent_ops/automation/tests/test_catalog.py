@@ -94,7 +94,7 @@ class WorkflowCatalogTests(SimpleTestCase):
         self.assertEqual(prometheus_node.connection_slots[0].allowed_connection_types, ("prometheus.api",))
 
         github_node = registry["node_types"]["github.trigger.webhook"]
-        self.assertTrue(github_node.connection_slots[0].required)
+        self.assertFalse(github_node.connection_slots[0].required)
         self.assertEqual(github_node.connection_slots[0].allowed_connection_types, ("github.oauth2",))
 
         core_webhook_node = registry["node_types"]["core.webhook_trigger"]

@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import path, re_path
 
 from .views import (
     WorkflowConnectionChangelogView,
@@ -80,8 +80,8 @@ urlpatterns = [
         name="workflow_designer_node_run",
     ),
     path("webhooks/", WorkflowWebhookTriggerView.as_view(), name="workflow_webhook_trigger_public_base"),
-    path(
-        "webhooks/<path:webhook_path>/",
+    re_path(
+        r"^webhooks/(?P<webhook_path>.+[^/])$",
         WorkflowWebhookTriggerView.as_view(),
         name="workflow_webhook_trigger_public",
     ),
@@ -90,8 +90,8 @@ urlpatterns = [
         WorkflowWebhookTriggerView.as_view(),
         name="workflow_webhook_trigger_legacy",
     ),
-    path(
-        "workflows/<int:pk>/trigger/webhook/<path:webhook_path>/",
+    re_path(
+        r"^workflows/(?P<pk>\d+)/trigger/webhook/(?P<webhook_path>.+[^/])$",
         WorkflowWebhookTriggerView.as_view(),
         name="workflow_webhook_trigger_legacy_path",
     ),

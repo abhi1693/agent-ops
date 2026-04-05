@@ -51,28 +51,31 @@ def _prepare_github_webhook_request(*, workflow, node: dict, request) -> tuple[s
         raise ValidationError({"trigger": 'GitHub webhook requests must use method "POST".'})
 
     runtime = _catalog_webhook_runtime(workflow, node)
-    resolved = resolve_workflow_connection_fields(
-        runtime,
-        connection_id=get_runtime_connection_slot_value(runtime),
-        expected_connection_type="github.oauth2",
-    )
-    webhook_secret = resolved.values.get("webhook_secret")
-    if not isinstance(webhook_secret, str) or not webhook_secret:
-        raise ValidationError(
-            {"trigger": f'Connection "{resolved.connection.name}" must include field "webhook_secret".'}
+    resolved = None
+    webhook_secret = None
+    connection_id = get_runtime_connection_slot_value(runtime)
+    if connection_id not in (None, ""):
+        resolved = resolve_workflow_connection_fields(
+            runtime,
+            connection_id=connection_id,
+            expected_connection_type="github.oauth2",
         )
+        candidate_secret = resolved.values.get("webhook_secret")
+        if isinstance(candidate_secret, str) and candidate_secret:
+            webhook_secret = candidate_secret
 
-    signature = request.headers.get("X-Hub-Signature-256")
-    if not signature:
-        raise ValidationError({"trigger": 'Missing required GitHub signature header "X-Hub-Signature-256".'})
+    if webhook_secret is not None:
+        signature = request.headers.get("X-Hub-Signature-256")
+        if not signature:
+            raise ValidationError({"trigger": 'Missing required GitHub signature header "X-Hub-Signature-256".'})
 
-    expected_signature = "sha256=" + hmac.new(
-        webhook_secret.encode("utf-8"),
-        request.body,
-        hashlib.sha256,
-    ).hexdigest()
-    if not hmac.compare_digest(signature, expected_signature):
-        raise ValidationError({"trigger": "GitHub webhook signature validation failed."})
+        expected_signature = "sha256=" + hmac.new(
+            webhook_secret.encode("utf-8"),
+            request.body,
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected_signature):
+            raise ValidationError({"trigger": "GitHub webhook signature validation failed."})
 
     payload = parse_json_body(type("WebhookContext", (), {"body": request.body})())
     event_name = request.headers.get("X-GitHub-Event")
@@ -104,15 +107,16 @@ def _prepare_github_webhook_request(*, workflow, node: dict, request) -> tuple[s
         "event": event_name,
         "delivery": request.headers.get("X-GitHub-Delivery"),
         "hook_id": request.headers.get("X-GitHub-Hook-ID"),
-        "connection": {
+    }
+    if resolved is not None:
+        metadata["connection"] = {
             "id": str(resolved.connection.pk),
             "name": resolved.connection.name,
             "type": resolved.connection.connection_type,
-        },
-    }
-    secret_meta = resolved.secret_metas.get("webhook_secret")
-    if secret_meta is not None:
-        metadata["secret"] = secret_meta
+        }
+        secret_meta = resolved.secret_metas.get("webhook_secret")
+        if secret_meta is not None:
+            metadata["secret"] = secret_meta
 
     return node["type"], payload, metadata
 
@@ -164,8 +168,8 @@ APP = IntegrationApp(
                     key="connection_id",
                     label="Credential for GitHub",
                     allowed_connection_types=(GITHUB_CONNECTION.id,),
-                    required=True,
-                    description="Reusable GitHub credential containing the webhook signing secret.",
+                    required=False,
+                    description="Optional GitHub credential. If it includes a webhook secret, signatures are validated.",
                 ),
             ),
             parameter_schema=(

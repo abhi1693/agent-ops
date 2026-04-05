@@ -2035,6 +2035,173 @@ class WorkflowViewTests(TestCase):
         self.assertEqual(run.output_data["response"], "push:acme/platform")
         self.assertEqual(run.context_data["trigger"]["meta"]["event"], "push")
 
+    def test_workflow_webhook_trigger_accepts_github_payload_without_credential(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="GitHub webhook unsigned",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "github.trigger.webhook",
+                        "label": "GitHub",
+                        "config": {
+                            "owner": "acme",
+                            "repository": "platform",
+                            "events": ["push"],
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.meta.event }}:{{ trigger.payload.repository.full_name }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+        )
+        body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
+
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
+                data=body,
+                content_type="application/json",
+                HTTP_X_GITHUB_EVENT="push",
+                HTTP_X_GITHUB_DELIVERY="delivery-unsigned",
+            )
+        )
+
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "push:acme/platform")
+        self.assertEqual(run.context_data["trigger"]["meta"]["event"], "push")
+        self.assertNotIn("connection", run.context_data["trigger"]["meta"])
+        self.assertNotIn("secret", run.context_data["trigger"]["meta"])
+
+    def test_workflow_webhook_trigger_accepts_public_github_payload_without_credential(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="GitHub webhook unsigned public",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "github.trigger.webhook",
+                        "label": "GitHub",
+                        "config": {
+                            "path": "github/public/path",
+                            "owner": "acme",
+                            "repository": "platform",
+                            "events": ["push"],
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.meta.event }}:{{ trigger.payload.repository.full_name }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+        )
+        body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
+
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                reverse("workflow_webhook_trigger_public", args=["github/public/path"]),
+                data=body,
+                content_type="application/json",
+                HTTP_X_GITHUB_EVENT="push",
+            )
+        )
+
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "push:acme/platform")
+        self.assertEqual(run.context_data["trigger"]["meta"]["event"], "push")
+
+    def test_workflow_webhook_trigger_accepts_github_payload_with_connection_without_secret(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="GitHub webhook unsigned connection",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "github.trigger.webhook",
+                        "label": "GitHub",
+                        "config": {
+                            "connection_id": "",
+                            "owner": "acme",
+                            "repository": "platform",
+                            "events": ["push"],
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.meta.event }}:{{ trigger.payload.repository.full_name }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+        )
+        connection = self._create_connection(
+            environment=self.environment,
+            name="GitHub without secret",
+            integration_id="github",
+            connection_type="github.oauth2",
+        )
+        workflow.definition["nodes"][0]["connections"] = {"connection_id": str(connection.pk)}
+        workflow.save(update_fields=("definition",))
+        body = json.dumps({"repository": {"full_name": "acme/platform"}}).encode("utf-8")
+
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                reverse("workflow_webhook_trigger_legacy", args=[workflow.pk]),
+                data=body,
+                content_type="application/json",
+                HTTP_X_GITHUB_EVENT="push",
+            )
+        )
+
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "push:acme/platform")
+        self.assertEqual(run.context_data["trigger"]["meta"]["connection"]["type"], "github.oauth2")
+        self.assertNotIn("secret", run.context_data["trigger"]["meta"])
+
     def test_workflow_webhook_trigger_accepts_generic_payload(self):
         workflow = Workflow.objects.create(
             environment=self.environment,
@@ -2476,6 +2643,97 @@ class WorkflowViewTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "Workflow not found.")
+
+    def test_workflow_webhook_trigger_accepts_public_path_without_trailing_slash(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Generic webhook without trailing slash",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                            "path": "orders/no-slash",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.meta.webhook_path }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+            enabled=True,
+        )
+
+        _, _, run = self._queue_workflow_request(
+            lambda: self.client.post(
+                reverse("workflow_webhook_trigger_public", args=["orders/no-slash"]).rstrip("/"),
+                data=json.dumps({"ticket_id": "INC-123"}),
+                content_type="application/json",
+            )
+        )
+
+        execute_workflow_run(run)
+        run.refresh_from_db()
+        self.assertEqual(run.status, WorkflowRun.StatusChoices.SUCCEEDED)
+        self.assertEqual(run.output_data["response"], "orders/no-slash")
+
+    def test_workflow_webhook_trigger_rejects_public_path_with_trailing_slash(self):
+        workflow = Workflow.objects.create(
+            environment=self.environment,
+            name="Generic webhook with trailing slash",
+            definition={
+                "nodes": [
+                    {
+                        "id": "trigger-1",
+                        "kind": "trigger",
+                        "type": "core.webhook_trigger",
+                        "label": "Webhook",
+                        "config": {
+                            "http_method": "POST",
+                            "path": "orders/with-slash",
+                        },
+                        "position": {"x": 32, "y": 40},
+                    },
+                    {
+                        "id": "response-1",
+                        "kind": "response",
+                        "type": "core.response",
+                        "label": "Done",
+                        "config": {
+                            "template": "{{ trigger.meta.webhook_path }}",
+                        },
+                        "position": {"x": 320, "y": 40},
+                    },
+                ],
+                "edges": [
+                    {"id": "edge-1", "source": "trigger-1", "target": "response-1"},
+                ],
+            },
+            enabled=True,
+        )
+
+        response = self.client.post(
+            f'{reverse("workflow_webhook_trigger_public", args=["orders/with-slash"])}/',
+            data=json.dumps({"ticket_id": "INC-123"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 404)
 
     def test_workflow_webhook_trigger_rejects_generic_method_mismatch(self):
         workflow = Workflow.objects.create(
