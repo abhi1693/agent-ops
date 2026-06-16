@@ -48,7 +48,7 @@ psycopg==3.3.3
     # via -r requirements.in
 pycparser==2.23
     # via cffi
-pyjwt==2.12.1
+pyjwt==2.13.0
     # via -r requirements.in
 python-dateutil==2.9.0.post0
     # via croniter
